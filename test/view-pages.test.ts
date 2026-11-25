@@ -45,7 +45,7 @@ const sameBytes = (left: Uint8Array, right: Uint8Array) => Buffer.from(left.buff
 /** A library that keeps PDFs, one PDF in it, and tools that may show its pages. */
 async function withPdf(bytes: Uint8Array, name = "report.pdf") {
   const store = new MemoryDocumentStore();
-  const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+  const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] });
   const meta = await files.ingest({ name, bytes });
   const tools = files.tools([meta], { viewPages: true });
   const view = (args: Record<string, unknown>, limits?: Parameters<typeof tools.executeWithFiles>[2]): Promise<ToolOutput> =>
@@ -64,7 +64,7 @@ describe("view_pages: when it is declared", () => {
   const pdf = numberedPdf(3);
 
   it("is not declared unless the caller says its loop can deliver files", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: pdf });
     expect(names(files.tools([meta]))).toEqual(TEXT_TOOLS);
     expect(names(files.tools([meta], { viewPages: false }))).toEqual(TEXT_TOOLS);
@@ -72,11 +72,11 @@ describe("view_pages: when it is declared", () => {
   });
 
   it("is declared only for a PDF whose original file is kept", async () => {
-    const without = createLargeFiles({ store: new MemoryDocumentStore() });
+    const without = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const textOnly = await without.ingest({ name: "report.pdf", bytes: pdf });
     expect(names(without.tools([textOnly], { viewPages: true }))).toEqual(TEXT_TOOLS);
 
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf", "markdown"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf", "markdown"] });
     const notes = await files.ingest({ name: "notes.md", bytes: utf8("# Notes") });
     expect(notes.originalKept).toBe(true);
     // A kept original is not enough: only PDFs have pages to cut.
@@ -84,7 +84,7 @@ describe("view_pages: when it is declared", () => {
   });
 
   it("is the only tool for a PDF that is not searched, because its text is already in the prompt", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const report = await files.ingest({ name: "report.pdf", bytes: pdf });
     const log = await files.ingest({ name: "app.log", bytes: utf8("2026-01-01 10:00:00 INFO started\n".repeat(20)) });
     const viewOnly = files.tools([], { viewPages: [report] });
@@ -106,7 +106,7 @@ describe("view_pages: when it is declared", () => {
       getMeta: async (id) => documents.get(id)?.meta,
       delete: async (id) => documents.delete(id),
     };
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: pdf });
     expect(names(files.tools([meta], { viewPages: true }))).toEqual(TEXT_TOOLS);
     // Metadata that claims an original, from another store: still nothing to cut from.
@@ -222,7 +222,7 @@ describe("view_pages: the pages it returns", () => {
 
   it("uses about a third of the request limit when the caller gives no limit", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"], budget: { maxRequestBytes: 600_000 } });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], budget: { maxRequestBytes: 600_000 } });
     const meta = await files.ingest({ name: "report.pdf", bytes: pdfWithPictures(6) });
     // (600,000 - 262,144) * 3 / 8 = 126,696 bytes: two pictures of 60,000 fit, three do not.
     const { result } = await files.tools([meta], { viewPages: true }).executeWithFiles("view_pages", { document_id: meta.id, from_page: 1, to_page: 5 });
@@ -290,7 +290,7 @@ describe("view_pages: what a cut holds", () => {
 
 describe("view_pages: when pages cannot be shown", () => {
   it("reaches only the PDFs of this conversation", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const mine = await files.ingest({ name: "mine.pdf", bytes: numberedPdf(2) });
     const other = await files.ingest({ name: "secret.pdf", bytes: numberedPdf(2) });
     const tools = files.tools([mine], { viewPages: true });
@@ -363,7 +363,7 @@ describe("view_pages: when pages cannot be shown", () => {
   it("says so when the document has expired", async () => {
     let clock = new Date("2026-01-01T00:00:00Z");
     const now = () => clock;
-    const files = createLargeFiles({ store: new MemoryDocumentStore({ now }), keepOriginals: ["pdf"], ttlMs: 60_000, now });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore({ now }), keepOriginals: ["pdf"], ttlMs: 60_000, now });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(2) });
     const tools = files.tools([meta], { viewPages: true });
     clock = new Date("2026-01-01T00:02:00Z");
@@ -432,7 +432,7 @@ describe("page numbers for lines", () => {
   });
 
   it("adds page numbers to search and read results of a PDF whose pages can be looked at, and of no other", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(4) });
     const args = { document_id: meta.id };
     const withPages = files.tools([meta], { viewPages: true });

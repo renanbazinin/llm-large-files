@@ -66,9 +66,9 @@ import { gemini, geminiApi } from "llm-large-files/gemini";
 
 const model = gemini(geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.8-flash" }));
 
-export async function answer(files: LargeFiles, documentIds: string[], question: string) {
+export async function answer(files: LargeFiles, owner: string, documentIds: string[], question: string) {
   return askWithFiles({
-    files, model, documentIds,
+    files, model, owner, documentIds,
     messages: [{ role: "user", text: question }],
     onText: (delta) => process.stdout.write(delta),
     onEvent: (event: AskEvent) => {
@@ -86,6 +86,7 @@ The options that turn events on:
 |---|---|---|---|
 | `AskOptions.onEvent` | `(event: AskEvent) => void` | none | Gets every event of the question, in order. It does not change how the model is asked (see [`streamText`](#streamtext)). A throw from it ends the question with that error. |
 | `AskOptions.runId` | `string` | `"run_"` and 16 hex digits | The `runId` of the events. Pass your own to tie them to a request of your app. |
+| `AskOptions.questionId` | `string` | none | The client's ID of the question, on every event (`questionId`) and on the result. See [question IDs](./ask.md#question-ids). New in 0.99.9. |
 | `AskOptions.eventResults` | `boolean` | `false` | Put each tool result in its `tool.end` event, and the tool rounds in the result of `run.finish` and `run.error`. They hold document text: see [Documents](#documents-eventresults-and-eventresult). |
 | `AskOptions.streamText` | `boolean` | `true` with `onText` or in `askStream`, `false` otherwise | Whether the model is asked for the answer as it is written. See [`streamText`](#streamtext). |
 | `IngestInput.onEvent` | `(event: IngestEvent) => void` | none | Gets every event of the ingest, in order. A throw from it ends the ingest with that error, and nothing is stored. |
@@ -101,6 +102,7 @@ Every event is a plain object with a `type` and the fields of `EventBase`:
 |---|---|---|
 | `seq` | `number` | 1 for the first event of a run, then one more for each event: no gaps, no repeats. |
 | `runId` | `string` | The run the event belongs to: the `runId` you gave, or one made for it, `"run_…"` for a question and `"ing_…"` for an ingest. |
+| `questionId` | `string`, optional | `AskOptions.questionId`, on every event of a question that has one. Never on the events of an ingest. A request that joins a running question through a [`QuestionRegistry`](./ask.md#question-ids) sees its events from the moment it joined. New in 0.99.9. |
 | `time` | `number` | When it was emitted, in milliseconds since 1970 (`Date.now()`). |
 
 A run is one call of `askWithFiles` (or `askGemini`, or `askStream`) or of `files.ingest`. A
@@ -359,6 +361,12 @@ These hold for every run.
    `answer_cut` come last, right before `run.finish`, after every `text` event of the question
    (new in 0.10.0).
 
+A request that joins a running question through a [`QuestionRegistry`](./ask.md#question-ids)
+(new in 0.99.9) gets the run's events from the moment it joined: its first event is not
+`run.start`, and its first `seq` is above 1. The rules hold for the run; such a request sees their
+end: the `text` events before it joined are missing, so show `result.text` of `run.finish` in
+place of the text it got. A request that gets a kept answer gets the run's `run.finish` alone.
+
 ### `RequestRole` and `RequestPurpose`
 
 `RequestRole`: which model a request goes to.
@@ -582,8 +590,8 @@ declare function askStream(options: AskOptions): EventStream<AskEvent, AskResult
 ```ts
 import { askStream } from "llm-large-files";
 
-// Assumed: files, model and documentIds are those of the chat being answered.
-const stream = askStream({ files, model, documentIds, messages: [{ role: "user", text: "What failed first?" }] });
+// Assumed: files, model, documentIds and userId (their owner) are those of the chat being answered.
+const stream = askStream({ files, model, documentIds, owner: userId, messages: [{ role: "user", text: "What failed first?" }] });
 for await (const event of stream) {
   if (event.type === "tool.start") console.error(`${event.label}…`);
   if (event.type === "text") process.stdout.write(event.delta);
@@ -738,11 +746,12 @@ import { writeSseEvents } from "llm-large-files/node";
 const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
 const model = gemini(geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.8-flash" }));
 
-// Assumed: readQuestion() reads and checks the JSON body, and saveToolTurns() keeps the tool
-// rounds with the chat (see the conversations guide).
+// Assumed: userIdOf() is your sign-in, readQuestion() reads and checks the JSON body, and
+// saveToolTurns() keeps the tool rounds with the chat (see the conversations guide).
 createServer(async (request, response) => {
+  const owner = userIdOf(request);
   const { chatId, question, documentIds } = await readQuestion(request);
-  const stream = askStream({ files, model, documentIds, messages: [{ role: "user", text: question }] });
+  const stream = askStream({ files, model, documentIds, owner, messages: [{ role: "user", text: question }] });
   // Every event goes to the page. If the page goes away, the question stops.
   await writeSseEvents(response, stream);
   try {
@@ -789,9 +798,12 @@ Two events are made smaller:
 
 | Event | `data` |
 |---|---|
-| `run.finish` | `{ type, seq, runId, time, result }`, where `result` is `{ answered, text, finishReason, blockReason, steps, evidence, turns, usage }`: not `toolTurns`, `plan`, `budget` or `lastUsage`. Keep `toolTurns` on the server, with the conversation. |
-| `run.error` | `{ type, seq, runId, time, error, partial }`, where `partial` is `{ steps, evidence, usage }` of the partial result, or `undefined`. |
+| `run.finish` | `{ type, seq, runId, questionId, time, result }`, where `result` is `{ answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId }`: not `toolTurns`, `plan`, `budget` or `lastUsage`. Keep `toolTurns` on the server, with the conversation. |
+| `run.error` | `{ type, seq, runId, questionId, time, error, partial }`, where `partial` is `{ steps, evidence, usage, missing }` of the partial result, or `undefined`. |
 | Any other event | The event as it is. Ingest events too. |
+
+A field that is `undefined` is left out of the JSON: `questionId` is there only for a question that
+has one (new in 0.99.9).
 
 ## Ingest
 
@@ -1014,9 +1026,10 @@ The `error` given to `end` is the provider's own: do not send it to a browser as
 ```ts
 import type { ToolCallHooks } from "llm-large-files";
 
-// Assumed: files, model and documentIds as in your loop, and call is one ToolCall of the model's reply.
-const context = await files.prepare(documentIds, { tokens: 1_000, bytes: 4_000 });
-const tools = files.tools(context.plan.searchable, { generate: model.generateText });
+// Assumed: files, model, documentIds and userId (their owner) as in your loop, and call is one
+// ToolCall of the model's reply.
+const context = await files.prepare(documentIds, { tokens: 1_000, bytes: 4_000 }, { owner: userId });
+const tools = files.tools(context.plan.searchable, { generate: model.generateText, access: { owner: userId } });
 
 // The listeners of one call: two whole-file reads that run at once report apart.
 const hooks: ToolCallHooks = {

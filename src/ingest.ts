@@ -1,7 +1,7 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
-import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, isTimeLimit, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
+import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, isTimeLimit, metaOf, OWNER_REQUIRED, readableMetaVersion, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type EventError, type IngestEvent, type IngestStage } from "./events.js";
@@ -150,8 +150,8 @@ async function sameDocument(context: IngestContext, target: Target, sha256: stri
   for (const item of Array.isArray(listed) ? listed : []) {
     const meta = metaOf(item as DocumentMeta, (item as { id?: unknown } | null)?.id as string);
     if (!meta || typeof meta.id !== "string" || !APP_DOCUMENT_ID_PATTERN.test(meta.id) || meta.sha256 !== sha256 || Date.parse(meta.expiresAt) <= at || !heldBy(meta, target.owner, target.scope)) continue;
-    const version: unknown = meta.metaVersion ?? 0;
-    if (typeof version === "number" && version <= DOCUMENT_META_VERSION) candidates.push(meta);
+    // Written by a newer version: never taken for the same upload, so a new copy is ingested.
+    if (readableMetaVersion(meta)) candidates.push(meta);
   }
   // The latest first: an older copy may be on its way out.
   candidates.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));
@@ -623,6 +623,20 @@ type IngestWork = {
 };
 
 /**
+ * The mark of a document `ingest` gave back because it was stored before (`IngestInput.dedupe`): a
+ * registered symbol, so that the upload handlers of another copy of the package read it too, and a
+ * property that is not enumerable, so that neither `Object.keys`, JSON nor a copy made with spread
+ * has it. A copy of the metadata drops it. Not part of the public types. New in 0.99.9.
+ */
+export const REUSED_HERE = Symbol.for("llm-large-files.reused");
+
+/**
+ * Whether `meta` is a document `ingest` gave back because it was stored before (`dedupe`), and not
+ * one it stored: its mark (`REUSED_HERE`). New in 0.99.9.
+ */
+export const reusedHere = (meta: DocumentMeta): boolean => (meta as DocumentMeta & { [REUSED_HERE]?: true })[REUSED_HERE] === true;
+
+/**
  * Where the file of an ingest is: `path` for one from a path (`IngestFromSource`), else its bytes
  * (`IngestInput.bytes`); and `ref`, where the application keeps it (`IngestInput.original`).
  */
@@ -1073,6 +1087,9 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
       }
       throw error;
     }
+    // A document stored before is marked so, for the upload handlers, which must not delete it:
+    // without a field that a store, an event or a summary would see.
+    if (work.reused) Object.defineProperty(meta, REUSED_HERE, { value: true });
     return meta;
   } catch (error) {
     // A store's own error may name a host or a path, whatever it is: the event, which a browser

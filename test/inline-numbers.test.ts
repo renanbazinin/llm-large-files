@@ -32,7 +32,7 @@ const prose = () => Array.from({ length: 800 }, (_, i) => `סעיף ${i + 1}: ה
 
 async function library(budget = {}) {
   const store = new MemoryDocumentStore();
-  const files = createLargeFiles({ store, budget });
+  const files = createLargeFiles({ requireOwner: false, store, budget });
   return { store, files };
 }
 
@@ -152,7 +152,7 @@ describe("numbered files sent whole (numberInline)", () => {
   });
 
   it("asks for citations of the numbered lines of a PDF whose pages can be looked at, and no file is searched", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const pdf = await files.ingest({ name: "דוח.pdf", bytes: new Uint8Array(readFileSync(new URL("./fixtures/pdf/word-hebrew.pdf", import.meta.url))) });
     const numbered = await files.prepare([pdf.id], base, { viewPages: true, numberInline: true });
     expect(numbered.viewable.map((meta) => meta.id)).toEqual([pdf.id]);

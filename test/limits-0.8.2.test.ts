@@ -57,7 +57,7 @@ describe("the meta that ingest returns (0.8.2)", () => {
   // About 2 s with one test file at a time, 5.5 s beside the other files on a busy machine, and
   // 16 s under coverage on a busy machine.
   it("does not keep the text in memory through the log's timestamps or the outline's headings", { timeout: 60_000 }, async () => {
-    const files = createLargeFiles({ store: new FileDocumentStore(await folder()) });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(await folder()) });
     // About 4 MB of a log in Hebrew: held, its text took about 8 MB of heap (two bytes a character).
     const log: string[] = [];
     for (let line = 0; line < 30_000; line++) log.push(`2026-11-20T00:${String(Math.floor(line / 600) % 60).padStart(2, "0")}:${String(line % 60).padStart(2, "0")}.${String(line % 1000).padStart(3, "0")}Z INFO [gateway] req=${line.toString(16).padStart(8, "0")} user_text="מה הסטטוס של ההזמנה שלי? שורה ${line}" intent=order_status`);
@@ -86,7 +86,7 @@ describe("a document whose text is gone while its metadata is still there (0.8.2
   it("is missing, for prepare and for askWithFiles, also when it is read by range", async () => {
     const dir = await folder();
     for (const wholeDocumentBytes of [0, Number.POSITIVE_INFINITY]) {
-      const files = createLargeFiles({ store: new FileDocumentStore(dir), wholeDocumentBytes });
+      const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(dir), wholeDocumentBytes });
       const meta = await files.ingest({ name: "a.txt", bytes: utf8(Array.from({ length: 2_000 }, (_, line) => `line ${line}`).join("\n")), owner: "u" });
       await unlink(path.join(dir, `${meta.id}.txt`));
       // It threw "doc_… is no longer available on the server" when read by range, failing the question.
@@ -102,7 +102,7 @@ describe("a document whose text is gone while its metadata is still there (0.8.2
 describe("maxConcurrentIngests (0.8.2)", () => {
   it("lets two ingests work at once by default, and the others wait their turn in order", async () => {
     const { state, extract } = heldExtractor();
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extract } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: extract } });
     const all = Array.from({ length: 5 }, (_, index) => files.ingest({ name: `f${index}.txt`, bytes: utf8(`file ${index}`) }));
     await until(() => state.running === 2);
     // Nothing more starts while those two work.
@@ -122,18 +122,18 @@ describe("maxConcurrentIngests (0.8.2)", () => {
 
   it("runs every ingest at once with Infinity, and checks the option", async () => {
     const { state, extract } = heldExtractor();
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extract }, maxConcurrentIngests: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: extract }, maxConcurrentIngests: Number.POSITIVE_INFINITY });
     const all = Array.from({ length: 5 }, (_, index) => files.ingest({ name: `f${index}.txt`, bytes: utf8(`file ${index}`) }));
     await until(() => state.running === 5);
     state.releaseAll();
     await Promise.all(all);
-    expect(() => createLargeFiles({ store: new MemoryDocumentStore(), maxConcurrentIngests: Number.NaN })).toThrow(RangeError);
-    expect(() => createLargeFiles({ store: new MemoryDocumentStore(), maxConcurrentIngests: "2" as never })).toThrow(TypeError);
+    expect(() => createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxConcurrentIngests: Number.NaN })).toThrow(RangeError);
+    expect(() => createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxConcurrentIngests: "2" as never })).toThrow(TypeError);
   });
 
   it("drops an ingest whose caller gives up while it waits, with the caller's reason", async () => {
     const { state, extract } = heldExtractor();
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extract }, maxConcurrentIngests: 1 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: extract }, maxConcurrentIngests: 1 });
     const first = files.ingest({ name: "a.txt", bytes: utf8("a") });
     const cancel = new AbortController();
     const events: string[] = [];
@@ -150,7 +150,7 @@ describe("maxConcurrentIngests (0.8.2)", () => {
 
   it("refuses an empty file, or one over the upload limit, without waiting for a turn", async () => {
     const { state, extract } = heldExtractor();
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extract }, maxConcurrentIngests: 1, maxUploadBytes: 10 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: extract }, maxConcurrentIngests: 1, maxUploadBytes: 10 });
     const held = files.ingest({ name: "a.txt", bytes: utf8("a") });
     await until(() => state.running === 1);
     await expect(files.ingest({ name: "empty.txt", bytes: new Uint8Array(0) })).rejects.toThrow("empty.txt is empty.");
@@ -170,7 +170,7 @@ describe("maxConcurrentIngests (0.8.2)", () => {
       running--;
       return { text: new TextDecoder().decode(bytes) };
     };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: deaf }, maxConcurrentIngests: 1, ingestTimeoutMs: 150 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: deaf }, maxConcurrentIngests: 1, ingestTimeoutMs: 150 });
     const results = await Promise.allSettled([files.ingest({ name: "a.txt", bytes: utf8("a") }), files.ingest({ name: "b.txt", bytes: utf8("b") })]);
     expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
     expect(String((results[0] as PromiseRejectedResult).reason)).toMatch(/a\.txt took too long to read/);
@@ -192,7 +192,7 @@ describe("maxConcurrentIngests (0.8.2)", () => {
     const store = new HangingStore();
     // Two writes stuck past their limit would refuse the third ingest's writes at the default limit
     // of stuck calls (0.10.0): this test is about the turn.
-    const files = createLargeFiles({ store, ingestTimeoutMs: 300, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store, ingestTimeoutMs: 300, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const hung = [files.ingest({ name: "a.txt", bytes: utf8("a") }), files.ingest({ name: "b.txt", bytes: utf8("b") })].map((ingest) => ingest.catch((error: unknown) => error));
     await until(() => store.hung === 2);
     // The third gets a turn once the writes have failed, 300 ms later.
@@ -212,7 +212,7 @@ describe("maxConcurrentIngests (0.8.2)", () => {
       }
     }
     const store = new LateStore();
-    const files = createLargeFiles({ store, ingestTimeoutMs: 150 });
+    const files = createLargeFiles({ requireOwner: false, store, ingestTimeoutMs: 150 });
     let id: string | undefined;
     const spy = store.put.bind(store);
     store.put = async (document) => {
@@ -231,7 +231,7 @@ describe("maxConcurrentIngests (0.8.2)", () => {
       await new Promise((resolve) => setTimeout(resolve, 1_200));
       return { text: new TextDecoder().decode(bytes) };
     };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: slow }, maxConcurrentIngests: 1, ingestTimeoutMs: 2_000 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: slow }, maxConcurrentIngests: 1, ingestTimeoutMs: 2_000 });
     const metas = await Promise.all([files.ingest({ name: "a.txt", bytes: utf8("a") }), files.ingest({ name: "b.txt", bytes: utf8("b") })]);
     expect(metas.map((meta) => meta.name)).toEqual(["a.txt", "b.txt"]);
   }, 15_000);
@@ -384,7 +384,7 @@ describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
     const store = new HangingStore();
     // Two writes stuck past their limit would refuse the next upload's writes at the default limit
     // of stuck calls (0.10.0): this test is about the room.
-    const files = createLargeFiles({ store, maxUploadBytes: 1_000, ingestTimeoutMs: 300, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
+    const files = createLargeFiles({ requireOwner: false, store, maxUploadBytes: 1_000, ingestTimeoutMs: 300, maxStuckStoreCalls: Number.POSITIVE_INFINITY });
     const documents = createDocumentHandlers(files);
     server = createServer((request, response) => void documents.upload(request, response));
     await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
@@ -400,7 +400,7 @@ describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
   }, 15_000);
 
   it("checks the option", () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     expect(() => createDocumentHandlers(files, { uploadIdleTimeoutMs: -1 })).toThrow("uploadIdleTimeoutMs must be a number of 0 or more, and is -1. Leave it out for the default.");
     expect(() => createDocumentHandlers(files, { uploadIdleTimeoutMs: 0 })).not.toThrow();
     // A LargeFiles of your own must keep maxUploadBytes, as its type says.

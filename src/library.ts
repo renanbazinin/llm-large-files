@@ -1,5 +1,5 @@
 import {
-  callerOf, checkMetaVersion, checkStuck, documentContext, heldBy, isTimeLimit, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, storeTimeout,
+  callerOf, checkMetaVersion, checkStuck, documentContext, heldBy, isTimeLimit, mayUse, metaOf, OWNER_REQUIRED, readableMetaVersion, SCOPE_REQUIRED, storeCall, storeContext, storeTimeout,
   stuckCalls, type AccessRules, type Caller,
 } from "./access.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
@@ -16,7 +16,7 @@ import { SearchableDocument, type DocumentSource } from "./search.js";
 import { TimeSlicer } from "./pause.js";
 import { checkScope } from "./scope.js";
 import { isSha256, sha256InSlices } from "./source.js";
-import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION, usableStoreMethod } from "./stores.js";
+import { APP_DOCUMENT_ID_PATTERN, usableStoreMethod } from "./stores.js";
 import { wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
 import { createDocumentTools, type PageLookTurns } from "./tools.js";
@@ -31,6 +31,8 @@ import type {
   Extractor,
   GenerateText,
   MetaPatch,
+  NativeDocumentsPlan,
+  PageImageOptions,
   PreparedContext,
   ProgressListener,
   ToolName,
@@ -152,12 +154,18 @@ export type LargeFilesOptions = {
    */
   pageLookWaitMs?: number;
   /**
-   * Every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `prepare`,
-   * `askWithFiles` (and `askStream`, `askGemini`), and `tools`, which then needs `access`. A call
-   * without one throws a TypeError ("owner is required: requireOwner is on"), and a document stored
-   * without an owner reads as missing. For a server where every document belongs to a signed-in
-   * user: a call that forgot the owner fails, rather than sees every document without one.
-   * Defaults to false. New in 0.9.0.
+   * Whether every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `list`,
+   * `touch`, `update`, `prepare`, `toolsFor`, `askWithFiles` (and `askStream`, `askGemini`), and
+   * `tools`, which then needs `access`. A call without an owner throws a TypeError that names this
+   * option ("owner is required: requireOwner is on (the default). …"), before the store is asked
+   * anything. A document stored without an owner, by any version, reads as missing. `sweep` takes
+   * no owner: it is upkeep of the store. A call that forgot the owner fails, rather than sees every
+   * document without one.
+   *
+   * Defaults to true since 0.99.9 (false from 0.9.0 to 0.10.x). `false` turns the checks off, as
+   * before 0.99.9: for an application with one user, or one that lets anyone with a document's ID
+   * use it. Only `false` turns them off: any other value (`"false"` from an environment file, say)
+   * leaves them on. New in 0.9.0.
    */
   requireOwner?: boolean;
   /**
@@ -230,7 +238,8 @@ export type IngestInput = {
   /**
    * The user (or tenant) the document belongs to. Later calls must pass the same owner. An empty
    * string, or one of spaces only, is refused with a TypeError: it would be one owner shared by
-   * every caller without a user.
+   * every caller without a user. Required unless the library has `requireOwner: false` (since
+   * 0.99.9). With `false` and no owner, anyone who has the ID can use the document.
    */
   owner?: string;
   /**
@@ -319,6 +328,10 @@ export type IngestFromSource = Omit<IngestInput, "bytes"> & { source: IngestSour
  * the scope of the caller; a document stored with a scope serves only a caller with the same one.
  */
 export type AccessOptions = {
+  /**
+   * The user asking. Required unless the library has `requireOwner: false` (since 0.99.9). A
+   * document without an owner serves any caller only under `requireOwner: false`.
+   */
   owner?: string;
   scope?: DocumentScope;
   /**
@@ -352,17 +365,28 @@ export type PrepareOptions = AccessOptions & {
   /**
    * Number the lines of the documents sent whole, as the tools number them ("12| text"), and plan
    * them at that size. Defaults to false here, so that `prepare` gives the blocks of 0.9;
-   * `askWithFiles` asks for true unless `AskOptions.numberInline` is false. A value that is not
-   * true or false is a TypeError. New in 0.10.0.
+   * `askWithFiles` always asks for true (since 0.99.9). A value that is not true or false is a
+   * TypeError. New in 0.10.0.
    */
   numberInline?: boolean;
   /**
    * "tools": list the documents sent whole whose tables the tools can count in `toolable`, with
    * their document_id in the first line of their block; "text": as in 0.9. Defaults to "text"
-   * here; `askWithFiles` asks for "tools" unless `AskOptions.inlineTables` is "text". Another value
-   * is a TypeError. New in 0.10.0.
+   * here; `askWithFiles` always asks for "tools" (since 0.99.9). Another value is a TypeError. New
+   * in 0.10.0.
    */
   inlineTables?: "tools" | "text";
+  /**
+   * Plan the small visual files sent whole that go to the model as their uploaded file too, and list
+   * them in `native` (left out of `viewable`): the formats and limits the models share, and what a
+   * page costs in the library's estimate of tokens. A file is listed when it is sent whole, its
+   * format is listed, its original is kept and readable, it is visual (a PDF with a picture or a
+   * page without text, or a deck), it has no table the tools count, it is within `maxFileBytes`
+   * and `maxPages`, and it fits in the room the plan leaves. `askWithFiles` passes what every model
+   * declares (`ModelCapabilities.documents`). Left out: none, and the result is that of 0.10. A
+   * value that is not well formed is a TypeError. New in 0.99.9.
+   */
+  nativeDocuments?: NativeDocumentsPlan;
 };
 
 export type ToolOptions = {
@@ -371,7 +395,8 @@ export type ToolOptions = {
    * this owner and scope, and checks the owner and scope the store holds against them: metadata
    * made by hand, or handed in for another user, reads nothing. Without it, as before 0.9.0: each
    * document is checked against the owner and scope it was handed in with. `askWithFiles` always
-   * passes it. Under `requireOwner` or `requireScope` it is required. New in 0.9.0.
+   * passes it. Under `requireOwner` (on by default since 0.99.9) or `requireScope` it is required.
+   * New in 0.9.0.
    */
   access?: AccessOptions;
   /** Enables `analyze_whole_document`, which reads the entire file in parts. */
@@ -405,6 +430,16 @@ export type ToolOptions = {
    */
   viewPages?: boolean | DocumentMeta[];
   /**
+   * Draw the pages of `view_pages` as images, one file per page (`result.images` names them), in
+   * place of one small PDF: for a loop whose model takes images and no PDF. Each page is
+   * `PAGE_IMAGE_SIDE` (1,568) pixels on its longest side, a JPEG (quality 0.85) or a PNG. Needs the
+   * optional dependencies "unpdf" 2 or later (Node 24 or later) and "@napi-rs/canvas": without them
+   * each call answers with what to install. `askWithFiles` sets it from the models'
+   * `toolFileTypes`. A format that is not "png" or "jpeg" is a TypeError when the tools are made.
+   * New in 0.99.9.
+   */
+  pageImages?: PageImageOptions;
+  /**
    * Declare exactly these tools, in the order the tool set declares them (search, read, overview,
    * aggregate, analyze, view), in place of those the documents call for. A call of a tool that is
    * not declared is not run, and a declared tool that cannot run (aggregate_table with no table,
@@ -431,8 +466,10 @@ export interface LargeFiles {
   readonly maxUploadBytes: number;
   /**
    * What the library requires of every call (`requireOwner`, `requireScope`), for code that serves
-   * it, such as the upload handlers. Optional, so that a `LargeFiles` of your own still compiles.
-   * New in 0.9.0.
+   * it, such as the upload handlers. `requireOwner` is true unless the library was made with
+   * `requireOwner: false` (since 0.99.9). Optional, so that a `LargeFiles` of your own still
+   * compiles: the upload handlers treat one without it as requiring an owner, the default of the
+   * library it wraps. New in 0.9.0.
    */
   readonly access?: { readonly requireOwner: boolean; readonly requireScope: boolean };
   /**
@@ -457,8 +494,9 @@ export interface LargeFiles {
   delete(id: string, access?: AccessOptions): Promise<boolean>;
   /**
    * Removes expired documents from the store: those of `scope`, or of every scope without one.
-   * Returns how many were removed. A store that fails is a `DocumentStoreError` (operation
-   * "sweep") since 0.9.0.
+   * Returns how many were removed. It takes no owner, under `requireOwner` too: it is upkeep, and
+   * removes the expired documents of every owner, those without one included. A store that fails
+   * is a `DocumentStoreError` (operation "sweep") since 0.9.0.
    */
   sweep(options?: { scope?: DocumentScope }): Promise<number>;
   /**
@@ -489,22 +527,23 @@ export interface LargeFiles {
    * (damaged, or of a newer version), are left out. It needs a store with `list`
    * (`MemoryDocumentStore` and `FileDocumentStore` have it): another is a TypeError. A store that
    * fails is a `DocumentStoreError` (operation "read"). Optional, so that a `LargeFiles` of your own
-   * still compiles; the one `createLargeFiles` makes has it. New in 0.10.2.
+   * still compiles; required on `CreatedLargeFiles`, what `createLargeFiles` returns, since 0.99.9.
+   * New in 0.10.2.
    */
   list?(access?: AccessOptions): Promise<DocumentMeta[]>;
   /**
    * Marks a document used: its expiry is counted again from now (`ttlMs`), so that a chat that
    * still reads a file keeps it. An expiry already later stays. Returns the metadata as it now is,
    * or undefined when the document is missing for this caller. It needs a store with `patchMeta`:
-   * another is a TypeError. A store that fails is a `DocumentStoreError`. Optional, as `list` is.
-   * New in 0.10.2.
+   * another is a TypeError. A store that fails is a `DocumentStoreError`. Optional, as `list` is,
+   * and required on `CreatedLargeFiles` since 0.99.9. New in 0.10.2.
    */
   touch?(id: string, access?: AccessOptions): Promise<DocumentMeta | undefined>;
   /**
    * Changes the application's own data about a document (`appData`, a JSON object; null removes
    * it), and nothing else. Returns the metadata as it now is, or undefined when the document is
    * missing for this caller. It needs a store with `patchMeta`, as `touch` does. Optional, as `list`
-   * is. New in 0.10.2.
+   * is, and required on `CreatedLargeFiles` since 0.99.9. New in 0.10.2.
    */
   update?(id: string, changes: { appData?: object | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>;
 }
@@ -537,9 +576,20 @@ export type LargeFilesStats = {
 
 /**
  * What `createLargeFiles` returns: a `LargeFiles` whose `stats` and `toolsFor` are always there, so
- * that `files.stats()` needs no `?.`. New in 0.10.0.
+ * that `files.stats()` needs no `?.`. New in 0.10.0. Since 0.99.9 `list`, `touch` and `update` are
+ * always there too, so that `files.list(…)` needs no `!`: a mock of this type needs them. Type a
+ * mock of the library as `LargeFiles`, whose members they stay optional on.
  */
-export type CreatedLargeFiles = LargeFiles & { stats(): LargeFilesStats; toolsFor: NonNullable<LargeFiles["toolsFor"]> };
+export type CreatedLargeFiles = LargeFiles & {
+  stats(): LargeFilesStats;
+  toolsFor: NonNullable<LargeFiles["toolsFor"]>;
+  /** `LargeFiles.list`, always there. Required since 0.99.9. */
+  list: NonNullable<LargeFiles["list"]>;
+  /** `LargeFiles.touch`, always there. Required since 0.99.9. */
+  touch: NonNullable<LargeFiles["touch"]>;
+  /** `LargeFiles.update`, always there. Required since 0.99.9. */
+  update: NonNullable<LargeFiles["update"]>;
+};
 
 /**
  * Whether `value` has the shape of a document ID: one the library makes ("doc_" and 32 hex digits),
@@ -651,8 +701,12 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
   const now = options.now ?? (() => new Date());
   const { store } = options;
   const cacheBytes = Math.max(0, numberOption("cacheBytes", options.cacheBytes, DEFAULT_CACHE_BYTES));
-  /** What every call must name (`requireOwner`, `requireScope`). */
-  const rules: AccessRules = Object.freeze({ requireOwner: options.requireOwner === true, requireScope: options.requireScope === true });
+  /**
+   * What every call must name (`requireOwner`, `requireScope`). Owners are required unless
+   * `requireOwner` is exactly false (since 0.99.9): a value from JavaScript such as "false" or 0
+   * leaves the checks on. Scopes only when `requireScope` is true.
+   */
+  const rules: AccessRules = Object.freeze({ requireOwner: options.requireOwner !== false, requireScope: options.requireScope === true });
   /**
    * Documents ready to search, and decoded pieces of documents read by range, in one memory budget.
    * Each is kept under the key of the caller's scope and the document's ID (`documentKey`): one ID
@@ -983,7 +1037,11 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
   }
 
   /** What planning a request (`prepareDocuments`, src/prepare.ts) needs of this library. */
-  const planning: PrepareContext = { callerOf: (access) => callerOf(access, rules), metaFor, load, stillOpened, budgetFor, viewableMeta, rules };
+  const planning: PrepareContext = {
+    callerOf: (access) => callerOf(access, rules), metaFor, load, stillOpened, budgetFor, viewableMeta,
+    originalReadable: (meta) => meta.originalKept === true && readable(meta),
+    rules,
+  };
 
   /** `files.tools`: the tools for `documents`. */
   function tools(documents: DocumentMeta[], toolOptions: ToolOptions = {}): ToolSet {
@@ -1138,9 +1196,9 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
         const meta = metaOf(item as DocumentMeta, (item as { id?: unknown } | null)?.id as string);
         // Damaged, or of another ID than a document may have, or expired (as `getMeta` reads the date): not listed.
         if (!meta || typeof meta.id !== "string" || !isDocumentId(meta.id) || Date.parse(meta.expiresAt) <= at) continue;
-        // Written by a newer version of the package: left out, where `getMeta` would throw.
-        const version: unknown = meta.metaVersion ?? 0;
-        if (typeof version !== "number" || version > DOCUMENT_META_VERSION) continue;
+        // Written by a newer version of the package, or of a version that is not a number (NaN
+        // before 0.99.9): left out, where `getMeta` would throw.
+        if (!readableMetaVersion(meta)) continue;
         // Exactly the caller's owner and scope: a document without an owner, which any caller who
         // has its ID may use, is never handed to a caller with an owner (nor one without a scope to
         // a caller with one), and the rules of `requireOwner` and `requireScope` still hold.

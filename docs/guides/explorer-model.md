@@ -45,12 +45,14 @@ const endpoint = vertexAi({
   accessToken: async () => (await auth.getAccessToken())!,
 });
 
-// files is your library (createLargeFiles); documentIds and messages come from the request.
+// files is your library (createLargeFiles); documentIds, messages and userId (the signed-in user,
+// the documents' owner) come from the request.
 const result = await askGemini({
   files,
   endpoint,
   documentIds,
   messages,
+  owner: userId,
   generationConfig: { thinkingConfig: { thinkingLevel: "high" } },        // for `model`
   explorerGenerationConfig: { thinkingConfig: { thinkingLevel: "low" } }, // for the explorer
   onText: (delta) => process.stdout.write(delta),
@@ -138,9 +140,9 @@ const explorer = gemini(onVertex("gemini-2.5-flash-lite"), {
   contextTokens: 1_048_576,
 });
 
-// files, documentIds and messages as in the sample above.
+// files, documentIds, messages and userId as in the sample above.
 const result = await askWithFiles({
-  files, model, explorer, documentIds, messages,
+  files, model, explorer, documentIds, messages, owner: userId,
   onText: (delta) => process.stdout.write(delta),
 });
 ```
@@ -154,14 +156,14 @@ OpenAI-compatible adapter, explores while Gemini on Vertex AI answers:
 ```ts
 import { openAiCompatible } from "llm-large-files/openai";
 
-// askWithFiles, files, documentIds, messages and `model` (the Gemini adapter) are those of the sample above.
+// askWithFiles, files, documentIds, messages, userId and `model` (the Gemini adapter) are those of the sample above.
 const local = openAiCompatible({
   baseUrl: process.env.VLLM_BASE_URL!, // for example http://vllm.internal:8000/v1
   model: process.env.VLLM_MODEL!,
   contextTokens: 131_072,              // the --max-model-len the server runs with
 });
 
-const answer = await askWithFiles({ files, model, explorer: local, documentIds, messages });
+const answer = await askWithFiles({ files, model, explorer: local, documentIds, messages, owner: userId });
 ```
 
 The question then runs inside the smaller window, 131,072 tokens, for both models. And this
@@ -206,7 +208,7 @@ The request for the answer holds:
 The tools are listed in that request with a tool choice of "none", so no tool can be called. Each
 adapter says it in its own way: `gemini()` leaves the tools out, `anthropic()` sends
 `tool_choice: { type: "none" }`, and `openAiCompatible()` sends `tool_choice: "none"`, or leaves
-the tools out with `answerWithoutTools: "omit"`.
+the tools out with `answerWithoutTools: "omit"`. `openAiResponses()` sends `tool_choice: "none"`.
 
 The request does not hold the explorer's thoughts, its thought signatures, anything it wrote next
 to its calls, its `DONE`, or the notes it was sent. A thought signature belongs to the model that
@@ -296,7 +298,8 @@ for (const [id, used] of Object.entries(result.usage.byModel)) {
 ```
 
 The key of an entry is the adapter's `id`. By default it is the model's name: the `model` option of
-`openAiCompatible()` and `anthropic()`, and for `gemini()` the name after `/models/` in its URL.
+`openAiCompatible()`, `openAiResponses()` and `anthropic()`, and for `gemini()` the name after
+`/models/` in its URL.
 A gateway URL without `/models/` gives the host instead, so two Gemini models behind the same host
 share one entry. With `askWithFiles`, name each model with the `id` option of its adapter;
 `askGemini` has no such option.
@@ -318,8 +321,15 @@ what both can take. What a pair changes:
   count each provider reports is read by the scale of the model that reported it, and a whole-file
   read is priced, against `limits.inputTokens`, in the explorer's tokens.
 - **Pages only when both can take them.** `view_pages` is offered only when both adapters can be
-  sent a file (`openAiCompatible()` only with `pdfInput: true`). Pages stay in the request until
+  sent a file (`openAiCompatible()` only with `pdfInput: true` or `imageInput: true`,
+  `openAiResponses()` only with `toolFilePlacement`), and of one kind both take
+  (`toolFileTypes`, since 0.99.9): a PDF when both take one, else an image of each page. `gemini()`
+  or `anthropic()` next to `openAiCompatible({ imageInput: true })` share no kind, and get no
+  `view_pages` ([Pages as images](./pdfs.md#pages-as-images)). Pages stay in the request until
   the answer, so a page is counted with the larger `pageTokens` of the two.
+- **Files as they are only when both read them.** A small visual file goes as the file itself only
+  when both adapters declare `documents` (0.99.9): the formats both list, with the smaller limits
+  ([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)).
 - **No stand-ins with Claude on either side.** When room runs short, older tool results are
   replaced by short stand-ins only when neither model declares `appendOnly`. With Claude exploring
   or answering, nothing is replaced, for either model: when the room runs out, the question is
@@ -339,13 +349,13 @@ How the request is kept inside the budget is in [How it works](../how-it-works.m
 - **Progress still arrives.** `onActivity` and `onStep` report the explorer's tool calls, and
   `steps` and `evidence` list them, as they do for one model. `onActivity` says "Writing the
   answer…" when the answer is asked for. See [Web app](./web-app.md) for sending them over SSE.
-- **The explorer's requests are not streamed** by `gemini()` and `openAiCompatible()`: nothing it
-  writes is shown, so each reply comes in one piece. `anthropic()` streams every request unless
-  `stream: false`, an explorer's too, and still shows none of it. A reply that is not streamed
-  comes whole at the end, so `firstByteTimeoutMs` (600 seconds by default) is the longest an
-  explorer's request may take before any of it arrives; one that takes longer is aborted and sent
-  again, once. Your user sees steps, not text, during that time: keep the connection to the browser
-  alive ([Deployment](./deployment.md)).
+- **The explorer's requests are not streamed** by `gemini()`, `openAiCompatible()` and
+  `openAiResponses()`: nothing it writes is shown, so each reply comes in one piece. `anthropic()`
+  streams every request unless `stream: false`, an explorer's too, and still shows none of it. A
+  reply that is not streamed comes whole at the end, so `firstByteTimeoutMs` (600 seconds by
+  default) is the longest an explorer's request may take before any of it arrives; one that takes
+  longer is aborted and sent again, once. Your user sees steps, not text, during that time: keep the
+  connection to the browser alive ([Deployment](./deployment.md)).
 - **An explorer that fails is an error.** A model name that does not exist, or a quota that is
   used up, throws the explorer's `ModelRequestError` (`GeminiRequestError` with `askGemini`), as an
   error of `model` does. The question is not passed to `model` instead: that would hide the

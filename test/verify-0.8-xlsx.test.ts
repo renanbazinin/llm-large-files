@@ -83,7 +83,7 @@ describe("Excel's escapes of characters XML cannot hold (#25)", () => {
   });
 
   it("finds a word that ended at an escaped carriage return", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.xlsx", bytes: await workbook('<row r="1"><c t="s"><v>0</v></c></row>', { strings: ["Shipped_x000D_\nDelayed"] }) });
     const found = await files.tools([meta]).execute("search_document", { document_id: meta.id, query: "Shipped", mode: "exact", whole_word: true });
     expect(found.total_matching_lines).toBe(1);

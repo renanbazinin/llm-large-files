@@ -59,7 +59,7 @@ describe("card sizes at the edge of a unit (LLF-059)", () => {
   });
 
   it("writes it so in get_document_overview too, whose size is a result the model sees", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const line = "a line of a file of one megabyte, less 76 bytes\n";
     const text = line.repeat(Math.floor(1_048_500 / line.length)) + "x".repeat(1_048_500 % line.length);
     const document = await files.ingest({ name: "big.txt", bytes: utf8(text) });

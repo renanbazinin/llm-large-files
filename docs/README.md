@@ -66,7 +66,8 @@ import { askWithFiles, createLargeFiles, FileDocumentStore } from "llm-large-fil
 import { askGemini, gemini, vertexAi } from "llm-large-files/gemini";
 
 // Assumed: getAccessToken() returns an OAuth access token for Vertex AI (see the Vertex guide),
-// and documentId is the `id` that files.ingest() returned for an upload.
+// documentId is the `id` that files.ingest() returned for an upload, and userId is the signed-in
+// user, its owner: every call names it (owner checks are on by default).
 const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
 const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
@@ -78,21 +79,21 @@ const documentIds = [documentId];
 const messages = [{ role: "user" as const, text: "What caused the outage, and when? Cite lines." }];
 
 // 1. askGemini: the endpoint says where the model is.
-const first = await askGemini({ files, endpoint, documentIds, messages });
+const first = await askGemini({ files, endpoint, documentIds, messages, owner: userId });
 
 // 2. askWithFiles: the same loop, with the model as an adapter you can swap or wrap.
 const model = gemini(endpoint);
-const second = await askWithFiles({ files, model, documentIds, messages });
+const second = await askWithFiles({ files, model, documentIds, messages, owner: userId });
 console.log(first.text, second.steps, second.usage);
 
 // 3. Your own loop: the plan, the cards and the tools, for a loop you already have.
 // The second argument is the size of the rest of your request: system prompt and messages.
-const context = await files.prepare(documentIds, { tokens: 1_000, bytes: 4_000 });
+const context = await files.prepare(documentIds, { tokens: 1_000, bytes: 4_000 }, { owner: userId });
 // By default, the instruction and the cards offer analyze_whole_document for a file that can be
 // read whole. The tool exists only when you pass `generate` (here the Gemini adapter's own).
-// Without it, pass { wholeDocumentAnalysis: false } as prepare's third argument, so that the
+// Without it, add wholeDocumentAnalysis: false to prepare's third argument, so that the
 // instruction and the cards do not offer the tool.
-const tools = files.tools(context.plan.searchable, { generate: model.generateText });
+const tools = files.tools(context.plan.searchable, { generate: model.generateText, access: { owner: userId } });
 // Put context.instruction in your system prompt and context.blocks (a text for each document) in
 // the user turn, offer tools.declarations to your model, and run each call with tools.execute().
 ```
@@ -106,7 +107,8 @@ Each term links to the page that explains it. The defaults and limits are on tho
 
 - **Adapter**: a `ModelAdapter`, the object through which the loop talks to one model: an `id`,
   its `capabilities` (at least `toolFiles` and `pageTokens`) and `send()`, plus `generateText()`
-  when it can do whole-file reads. Built in: `gemini()`, `openAiCompatible()` and `anthropic()`.
+  when it can do whole-file reads. Built in: `gemini()`, `openAiCompatible()`, `openAiResponses()`
+  and `anthropic()`.
   See [`ModelAdapter`](./reference/ask.md#modeladapter) and
   [your own adapter and loop](./guides/own-adapter-and-loop.md).
 - **Budget**: the sizes one request must fit (`Budget`): the model's context window
@@ -151,8 +153,9 @@ Each term links to the page that explains it. The defaults and limits are on tho
 - **Owner**: a string you set at ingest, usually the ID of the user or tenant. It must not be
   empty: `ingest` refuses `""`, a string of spaces and `null`. Every later call for the document
   must pass the same string; with another one, the document is treated as missing and
-  `askWithFiles` throws `DocumentsNotFoundError`. A document without an owner can be used by anyone
-  who has its ID. The library only compares the strings: chat sessions, and which documents
+  `askWithFiles` throws `DocumentsNotFoundError`. Since 0.99.9 every call must name an owner
+  (`requireOwner`, on by default), and a document without one reads as missing. With
+  `requireOwner: false`, a document without an owner can be used by anyone who has its ID. The library only compares the strings: chat sessions, and which documents
   belong to one, are your application's to keep. See [storage](./guides/storage.md) and
   [security](./security.md).
 - **Plan**: the split of a question's documents into inline and searchable (`DocumentPlan`, also in
@@ -166,7 +169,9 @@ Each term links to the page that explains it. The defaults and limits are on tho
   saves room in the request. See [conversations](./guides/conversations.md).
 - **Question**: one call of `askGemini` or `askWithFiles`: the user's latest message and every
   model request made to answer it. Limits, usage and whole-file reads count per question. See
-  [`askWithFiles`](./reference/ask.md#askwithfilesoptions).
+  [`askWithFiles`](./reference/ask.md#askwithfilesoptions). A question ID (`questionId`, new in
+  0.99.9) names one, so that a request sent again joins it: see
+  [question IDs](./reference/ask.md#question-ids).
 - **Stand-in**: a short result put in place of an older tool result when the request runs out of
   room (`dropped: true`). It names the document and the lines or pages that were shown, so the
   model can read them again. When a model of the question may only grow its conversation
@@ -226,7 +231,7 @@ One task each, with samples:
   providers.
 - [Web app](./guides/web-app.md): uploads (`createDocumentHandlers`, its hooks, saving each upload
   in the chat's folder, spooling to disk, direct `ingest`, the browser), answers and progress
-  streamed over server-sent events, cancelling.
+  streamed over server-sent events, cancelling, a question ID for a request sent again.
 - [Conversations](./guides/conversations.md): the message format, keeping tool turns, history
   across requests and servers, staying inside the window, converters, pointers for repeated calls,
   mixing providers.
@@ -241,8 +246,8 @@ One task each, with samples:
 - [Costs and limits](./guides/costs-and-limits.md): `AskLimits`, the budget for each model, usage
   totals, cost per user or session, what costs most.
 - [PDFs and other formats](./guides/pdfs.md): formats and their optional dependencies, PDF tables,
-  pictures, the page marker, `view_pages`, scanned PDFs, `toolFilePlacement`, your own extractors
-  and OCR.
+  pictures, the page marker, `view_pages`, pages as images, scanned PDFs, small visual files sent
+  as themselves, `toolFilePlacement`, your own extractors and OCR.
 - [Your own adapter and loop](./guides/own-adapter-and-loop.md): writing or wrapping a
   `ModelAdapter`, your own loop with `prepare()` and `tools()`, `parseSseJson`, `withRetry`.
 - [Testing an integration](./guides/testing.md): tests without a real model: a scripted model and
@@ -262,7 +267,7 @@ import from.
 | | [Tools](./reference/tools.md) | each tool the model sees: name, arguments, results, limits; `ToolSet` and its types |
 | | [Events](./reference/events.md) | `askStream`, `eventStream`, the events of a question (`AskEvent`) and of an ingest (`IngestEvent`), `EventError` |
 | `llm-large-files/gemini` | [Gemini](./reference/gemini.md) | `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()` and the other Gemini exports |
-| `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()` and the other OpenAI exports |
+| `llm-large-files/openai` | [OpenAI-compatible](./reference/openai.md) | `openAiCompatible()`, `openAiResponses()` (new in 0.99.9) and the other OpenAI exports |
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
 | `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses, `prepareUpload` and `uploadSpool`; `createIsolatedExtractors`, files read in child processes; `fileOriginals`, the uploads your application keeps, read back by their ref; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
 | `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents; `documentStoreChecks`, the checks of a store of your own |
@@ -275,7 +280,8 @@ import from.
 - [Security](./security.md): owners and scoping, prompt injection (the frame around a file,
   characters that show nothing, hidden text, older encodings), retention, original files, PDFs,
   uploads, regular expressions, cost, storage errors, what the library logs.
-- [Measurements](./measurements.md): every live result and measurement, with its date.
+- [Measurements](./measurements.md): every live result and measurement, with its date, and the
+  performance budgets CI checks.
 - [Troubleshooting](./troubleshooting.md): symptom, cause, fix.
 
 Older links: [api.md](./api.md) and [configuration.md](./configuration.md) keep their old
@@ -291,6 +297,10 @@ headings, each pointing to its new home.
 [CHANGELOG.md](../CHANGELOG.md) says what changed in each version. From 0.6.0 on, each version
 starts with what you must change when you upgrade, then what you can add, what works differently
 and what was fixed.
+
+[Upgrading to 0.99](./upgrading-0.99.md) takes an application from 0.10.x to 0.99.9: owner checks on
+by default, the removed options, stored shapes across versions, the upload handlers, and what is new
+and optional.
 
 [Upgrading to 0.10](./upgrading-0.10.md) takes an application from 0.9.0 to 0.10.0: what no longer
 compiles, the one prompt-cache miss, behavior to check, the worked example of the 0.9 guide carried

@@ -61,7 +61,8 @@ const [path, question] = process.argv.slice(2);
 if (!path || !question) throw new Error('Usage: node quickstart.mts <file> "<question>"');
 
 // 1. The library. This one keeps documents in memory, for as long as the process runs.
-const files = createLargeFiles({ store: new MemoryDocumentStore() });
+// One user: no owner checks (a server names the owner of every call instead).
+const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false });
 
 // 2. Ingest the file: its text is extracted, measured and stored.
 const doc = await files.ingest({ name: basename(path), bytes: await readFile(path) });
@@ -139,7 +140,9 @@ const result = await askGemini({
 
 `askGemini` is `askWithFiles` with a Gemini model. With any other model, call `askWithFiles` and
 pass the model as an adapter. `openAiCompatible()` speaks Chat Completions: OpenAI, Azure OpenAI,
-DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp.
+DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. For OpenAI's reasoning models that call
+tools, `openAiResponses()` speaks the Responses API
+([OpenAI's Responses API](./guides/openai-compatible.md#openais-responses-api)).
 
 ```ts
 import { askWithFiles } from "llm-large-files";
@@ -240,7 +243,7 @@ Vertex AI settings for production (credentials, location, quotas) are in
 
 ### 2. Accept uploads
 
-`createDocumentHandlers` gives you upload, get and delete handlers for any Node HTTP server:
+`createDocumentHandlers` gives you upload, list, get and delete handlers for any Node HTTP server:
 `node:http`, Express, Fastify (`request.raw`, `reply.raw`), and Next.js API routes on the Node
 runtime (Fastify and Next.js need a step first: see
 [Web app](./guides/web-app.md#mount-them-in-plain-nodehttp)).
@@ -252,12 +255,13 @@ import { files } from "./large-files.js";
 
 const app = express();
 const documents = createDocumentHandlers(files, {
-  // Uploads become private to this user. undefined: anonymous. currentUserId is your auth.
+  // Uploads become private to this user. undefined: 401 "Sign in first.". currentUserId is your auth.
   getOwner: (request) => currentUserId(request),
 });
 
 // Before any body parser: the body of an upload is the raw file.
 app.post("/api/documents", documents.upload);
+app.get("/api/documents", documents.list); // the user's documents, the oldest first
 app.get("/api/documents/:id", (req, res) => documents.get(req, res, req.params.id));
 app.delete("/api/documents/:id", (req, res) => documents.remove(req, res, req.params.id));
 app.use(express.json());
@@ -270,13 +274,13 @@ it was read in (`"windows-1255"`), or `replacedCharacters`, the characters store
 Keep the `id` with the chat session. Not on a Node HTTP server, or taking multipart forms? Call
 `files.ingest({ name, mimeType, bytes, owner })` yourself and return `toDocumentSummary(meta)`.
 
-`getOwner` returns the signed-in user's ID, or `undefined` for an anonymous upload. An empty
-string, a string of spaces or `null` would be one owner shared by every caller without a user, so
-the upload is refused: `500` with `{ "error": "Upload failed (empty owner)." }`. (With
-`requireOwner: true`, `undefined` and `null` are answered `401` "Sign in first.", new in 0.9.0.)
-Return the ID
-itself, not the user object (`{ "error": "Upload failed (owner is not a string)." }`). Both come
-before the body is read.
+`getOwner` returns the signed-in user's ID. Owner checks are on by default (since 0.99.9):
+`undefined` and `null` are answered `401` "Sign in first.", and `createDocumentHandlers` throws
+without `getOwner`. A library made with `requireOwner: false` takes anonymous uploads, for which
+`getOwner` returns `undefined`. An empty string, a string of spaces or `null` would be one owner
+shared by every caller without a user, so the upload is refused: `500` with
+`{ "error": "Upload failed (empty owner)." }`. Return the ID itself, not the user object
+(`{ "error": "Upload failed (owner is not a string)." }`). Both come before the body is read.
 
 The browser side, every status and other servers are in [Web app](./guides/web-app.md); the
 routes in full are in the [node reference](./reference/node.md).

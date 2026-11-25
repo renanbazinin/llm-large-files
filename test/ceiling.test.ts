@@ -40,7 +40,7 @@ function recorder() {
 /** probe2's log: 60,000 lines of a service log, searched with the tools. */
 let probe2: Promise<{ files: LargeFiles; id: string }> | undefined;
 const runawayLog = () => (probe2 ??= (async () => {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(60_000)) });
   return { files, id: meta.id };
 })());
@@ -105,7 +105,7 @@ describe("the default ceiling", () => {
   }, 60_000);
 
   it("leaves typical questions as they were: a 3 MB log and 4 tool turns stay under half of it, with the same requests", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "service.log", bytes: utf8(serviceLog(33_000)) });
     expect(meta.bytes).toBeGreaterThan(2_900_000);
     const script = () => fakeModel([
@@ -181,7 +181,7 @@ describe("a ceiling that is set", () => {
   }, 60_000);
 
   it("counts the part reads of a whole-file read that report no usage by their estimate", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(3_000)) });
     let parts = 0;
     const generateText: GenerateText = async () => {
@@ -200,7 +200,7 @@ describe("a ceiling that is set", () => {
 describe("whole-file reads under the ceiling", () => {
   it("lets probe5's read run with the default ceiling: the room for whole-file reads", async () => {
     // probe5: a log of 20,000 lines (1.77 MB) read in parts of 60,000 tokens, about 1.5M tokens a read.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 60_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 60_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
     let parts = 0;
     const generateText: GenerateText = async () => {
@@ -217,7 +217,7 @@ describe("whole-file reads under the ceiling", () => {
   }, 60_000);
 
   it("refuses a third whole-file read in one question (wholeReadsPerQuestion), and Infinity gives 0.9's rule", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
     const logs = await Promise.all(["a.log", "b.log", "c.log"].map((name) => files.ingest({ name, bytes: utf8(serviceLog(1_500)) })));
     const reads = logs.map((meta, index) => ({ id: `r${index}`, name: "analyze_whole_document", args: { document_id: meta.id, task: "errors" } }));
     const generateText: GenerateText = async () => "Notes (L97).";
@@ -245,7 +245,7 @@ describe("whole-file reads under the ceiling", () => {
   }, 60_000);
 
   it("counts a read whose answer onToolResult rejected or replaced: it made its requests", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
     const logs = await Promise.all(["a.log", "b.log", "c.log"].map((name) => files.ingest({ name, bytes: utf8(serviceLog(1_500)) })));
     const reads = logs.map((meta, index) => ({ id: `r${index}`, name: "analyze_whole_document", args: { document_id: meta.id, task: "errors" } }));
     for (const verdict of [{ reject: "This summary holds ID numbers." }, { result: { error: "This summary holds ID numbers." } }]) {
@@ -267,7 +267,7 @@ describe("whole-file reads under the ceiling", () => {
   }, 60_000);
 
   it("refuses a whole-file read that would pass the ceiling with the price of wholeReadCost", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens: 8_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(3_000)) });
     const model = fakeModel([calls([{ id: "a", name: "analyze_whole_document", args: { document_id: meta.id, task: "errors" } }], { usage: { inputTokens: 1_000 } }), says("Done.")], { generateText: async () => "Notes." });
     const result = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?"), limits: { inputTokens: 250_000 } });
@@ -281,7 +281,7 @@ describe("whole-file reads under the ceiling", () => {
 
 describe("LLF-058: a whole-file read that failed", () => {
   it("is refused again with its own reason, not priced again (probe3)", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 50_000, inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 50_000, inlineTokens: 10 } });
     const meta = await files.ingest({ name: "big.log", bytes: utf8(serviceLog(6_000)) });
     const generateText: GenerateText = async () => {
       throw Object.assign(new Error("boom"), { status: 400 });
@@ -298,7 +298,7 @@ describe("LLF-058: a whole-file read that failed", () => {
   }, 60_000);
 
   it("takes the word of a tool set that says no read is left (wholeReadsLeft)", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 8_000, inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 8_000, inlineTokens: 10 } });
     const meta = await files.ingest({ name: "big.log", bytes: utf8(serviceLog(3_000)) });
     const own: LargeFiles = {
       ...files,

@@ -11,7 +11,7 @@ const roundsOf = (messages: ModelMessage[]) => messages.filter((message): messag
 const answersOf = (messages: ModelMessage[]) => roundsOf(messages).flatMap((round) => round.answers.map((answer) => answer.result));
 
 async function largeLog(lines = 5_000, budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(lines)) });
   return { files, meta };
 }

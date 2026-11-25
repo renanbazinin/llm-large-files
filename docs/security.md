@@ -7,9 +7,10 @@ deploy.
 
 ## Ownership
 
-A document can have an owner: one string, such as the signed-in user's ID or a tenant's, compared
+A document has an owner: one string, such as the signed-in user's ID or a tenant's, compared
 exactly as it is. Set it at ingest, and pass the same owner to every call that reaches the
-document:
+document. Since 0.99.9 every call must name one, unless the library is made with
+`requireOwner: false` (below):
 
 ```ts
 import { askWithFiles } from "llm-large-files";
@@ -64,11 +65,11 @@ others whose IDs it has. From JavaScript, an owner that is neither a string nor 
 (the user object in place of its ID, `true`, `NaN`, an array) is refused with the same error. A
 number is accepted, as before. Only `ingest` and the upload handler refuse: calls that read with
 `owner: ""` work as before, so documents that 0.5.0 stored with that owner stay readable until
-they expire. Under `requireOwner` (below), every call refuses such an owner, and those documents
-can no longer be read.
+they expire. Under `requireOwner` (below, the default since 0.99.9), every call refuses such an
+owner, and those documents can no longer be read.
 
-**A document ingested without an owner is open to every call that has its ID**, with an owner or
-without. Its ID then works like a password. An ID the library makes is `doc_` and 32 hex digits, a
+**Under `requireOwner: false`, a document ingested without an owner is open to every call that has
+its ID**, with an owner or without. Its ID then works like a password. An ID the library makes is `doc_` and 32 hex digits, a
 random UUID with 122 random bits: it cannot be guessed, but it can leak. An ID your application
 gives (`IngestInput.id`, new in 0.9.0) may be guessed, if it counts up or follows a pattern, and
 `ingest` tells whether it is taken (above): use random IDs, or IDs with a prefix per tenant. The ID
@@ -77,17 +78,26 @@ provider receives (so a model can repeat it in an answer), and IDs end up in you
 storage and in logs. So an ID must never hold personal data, and every document should have an
 owner.
 
-**Fail closed with `requireOwner` and `requireScope`.** New in 0.9.0, both off by default. With
-`createLargeFiles({ ..., requireOwner: true })`, every call must name an owner: `ingest`,
-`getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles`, `askStream`, `askGemini`, and
-`tools`, which then needs `access`. A call without one throws
-`TypeError("owner is required: requireOwner is on")` before the store is asked anything, and a
-document stored without an owner reads as missing. So a route that forgot the owner fails, instead
-of reaching every document stored without one. `requireScope` does the same for scopes
-(`"scope is required: requireScope is on"`); `files.sweep()` without a scope stays allowed. Turn on
-both where every document belongs to a signed-in user and a chat. A document a store gives back
-with the owner `null` (a MongoDB driver writes a field that was left out that way) counts as having
-no owner: open without `requireOwner`, missing with it.
+**Owner checks are on by default (0.99.9).** The library fails closed: `requireOwner` is on unless
+you pass `false` (it was off from 0.9.0 to 0.10.x). Every call must name an owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `list`,
+`touch`, `update`, `prepare`, `toolsFor`, `askWithFiles`, `askStream`, `askGemini`, and `tools`,
+which then needs `access`. A call without one throws before the store is asked anything:
+
+    TypeError: owner is required: requireOwner is on (the default). Pass the user's ID as owner, or create the library with requireOwner: false to allow calls without one.
+
+A document stored without an owner, by any version, reads as missing. So a route that forgot the
+owner fails, instead of reaching every document stored without one. Only `false` turns the checks
+off: any other value (`"false"` from an environment file, say) leaves them on. `files.sweep()`
+takes no owner: it is upkeep, and removes the expired documents of every owner, those without one
+included. `requireOwner: false` is for an application with one user (a script, a command-line
+tool), or one that lets anyone with a document's ID use it.
+
+`requireScope` (new in 0.9.0, still off by default) does the same for scopes
+(`"scope is required: requireScope is on"`); `files.sweep()` without a scope stays allowed. Turn it
+on where every document belongs to a chat. A document a store gives back with the owner `null` (a
+MongoDB driver writes a field that was left out that way) counts as having no owner: missing under
+`requireOwner`, open with `requireOwner: false`. What an application of 0.10 changes is in
+[Upgrading to 0.99](./upgrading-0.99.md#owner-checks-are-on-by-default).
 
 **A store that forgets the context fails closed, except under `unscoped: "root"`.** Every store
 call carries the owner and the scope (new in 0.9.0). A wrapper or a subclass that passes on only the
@@ -133,23 +143,28 @@ another's documents. It does not stop one user from mixing documents of their ow
 ### Requiring a signed-in user in the handlers
 
 `createDocumentHandlers` calls `getOwner` for every request but an upload with no file name (no
-`X-File-Name` header and no `?name=`), which is answered 400 before `getOwner` runs. When
-`getOwner` returns `undefined`, the request is anonymous: an upload is stored without an owner, and
-GET and DELETE reach only documents that have none. To refuse a request instead, throw an error
-with a `status` (or `statusCode`) between 400 and 599: the handler answers with that status and the
-error's message. Any other error is answered with a 500 that does not repeat its message.
-`getOwner` runs before the body is read, so a refused upload is not buffered.
+`X-File-Name` header and no `?name=`), which is answered 400 before `getOwner` runs. Under
+`requireOwner`, the default since 0.99.9, `createDocumentHandlers` throws a `TypeError` without
+`getOwner`, and a request whose `getOwner` returns `undefined` (or `null`) is answered `401`
+`{ "error": "Sign in first." }` on every route, before the body is read. A `LargeFiles` of your own
+without `access` counts as requiring an owner. Only with `requireOwner: false` is a request without
+an owner anonymous: an upload is stored without an owner, GET and DELETE reach only documents that
+have none, and the list route answers `401` unless the request has a scope. To refuse a request
+with another status, throw an error with a `status` (or `statusCode`) between 400 and 599: the
+handler answers with that status and the error's message. Any other error is answered with a 500
+that does not repeat its message. `getOwner` runs before the body is read, so a refused upload is
+not buffered.
 
 An owner that `ingest` refuses is the server's mistake, and the upload is answered with a 500
 before its body is read: `{ "error": "Upload failed (empty owner)." }` when `getOwner` returns
 `""`, a string of spaces or `null`, and `{ "error": "Upload failed (owner is not a string)." }`
 when it returns something that is neither a string nor a finite number, such as the user object in
-place of its ID. Nothing is logged. Where every upload needs a signed-in user, throw a 401 as
-below. Return `undefined` only where anonymous uploads are meant (`user?.id || undefined`). GET and
-DELETE pass such an owner on as before, except under `requireOwner`, where the library refuses it
-on every call: they answer `""` or spaces only with a 500 then, "The file could not be looked up
-(empty owner)." and "The file could not be deleted (empty owner).", without calling it, and `null`
-with a 401, as `undefined` (new in 0.9.0).
+place of its ID. Nothing is logged. Under `requireOwner: false`, return `undefined` only where
+anonymous uploads are meant (`user?.id || undefined`), and throw a 401 as below where every upload
+needs a signed-in user. GET and DELETE pass such an owner on there, as before. Under `requireOwner`
+(the default), the library refuses it on every call: they answer `""` or spaces only with a 500,
+"The file could not be looked up (empty owner)." and "The file could not be deleted (empty
+owner).", without calling it, and `null` with a 401, as `undefined`.
 
 ```ts
 import type { IncomingMessage } from "node:http";
@@ -161,18 +176,17 @@ type SignedInRequest = IncomingMessage & { user?: { id: string } };
 export const documentHandlers = createDocumentHandlers(files, {
   getOwner(request) {
     const user = (request as SignedInRequest).user;
-    // Returning undefined would store the upload without an owner, open to anyone with its ID.
+    // Under requireOwner (the default), undefined is answered 401 "Sign in first." too; with
+    // requireOwner: false it would store the upload without an owner, open to anyone with its ID.
     if (!user) throw Object.assign(new Error("Sign in first."), { status: 401 });
     return user.id;
   },
 });
 ```
 
-New in 0.9.0: with `requireOwner: true` in `createLargeFiles`, the library refuses every call
-without an owner, and the handlers follow. `createDocumentHandlers` throws a `TypeError` without
-`getOwner`, and answers an owner of `undefined` with a `401` `{ "error": "Sign in first." }`, on
-every route, before the body is read. A mistake that would store an upload open to anyone fails
-at once instead. `requireScope` works the same way with `getScope`, which gives the scope of a
+A mistake that would store an upload open to anyone fails at once: the library refuses every call
+without an owner, and the handlers follow (new in 0.9.0 under `requireOwner: true`, the default
+since 0.99.9). `requireScope` works the same way with `getScope`, which gives the scope of a
 request (such as `[userId, chatId]`): a scope that is not valid, or none, is a `500` before the
 body is read.
 
@@ -198,15 +212,15 @@ and compares its stored owner and scope with `access`, as `getMeta(id, access)` 
 differ, the call answers `doc_… is no longer available on the server. Ask the user to attach the
 file again.`, as for a document that is gone, and `view_pages` shows no page. The metadata handed
 in decides nothing: metadata read straight from the store for another user (such as
-`await store.getMeta(id)`) reads nothing with `access: { owner: "bob" }`. Under `requireOwner` or
-`requireScope`, `tools` throws without `access`.
+`await store.getMeta(id)`) reads nothing with `access: { owner: "bob" }`. Under `requireOwner` (the
+default since 0.99.9) or `requireScope`, `tools` throws without `access`.
 
 **Without `access`, `files.tools()` checks owners through the metadata it is given**, as before
 0.9.0. It compares the owner and scope stored with the document with those of the `DocumentMeta`
 you passed for that ID. So metadata built from an ID a client sent, with no owner or another one,
 reads nothing of a document that has an owner. But the check compares strings: metadata that
-carries the stored owner reads the document, wherever it came from, and a document stored without
-an owner is open to any metadata. (Before 0.6.0, `tools()` checked no owner.) In a tool loop of
+carries the stored owner reads the document, wherever it came from, and under `requireOwner: false`
+a document stored without an owner is open to any metadata. (Before 0.6.0, `tools()` checked no owner.) In a tool loop of
 your own, pass `access`, and give `tools` only metadata that `prepare(ids, base, { owner, scope })`
 or `getMeta(id, { owner, scope })` returned, never objects built from IDs a client sent:
 
@@ -244,12 +258,18 @@ A question's requests can hold:
 - **The whole text of a file read whole** (`analyze_whole_document`), in parts of up to
   `mapChunkTokens`, through the adapter's `generateText`.
 - **Pages**: with `view_pages`, a small PDF of up to 5 pages cut from the kept original, for each
-  call. The pages stay in the later requests of that question, unless room runs out: older
+  call, or, for a model that takes images and no PDF (0.99.9), each of those pages drawn as an
+  image. The pages stay in the later requests of that question, unless room runs out: older
   results, pages included, are then replaced by a note of what they showed (never for a model whose
   conversation may only grow, as Claude's). They are not kept in `toolTurns`: only that they were
   shown.
+- **Uploaded files as they are** (0.99.9), only when every model declares `documents`: a small
+  visual PDF or deck sent whole goes in the request as the file the user uploaded, byte for byte,
+  next to its text, on every question that names it
+  ([The file itself](./guides/pdfs.md#the-file-itself-for-small-visual-files)). What the file holds
+  that its text does not (pictures, metadata, hidden layers) reaches the provider then.
 - **File names, and the IDs of the documents read through tools.** Not the owner, and no original
-  file other than those page cuts.
+  file other than those page cuts, page images and files sent as they are.
 - **Whatever you pass in `messages`**: earlier questions' `toolTurns`, which hold excerpts of the
   files, and parts in a provider's own form.
 
@@ -690,7 +710,7 @@ How `view_pages` works, and what to weigh before you keep originals, is in [PDFs
 ## Reading PDFs for pages and pictures
 
 Three features read the whole PDF into objects with `@cantoo/pdf-lib`, in your process, on a file
-a user uploaded:
+a user uploaded (a fourth, pages drawn as images, reads it with pdf.js: [below](#pages-drawn-as-images)):
 
 - **`view_pages`** reads the kept original again for every call, to cut the pages out of it.
 - **Picture marks** and **the page check** read every PDF at ingest, once for both, when
@@ -810,6 +830,37 @@ server that memory is the server's heap. Choose the isolation with care:
   does not change it.
 
 [Deployment](./guides/deployment.md#uploads-and-ingest) has the recipes.
+
+### Pages drawn as images
+
+For a model that takes images and no PDF, `view_pages` draws each page with pdf.js (unpdf 2) on
+`@napi-rs/canvas`, in the server that answers (since 0.99.9,
+[Pages as images](./guides/pdfs.md#pages-as-images)). It reads the kept original again for every
+call, and it decodes every image of a page to draw it. What bounds it:
+
+- **Turns.** It takes the same turn as a cut: one look at a time in the library by default
+  (`maxConcurrentPageLooks`), at most 5 pages a call, and the pages and bytes the question has room
+  for.
+- **Objects.** A file that declares more than 1,000,000 objects, or more than 60% of the free heap
+  holds, is refused before pdf.js reads it, as for a cut.
+- **Pixels.** Each page is drawn on a canvas of at most 1,568 pixels a side, about 10 MB. pdf.js
+  leaves blank an image whose own width times height is over 40 million pixels (`maxImageSize`).
+  That limit does not look at the image's soft mask or mask: pdf.js decodes a mask whole and draws
+  the image at the mask's size, so a small image with a large mask is decoded at any size (a page
+  of 62 KB took 0.9 GB and held the thread 5 s). Decoding takes about 12 bytes a pixel: 435 MB for
+  an image of 36 million pixels, measured. The images of one page are held together until it is
+  drawn (ten of 36 million pixels: 1.9 GB, 15 s). Nothing bounds the memory or the time of one
+  page.
+- **Time.** A call starts no page once the time so far and its slowest page would pass 5 seconds.
+  On Node 24, a page of the test PDFs took 0.09 to 0.5 s to draw, and the event loop went without a
+  turn for 0.37 s at most ([measured](./measurements.md#pages-drawn-as-images-0999)). Timers and
+  other requests run between two pages. A page that paints large images holds the thread for as
+  long as decoding them takes: the 5 seconds do not cut a page short, the first page of a call is
+  always drawn, and the question's `signal` stops a look only between two pages.
+- **Errors** are caught: the model is told why the pages cannot be shown, and answers from the text.
+
+For the files of users you do not trust, do not offer `view_pages` (`viewPages: false`), or answer
+their questions in a process of their own, as for cuts above.
 
 ## Uploads
 
@@ -1277,8 +1328,9 @@ What you log is your choice, and some of what the library hands you holds user d
 
 ## Before you deploy
 
-- Give every document an owner, pass it to every call, and refuse anonymous requests in `getOwner`
-  ([Ownership](#ownership)). Never pass `""` for a caller without a user: `ingest` refuses it.
+- Give every document an owner and pass it to every call: owner checks are on by default (0.99.9),
+  so leave `requireOwner` on ([Ownership](#ownership)). Never pass `""` for a caller without a
+  user: `ingest` refuses it.
 - Take `documentIds` and the conversation, `toolTurns` included, from your server, not from the
   browser ([Prompt injection](#prompt-injection)).
 - Set `ttlMs` to your data policy, run `sweep` on a schedule, and make your deletion rules cover

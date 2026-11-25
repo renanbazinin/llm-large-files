@@ -4,7 +4,9 @@ This guide shows how to run `askWithFiles` on a model behind the Chat Completion
 `openAiCompatible()` from `llm-large-files/openai`: OpenAI, Azure OpenAI, DeepSeek, OpenRouter,
 vLLM, Ollama, LiteLLM, llama.cpp, or a gateway of your own. It is for you if one of these is your
 only model, or the second model next to Gemini. Every option, with its type and default, is in the
-[reference](../reference/openai.md).
+[reference](../reference/openai.md). For OpenAI's reasoning models with tools, `openAiResponses()`
+speaks OpenAI's Responses API instead ([OpenAI's Responses API](#openais-responses-api), new in
+0.99.9).
 
 ## The adapter in one sample
 
@@ -13,7 +15,7 @@ import { readFile } from "node:fs/promises";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { openAiCompatible } from "llm-large-files/openai";
 
-const files = createLargeFiles({ store: new MemoryDocumentStore() });
+const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false }); // one user: no owner checks
 
 const model = openAiCompatible({
   apiKey: process.env.OPENAI_API_KEY!, // sent as Authorization: Bearer …
@@ -72,6 +74,8 @@ the server says so with an error.
 | `answerWithoutTools` | `"tool_choice"` | How the request that must be answered in text says so. `"omit"` for a server that refuses `tool_choice`. |
 | `stream` | `true` | `false` for a server that cannot stream. |
 | `pdfInput` | `false` | `true` for a model that reads PDF input: `view_pages` is then offered ([Pages of PDFs](#pages-of-pdfs)). |
+| `imageInput` | `false` | `true` for a model that reads images and no PDF: `view_pages` sends each page as a JPEG ([Pages for vLLM, DeepSeek and other servers without PDF input](#pages-for-vllm-deepseek-and-other-servers-without-pdf-input)). New in 0.99.9. |
+| `documents` | none | `{ formats: ["pdf"] }` for a model that reads PDF input: a small visual PDF sent whole goes to it as a `file` part too ([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)). New in 0.99.9. |
 
 The waits are [below](#waits); `maxRequestBytes`, `tokenScale`, `pageTokens`, `id` and `fetch`
 (a proxy, or a test double: [Testing](./testing.md)) are in the
@@ -115,11 +119,15 @@ const openai = openAiCompatible({
 });
 ```
 
-- **Tool calls on GPT-5.4 and later need `reasoning_effort: "none"`** through Chat Completions,
-  which is their default: with another effort and tools in the request, the API refuses the
-  request. The chat requests of the loop offer tools, so leave the effort out of `body`, or set
-  `"none"`. A part read offers no tools, and may reason. For reasoning with tools, OpenAI points to
-  its Responses API, which this adapter does not speak (planned for 1.0.0).
+- **Tool calls through Chat Completions: set `reasoning_effort: "none"`.** The chat requests of
+  the loop offer tools. The default effort is the model's own: `"none"` on GPT-5.2 and GPT-5.4,
+  `"medium"` on GPT-5.5 (OpenAI's model pages and reasoning guide, read November 2026), so leaving
+  the effort out of `body` does not mean `"none"`. With another effort and tools in the request,
+  newer models refuse it on `/chat/completions` ("Function tools with reasoning_effort are not
+  supported for gpt-5.6-sol in /v1/chat/completions", as reported on OpenAI's forum), and OpenAI's
+  reasoning guide says that Chat Completions does not support function calling at all with some of
+  its newer models. A part read offers no tools, and may reason. For reasoning with tools, use
+  `openAiResponses()` ([OpenAI's Responses API](#openais-responses-api)).
 - Part reads name their output limit `max_completion_tokens`, which OpenAI's newer models require.
 - A reasoning model sends nothing while it thinks. `firstByteTimeoutMs` (600 s) is the wait for
   its first piece. Its `completion_tokens_details.reasoning_tokens` are counted as
@@ -474,7 +482,7 @@ of a tool call again with each piece of it is read right: the name is not double
 ## What it does not do
 
 - It speaks Chat Completions only, at `/chat/completions` or your `url`. OpenAI's Responses API is
-  not supported.
+  spoken by `openAiResponses()` ([OpenAI's Responses API](#openais-responses-api)).
 - It sends no output limit in chat requests, and no prompt-cache settings. Cached tokens the server
   reports are counted.
 - It does not ask the server for the model's window. Without `contextTokens` the library's budget
@@ -482,7 +490,81 @@ of a tool call again with each piece of it is read right: the name is not double
 - It counts no tokens with the model's tokenizer. The library estimates them, scaled by
   `tokenScale`, and a question corrects the estimate by the counts the server reports.
 - It cannot tell that a server cut a prompt down without an error.
-- It sends no pages of PDFs unless `pdfInput` is on.
+- It sends no pages of PDFs unless `pdfInput` or `imageInput` is on.
+
+## OpenAI's Responses API
+
+New in 0.99.9. `openAiResponses()`, from the same entry point, speaks OpenAI's Responses API
+(`/responses`) instead of Chat Completions. Use it for OpenAI's reasoning models with tools: the
+model reasons while it calls the document tools, which Chat Completions refuses on newer models
+([OpenAI](#openai) above). OpenAI's guide for GPT-5.5 says to use this API for any reasoning,
+tool-calling or multi-turn use. The v1 API of Azure OpenAI speaks it too. Every option is in the
+[reference](../reference/openai.md#openairesponsesoptions).
+
+It was built from OpenAI's API reference and guides and Azure OpenAI's Responses page (read
+November 2026), and tested against fake servers. It has not been run against OpenAI or Azure: try
+it on a staging deployment before you move traffic to it.
+
+```ts
+import { openAiResponses } from "llm-large-files/openai";
+
+const openai = openAiResponses({
+  apiKey: process.env.OPENAI_API_KEY!,
+  model: "gpt-5.5",
+  contextTokens: 1_050_000,                               // gpt-5.5's window, by OpenAI's model page
+  body: { reasoning: { effort: "medium" } },              // every chat request: it reasons, and calls tools
+  analysisBody: () => ({ reasoning: { effort: "low" } }), // the part reads of a whole-file read
+});
+```
+
+Azure OpenAI, with the `/openai/v1` path, which needs no `api-version`. `model` is the name of your
+deployment. A key goes in `headers`; a Microsoft Entra ID token in `apiKey`, as a function called
+before every request:
+
+```ts
+import { DefaultAzureCredential } from "@azure/identity";
+import { openAiResponses } from "llm-large-files/openai";
+
+const credential = new DefaultAzureCredential();
+
+const azure = openAiResponses({
+  baseUrl: `https://${process.env.AZURE_OPENAI_RESOURCE}.openai.azure.com/openai/v1`, // /responses is added
+  apiKey: async () => (await credential.getToken("https://cognitiveservices.azure.com/.default")).token,
+  // or, with a key: headers: { "api-key": process.env.AZURE_OPENAI_API_KEY! },
+  model: process.env.AZURE_OPENAI_DEPLOYMENT!,
+  body: { reasoning: { effort: "medium" } },
+});
+```
+
+- **Reasoning goes back within a question.** Every request sends `store: false` and the whole
+  conversation. The output items of a response, reasoning items with their encrypted content among
+  them, go back in the later requests of the same question, as OpenAI and Azure ask for requests
+  that store nothing. Between questions, `toolTurns` keep the calls and their results, as with
+  every adapter: a follow-up question has the results, not the earlier reasoning.
+- **`include`.** The adapter asks for `reasoning.encrypted_content`. A server that refuses it (HTTP
+  400 about `include` or encrypted content) is sent the request again without it, and is not asked
+  for it again. Set `encryptedReasoning: true` to get that error instead, or `false` never to ask.
+- **Pages of PDFs** are off by default (`toolFilePlacement: "none"`), so `view_pages` is not
+  offered. `"inside"` puts the pages in the `function_call_output`, after its JSON, as OpenAI
+  documents files in a tool's output; `"beside"` puts them in a user turn after the outputs. No one
+  has checked yet which models read them: try yours first.
+- **What differs from `openAiCompatible()`.** `body` and `analysisBody` take fields of the Responses
+  API. Errors are `OpenAiRequestError`, with the same `kind`, `code` and `param`, and usage fills
+  the same fields, `reasoning_tokens` as `thoughtTokens`. `toolTurns` stored with one adapter work
+  with the other.
+
+  | With `openAiCompatible()` | With `openAiResponses()` |
+  |---|---|
+  | `body: { reasoning_effort: "low" }` | `body: { reasoning: { effort: "low" } }` |
+  | `max_completion_tokens` in `body` | `max_output_tokens` in `body` |
+  | `maxTokensField` | No option: part reads send `max_output_tokens` |
+  | `systemRole` | No option: the system text goes in `instructions` |
+  | `answerWithoutTools` | No option: the request for the answer sends `tool_choice: "none"` |
+  | `pdfInput: true` | `toolFilePlacement: "inside"` or `"beside"` |
+
+- **What it does not do.** It sends no `previous_response_id` and no `conversation`; do not put
+  them in `body`, or the conversation goes twice. It has no background mode, offers no built-in
+  tools (web search, file search) of its own, and converts no history kept as Responses items.
 
 ## Pages of PDFs
 
@@ -513,6 +595,61 @@ Turn it on only for a model that reads PDF input. It has not worked on any serve
 OpenAI layer refuses the `file` part (HTTP 400), and it has not been run against OpenAI or any
 other server that reads PDF input. Keeping originals, the optional
 dependencies and the costs of pages are in [PDFs](./pdfs.md).
+
+A model that reads PDF input can also be sent a small visual PDF sent whole as the file itself,
+before its text, with `documents: { formats: ["pdf"] }`: Chat Completions reads no other format
+([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)).
+
+## Pages for vLLM, DeepSeek and other servers without PDF input
+
+Most servers behind this API read images and no PDF: vLLM and Ollama with a vision model, DeepSeek
+V4. Since 0.99.9, `imageInput: true` sends them the pages of `view_pages` as images: each page a
+JPEG of 1,568 pixels on its longest side, in an `image_url` part, in a user message after the tool
+messages, with a line that names it. It needs Node 24 or later and two optional dependencies:
+
+```bash
+npm install unpdf@2 @napi-rs/canvas
+```
+
+```ts
+import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
+import { openAiCompatible } from "llm-large-files/openai";
+
+const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+
+const deepseek = openAiCompatible({
+  baseUrl: "https://api.deepseek.com/v1",
+  apiKey: process.env.DEEPSEEK_API_KEY!,
+  model: "deepseek-v4-flash",
+  imageInput: true,  // view_pages is offered, and its pages go to the model as JPEG images
+  pageTokens: 1_000, // the default; DeepSeek bills up to 384 tokens an image
+});
+
+const vllm = openAiCompatible({
+  baseUrl: "http://localhost:8000/v1",
+  model: "Qwen/Qwen3-VL-32B-Instruct",
+  contextTokens: 32_768,
+  imageInput: true,
+});
+```
+
+- **What a page costs.** Each image counts `pageTokens`, 1,000 by default. DeepSeek bills at most
+  384 tokens an image: 1,000 counts high and only lets a question show fewer pages. Lower it to
+  about 400 for DeepSeek to show more.
+- **vLLM's limit of images.** vLLM refuses a request with more images than `--limit-mm-per-prompt`
+  allows (HTTP 400). The pages of a question stay in its later requests: start the server with a
+  limit of at least the pages a question may show, half of `budget.reservedTokens` divided by
+  `pageTokens` (32 with the defaults).
+- **No `detail` field** is sent with the image, which some servers refuse.
+- **With `pdfInput` too**, PDF comes first: the pages go as one PDF.
+- **With an explorer**, both models must take images: next to `gemini()` or `anthropic()`, which
+  take PDF, no kind of file is shared, and `view_pages` is not offered.
+- **On Node 22**, `unpdf` 2 is not supported (it declares Node 24), and with unpdf 1 each look
+  answers the model that pages cannot be drawn: it answers from the text. The error table is in
+  [Pages as images](./pdfs.md#pages-as-images).
+
+It has not been run live: it follows the documented `image_url` part, and its tests use fake
+servers and a fake renderer, and the real renderer on Node 24.
 
 ## Conversations kept as Chat Completions messages
 
@@ -637,6 +774,9 @@ included.
 The live checks on record for this adapter ran on Gemini's OpenAI layer, in 0.5.0: a streamed
 question about a 5.2 MB log, an explorer behind the layer with a thinking Gemini model answering,
 and a part read. In each, the usage the library returned was what the provider reported. `pdfInput`
-has not worked on any server yet: Gemini's OpenAI layer refuses its `file` part. The handling for the other servers in this guide is covered
+has not worked on any server yet: Gemini's OpenAI layer refuses its `file` part. `imageInput` and
+`documents` (0.99.9) have not been run live. `openAiResponses()`
+has not been run live: no OpenAI or Azure key was at hand, and its tests in
+`test/openai-responses.test.ts` replay the shapes of OpenAI's and Azure's documentation. The handling for the other servers in this guide is covered
 by the tests in `test/openai.test.ts` and `test/loop-robustness.test.ts`, which replay the shapes
 of their requests and replies. Dates and numbers are in [Measurements](../measurements.md).

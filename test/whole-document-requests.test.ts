@@ -14,7 +14,7 @@ const LONG_NOTES = `Notes (L1) ${"important finding ".repeat(900)}`;
 
 /** probe3's document: a service log of 3,000 lines, read in parts of 8,000 tokens (27 parts). */
 async function probe() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 8_000, contextTokens: 200_000, inlineTokens: 10 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 8_000, contextTokens: 200_000, inlineTokens: 10 } });
   const meta = await files.ingest({ name: "big.log", bytes: utf8(serviceLog(3_000)) });
   return { files, meta };
 }
@@ -102,7 +102,7 @@ describe("a whole-file read with maxRequests", () => {
   });
 
   it("says one request, for one part, in the singular", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "all.txt", bytes: utf8("One line.\nTwo lines.") });
     const generate: GenerateText = async () => "NOTHING RELEVANT";
     const { result } = await files.tools([meta], { generate }).executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "anything" }, { maxRequests: 0 });
@@ -114,7 +114,7 @@ describe("a whole-file read with maxRequests", () => {
   });
 
   it("prices its merges before it halves a part the model finds too large", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 1_500, inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 1_500, inlineTokens: 10 } });
     const meta = await files.ingest({ name: "small.log", bytes: utf8(serviceLog(160)) });
     let parts = 0;
     let tooLarge = 0;

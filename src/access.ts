@@ -6,8 +6,12 @@ import { checkScope, sameScope, scopeKey } from "./scope.js";
 import { DOCUMENT_META_VERSION } from "./stores.js";
 import type { DocumentContext, DocumentMeta, DocumentScope } from "./types.js";
 
-/** The TypeError of a call without an owner, when the library requires one (`requireOwner`). */
-export const OWNER_REQUIRED = "owner is required: requireOwner is on";
+/**
+ * The TypeError of a call without an owner, when the library requires one (`requireOwner`, on by
+ * default since 0.99.9). It says how to turn the checks off. Its start, "owner is required:
+ * requireOwner is on", is that of 0.9.0 to 0.10.x.
+ */
+export const OWNER_REQUIRED = "owner is required: requireOwner is on (the default). Pass the user's ID as owner, or create the library with requireOwner: false to allow calls without one.";
 /** The TypeError of a call without a scope, when the library requires one (`requireScope`). */
 export const SCOPE_REQUIRED = "scope is required: requireScope is on";
 
@@ -73,7 +77,8 @@ export function callerOf(access: { readonly owner?: unknown; readonly scope?: un
 /**
  * Whether `caller` may use the document `meta` describes. A document with an owner serves only that
  * owner, and one with a scope only a caller of the same scope, segment by segment. A document
- * without an owner serves any caller, unless the library requires owners; the same for scopes.
+ * without an owner serves any caller, unless the library requires owners (the default since
+ * 0.99.9); the same for scopes.
  * Null is no owner and no scope, as a database gives a field that was left out. A refusal is never
  * told: the document reads as missing.
  */
@@ -253,6 +258,17 @@ export async function storeCall<T>(operation: DocumentStoreOperation, call: () =
 }
 
 /**
+ * Whether stored metadata is of a version this package reads (H7): no metaVersion (before 0.9.0),
+ * null, or a number up to `DOCUMENT_META_VERSION`. NaN, a higher number and anything not a number
+ * are not. The one test of `checkMetaVersion`, `files.list` and ingest's `dedupe` look-up. Internal:
+ * not exported from an entry point. New in 0.99.9.
+ */
+export function readableMetaVersion(meta: Pick<DocumentMeta, "metaVersion">): boolean {
+  const version: unknown = meta.metaVersion ?? 0;
+  return typeof version === "number" && version <= DOCUMENT_META_VERSION;
+}
+
+/**
  * Refuses metadata written by a newer version of the package (`metaVersion` above
  * `DOCUMENT_META_VERSION`), which may mean what this version cannot tell: a `DocumentStoreError`
  * with code "NEWER_VERSION", not a document that is missing, so that an application does not
@@ -260,8 +276,8 @@ export async function storeCall<T>(operation: DocumentStoreOperation, call: () =
  * database gives a field that was left out, is read as before.
  */
 export function checkMetaVersion(meta: DocumentMeta): void {
-  const version: unknown = meta.metaVersion ?? 0;
-  if (typeof version === "number" && version <= DOCUMENT_META_VERSION) return;
+  if (readableMetaVersion(meta)) return;
+  const version: unknown = meta.metaVersion;
   const found = new RangeError(`The metadata of ${String(meta.id)} has metaVersion ${String(version)}; this version of llm-large-files reads up to ${DOCUMENT_META_VERSION}.`);
   throw new DocumentStoreError(found, { operation: "read", code: "NEWER_VERSION" });
 }

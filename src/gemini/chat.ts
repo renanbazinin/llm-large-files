@@ -2,6 +2,7 @@ import { askWithFiles, type AskOptions, type AskResult } from "../ask.js";
 import type { ChatMessage } from "../model.js";
 import { fromGeminiContents, gemini, type GeminiContent } from "./adapter.js";
 import type { GeminiEndpoint } from "./endpoints.js";
+import type { DocumentsCapability } from "../types.js";
 import type { GeminiRequestFields, GeminiToolFilePlacement } from "./generate.js";
 
 export { DocumentsNotFoundError } from "../model.js";
@@ -71,6 +72,12 @@ export type GeminiOwnOptions = {
    */
   toolFilePlacement?: GeminiToolFilePlacement;
   /**
+   * The files the model reads natively, for the model and its explorer (`GeminiModelOptions.documents`):
+   * small visual files sent whole go as `inlineData` before their text. "pdf" anywhere; "pptx" on the
+   * Gemini API only. Off by default. New in 0.99.9.
+   */
+  documents?: DocumentsCapability;
+  /**
    * generationConfig for whole-document part reads. Defaults to `{ maxOutputTokens }`, with no temperature.
    * The parts are read by the explorer model when there is one, so write it for that model.
    */
@@ -107,7 +114,7 @@ export type AskGeminiResult = AskResult;
 export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiResult> {
   const {
     endpoint, messages, contents, generationConfig, explorerGenerationConfig, body, explorerBody, analysisBody, functionCallingMode,
-    answerWithoutTools, timeoutMs, maxToolTurns, maxToolCallsPerTurn, toolFilePlacement, analysisConfig, firstByteTimeoutMs, idleTimeoutMs,
+    answerWithoutTools, timeoutMs, maxToolTurns, maxToolCallsPerTurn, toolFilePlacement, documents, analysisConfig, firstByteTimeoutMs, idleTimeoutMs,
     fetch, limits, ...loop
   } = options;
   // A second model for the requests that use tools. The answering model's own URL is not one.
@@ -118,6 +125,7 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     ...(functionCallingMode ? { functionCallingMode } : {}),
     ...(answerWithoutTools ? { answerWithoutTools } : {}),
+    ...(documents !== undefined ? { documents } : {}),
   };
   const model = gemini(endpoint, { ...shared, generationConfig, ...(body ? { body } : {}) });
   // The explorer is called with the same headers, in one piece, with its own settings when it has any.

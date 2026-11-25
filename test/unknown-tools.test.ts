@@ -12,7 +12,7 @@ const TOOLS = "The tools are: search_document, read_document, get_document_overv
 
 describe("a call of an unknown tool", () => {
   it("shortens nothing on a 40K window (probe1)", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, contextTokens: 40_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, contextTokens: 40_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(6_000)) });
     const script = [];
     for (let i = 0; i < 7; i++) script.push(calls([{ id: `r${i}`, name: "read_document", args: { document_id: meta.id, start_line: 1 + i * 200, end_line: 200 + i * 200 } }]));
@@ -31,7 +31,7 @@ describe("a call of an unknown tool", () => {
   });
 
   it("leaves its room to the calls of the turn that run", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, contextTokens: 40_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, contextTokens: 40_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(6_000)) });
     const given: Array<ToolCallLimits | undefined> = [];
     const own: LargeFiles = {

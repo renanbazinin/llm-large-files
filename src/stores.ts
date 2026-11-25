@@ -21,6 +21,10 @@ export const APP_DOCUMENT_ID_PATTERN = /^(?!(?:con|prn|aux|nul|com[0-9]|lpt[0-9]
 /**
  * The version of `DocumentMeta` this package writes (`metaVersion`), and the highest it reads.
  * New in 0.9.0: metadata without a version is that of an earlier version, and is read as before.
+ * A version that raises it still reads the metadata of the version before (H7, since 0.99.9). It is
+ * raised only when a reader of this version would misread the new shape: a field removed, renamed
+ * or retyped, given a new meaning, or added where an older reader must not ignore it. An optional
+ * field older readers can ignore raises nothing (CONTRIBUTING.md, "Stored shapes").
  */
 export const DOCUMENT_META_VERSION = 1;
 
@@ -738,7 +742,9 @@ export class FileDocumentStore implements DocumentStore {
    * left for `sweep`, which removes temporary files once they are old, and the removal counts. The
    * rename keeps the time the metadata was written, so the sweep reads the age of such a name from
    * its last change (ctime), which the rename sets: a sweep on another server between the rename
-   * and the unlink leaves it.
+   * and the unlink leaves it. Since 0.99.9 such a removal counts only while the name is still there
+   * (or cannot be looked at either): when it is gone, another call's rename took the file away
+   * under this one, as on Windows, and the removal is that call's.
    */
   async #remove(place: Place, id: string): Promise<boolean> {
     const files = filesOf(place.folder, id);
@@ -751,7 +757,10 @@ export class FileDocumentStore implements DocumentStore {
       if (!missing(error)) throw error;
       existed = false;
     }
-    if (existed) existed = await removeFile(claim).catch(() => true);
+    // A claim whose name cannot be removed now is this call's only while the name is there: on
+    // Windows another call's rename can take the file away under it, and the unlink of the name
+    // left behind then fails with something other than ENOENT (0.99.9).
+    if (existed) existed = await removeFile(claim).catch(() => lstat(claim).then(() => true, (error: unknown) => !missing(error)));
     await Promise.allSettled([files.text, files.original, files.index].map(removeFile));
     return existed;
   }

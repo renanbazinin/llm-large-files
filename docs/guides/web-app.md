@@ -3,8 +3,8 @@
 This guide is for you if you add large files to a web chat: the browser uploads files, your server
 keeps them and asks the model, and the answer streams back to the page with its progress. It covers
 uploads with `createDocumentHandlers` or with a route of your own, the browser side of an upload
-with its progress, a Server-Sent Events route that streams the question's events, cancelling, and
-reading the stream in the browser. The samples use Express 5 and Gemini on Vertex AI. The approach
+with its progress, a Server-Sent Events route that streams the question's events, cancelling, a
+question ID for a request sent again after its stream broke, and reading the stream in the browser. The samples use Express 5 and Gemini on Vertex AI. The approach
 depends on neither: with Express 4, catch errors in async routes yourself, and with another model,
 call `askStream` (see the end of [the chat route](#a-server-sent-events-route)).
 
@@ -54,13 +54,14 @@ and a layout per user and per chat session, are in [Storage](./storage.md).
 
 ## Uploads with `createDocumentHandlers`
 
-`createDocumentHandlers(files, options)` from `llm-large-files/node` returns three handlers that
+`createDocumentHandlers(files, options)` from `llm-large-files/node` returns four handlers that
 take Node's `IncomingMessage` and `ServerResponse`. Each answers with JSON itself, errors included,
 and never rejects, so you can call it without a `catch`, from `node:http` or from Express 4 or 5.
 
 | Handler | Route it for | What it does |
 |---|---|---|
 | `upload(request, response)` | `POST` | Asks `getOwner` who is asking and `getScope` which chat it is for, asks `prepareUpload` for an ID and where to save the body, reads the raw body up to `files.maxUploadBytes` (into memory, or into a file), ingests it with that owner and scope, calls `onUploaded`, and answers `201` with the document's summary. |
+| `list(request, response)` | `GET`, without an ID | New in 0.99.9. Answers `200` with `{ "documents": [summary, …] }`: the documents of the request's owner and chat, the oldest first ([below](#the-files-of-a-chat-list)). |
 | `get(request, response, id)` | `GET` | Answers `200` with the summary, or `404` when the document is unknown, expired, deleted, or another owner's or another chat's. |
 | `remove(request, response, id)` | `DELETE` | Deletes the document, its text and any kept original, calls `onRemoved`, and answers `200` with `{ "deleted": true }`, or `{ "deleted": false }` when this owner had no such document in this chat. |
 
@@ -88,6 +89,7 @@ const documents = createDocumentHandlers(files, {
 
 // Before any body parser: the body of an upload is the raw file.
 app.post("/api/documents", documents.upload);
+app.get("/api/documents", documents.list);
 app.get("/api/documents/:id", (req, res) => documents.get(req, res, req.params.id));
 app.delete("/api/documents/:id", (req, res) => documents.remove(req, res, req.params.id));
 app.use(express.json());
@@ -122,6 +124,7 @@ createServer((request, response) => {
   if (match) {
     const id: string | undefined = match[1];
     if (request.method === "POST" && id === undefined) return void documents.upload(request, response);
+    if (request.method === "GET" && id === undefined) return void documents.list(request, response);
     if (request.method === "GET" && id !== undefined) return void documents.get(request, response, id);
     if (request.method === "DELETE" && id !== undefined) return void documents.remove(request, response, id);
   }
@@ -147,33 +150,38 @@ A framework that gives you only the Fetch API's `Request` and `Response` needs a
 ### Who owns an upload: `getOwner`
 
 `getOwner(request)` returns the owner of the request: a string, `undefined`, or a promise of
-either. The handlers call it before they read the body, so a refused upload is never buffered.
+either. The handlers call it before they read the body, so a refused upload is never buffered. It
+is required unless the library is made with `requireOwner: false` (since 0.99.9):
+`createDocumentHandlers` throws a `TypeError` without it. A `LargeFiles` of your own without
+`access` counts as requiring an owner.
 
 - **A user ID.** The upload is ingested with that owner, and `get` and `remove` pass it on. A
   document of another owner answers exactly as one that does not exist: `404`, or
   `{ "deleted": false }`.
-- **`undefined`.** The request is anonymous, and the upload has no owner: anyone who has its ID can
-  read it, delete it and ask about it. Use this only for a demo.
+- **`undefined`**, or `null` (`req.user?.id ?? null`), is a request that is not signed in: `401`
+  `{ "error": "Sign in first." }` on every route, before the body is read. No document is then
+  ever anyone's. Only under `requireOwner: false` is such a request anonymous: the upload has no
+  owner, and anyone who has its ID can read it, delete it and ask about it. Use that only for a
+  demo, or an application with one user.
 - **An empty owner** (`""`, spaces only, or `null` from JavaScript) is the server's mistake, since
   it would be one owner shared by every caller without a user. The upload is answered `500`
   `{ "error": "Upload failed (empty owner)." }` before its body is read. An owner that is neither a
   string nor a finite number (`req.user` in place of `req.user.id`, say) is answered
-  `{ "error": "Upload failed (owner is not a string)." }`. `get` and `remove` pass such an owner on
-  as before, except under `requireOwner`, where they answer `""` or spaces only with a `500` too:
-  "The file could not be looked up (empty owner)." for `get`, "The file could not be deleted
-  (empty owner)." for `remove`. Under `requireOwner`, `null` is a `401` on every route, as
-  `undefined`. Where every upload needs a user, throw an error with `status: 401` when there is
-  none, as the example above does. Return `undefined` only where anonymous uploads are meant, and
-  write `user?.id || undefined` there, not `user?.id ?? ""`: a header that arrives empty gives `""`
-  too.
+  `{ "error": "Upload failed (owner is not a string)." }`. Under `requireOwner`, the default, `get`,
+  `remove` and `list` answer `""` or spaces only with a `500` too: "The file could not be looked up
+  (empty owner)." for `get`, "The file could not be deleted (empty owner)." for `remove`, "The files
+  could not be listed (empty owner)." for `list`. Under `requireOwner: false`, `get` and `remove`
+  pass such an owner on, as before; return `undefined` there only where anonymous uploads are
+  meant, and write `user?.id || undefined`, not `user?.id ?? ""`: a header that arrives empty gives
+  `""` too. To answer a request without a user in words of your own, throw an error with
+  `status: 401`, as the example above does.
 - **A thrown error with a `status` (or `statusCode`) from 400 to 599**, as the `http-errors`
   package makes them: the handler answers with that status and the error's message, as the `401`
   above. Any other error is answered `500`, without its message, which may name your hosts.
 
-- **Under `requireOwner`** (new in 0.9.0): when the library is made with `requireOwner: true`,
-  `createDocumentHandlers` throws a `TypeError` without `getOwner`, and an owner of `undefined`, or
-  `null` (`req.user?.id ?? null`), is answered `401` `{ "error": "Sign in first." }` on every route,
-  before the body is read. No document is then ever anyone's.
+- **Before 0.99.9**, these rules held only under `requireOwner: true` (new in 0.9.0), and
+  `undefined` made an anonymous upload by default
+  ([Upgrading to 0.99](../upgrading-0.99.md#owner-checks-are-on-by-default)).
 
 The owner is one opaque string, compared as it is. Pass the same string as `owner` to `askGemini`
 or `askWithFiles`, and to `files.getMeta`, `files.getOriginal` and `files.delete`. To keep each
@@ -194,8 +202,7 @@ import { createDocumentHandlers } from "llm-large-files/node";
 
 const files = createLargeFiles({
   store: new FileDocumentStore("/data", { scopes: { depth: 2 } }), // /data/<user>/<chat>/.llm-large-files/
-  requireOwner: true,
-  requireScope: true,
+  requireScope: true, // owner checks are on by default
 });
 
 const documents = createDocumentHandlers(files, {
@@ -263,6 +270,35 @@ const documents = createDocumentHandlers(files, {
 
 [The node reference](../reference/node.md#the-hooks-onuploaded-and-onremoved) has every detail.
 
+### The files of a chat: `list`
+
+New in 0.99.9. `list(request, response)` answers a `GET` with the documents of the request's owner
+and scope, as `files.list` gives them: a chat's file panel, without a second list in your database.
+
+```ts
+// Express: the same path as the upload's POST.
+app.get("/api/documents", documents.list);
+```
+
+```ts
+// In the browser: the files of the open chat (the chat goes in the header getScope reads).
+const response = await fetch("/api/documents", { headers: { "X-Chat-Id": chatId } });
+const { documents } = (await response.json()) as { documents: DocumentSummary[] }; // the oldest first
+```
+
+- **Exactly the owner and the scope** that `getOwner` and `getScope` give: nothing else of the
+  request is read, no query, header or body of its own. Another user's documents, another chat's,
+  and one without a scope (for a request with one) are not listed.
+- **Summaries only**, the oldest first: no owner, scope, `appData`, hash or path. There is no
+  paging: one store call reads every document of that owner and scope.
+- **A request with neither an owner nor a scope**, possible only under `requireOwner: false`, is
+  answered `401` `{ "error": "Sign in first." }`: its list would hold every document stored without
+  an owner, whose IDs work like passwords.
+- **Errors** are answered as for `get`: `503` with `Retry-After` when the store cannot be read,
+  `404` "This chat no longer exists." for a chat whose folder is gone, a `500` "The files could not
+  be listed (…)." for an owner or a scope that is the server's mistake, and a `500` "The files could
+  not be listed." over a store without `list`.
+
 ### Save each upload where you keep it: `prepareUpload`
 
 New in 0.9.0. When your app keeps the uploads of a chat in its folder anyway (to show a file
@@ -286,8 +322,7 @@ export const files = createLargeFiles({
   keepOriginals: ["pdf"],
   originals: fileOriginals(VOLUME), // reads the uploads back by their ref
   ttlMs: Infinity, // the documents stay as long as the chat, as its uploads do
-  requireOwner: true,
-  requireScope: true,
+  requireScope: true, // owner checks are on by default
 });
 
 export const documents = createDocumentHandlers(files, {
@@ -349,6 +384,46 @@ export const documents = createDocumentHandlers(files, {
 - **Without a path,** `prepareUpload` can still give the ID alone: `return { id }`.
 
 Every rule is in the [node reference](../reference/node.md#saving-the-body-prepareupload).
+
+#### The same file twice, and your own data: `dedupe` and `appData`
+
+New in 0.99.9. `prepareUpload` can also return `dedupe` and `appData`, which go to `ingest` as they
+are ([Storage](./storage.md#a-chats-files-its-own-data-and-the-same-file-twice)). Build both on the
+server: the handlers read no JSON of the client's.
+
+```ts
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => currentUserId(request),
+  getScope: (request) => [currentUserId(request)!, String(request.headers["x-chat-id"])],
+  // A file the chat already has gives back its document; appData is the server's own record.
+  prepareUpload: (_request, { owner }) => ({ dedupe: true, appData: { uploadedBy: owner } }),
+  onUploaded: async (document, { scope, reused }) => {
+    // reused: the chat already lists it. Do not add a second row.
+    if (!reused) await chats.addFile(scope![1]!, { documentId: document.id, name: document.name });
+  },
+});
+```
+
+- **`dedupe: true`**: when the chat already has a document of this owner and scope with the same
+  SHA-256, the upload answers `201` with that document's summary (its ID, its name), its expiry
+  counted again, and `onUploaded` is told `reused: true`. It keeps its own name, `createdAt` and
+  `appData`. Not with an `id` from `prepareUpload` (a `500` "Upload failed.", before the body is
+  read). It needs a store with `list`: another fails the upload with a `500` after the body is
+  read, and nothing is stored.
+- **A reused document is never deleted by the handlers**, even when `onUploaded` throws: it was
+  stored before, by another upload. The upload is answered with the hook's error all the same.
+- **The same file twice at once:** an upload given a document whose own upload is still in its
+  `onUploaded` waits for that hook, for at most 30 seconds and while its client stays. When the
+  hook failed, it deleted its document; a hook may also remove it and return. Either way the
+  upload that waited is answered `409` "The same file was being uploaded at the same time, and that
+  upload did not keep it. Send the file again.", without its own `onUploaded`. Past the 30 seconds
+  the document is given out if it is still there. The wait is within one process: with several
+  servers, an upload on another one can still be given a document that is deleted right after.
+- **The file saved to `path`** for an upload that gave back a document stored before is removed
+  before `onUploaded`, and its `path` is not told: no document refers to it.
+- **`appData`**: a JSON object of at most 16 KB (`MAX_APP_DATA_BYTES`), checked before the body is
+  read (a `500` "Upload failed." otherwise). It is kept in the metadata, never in the answer nor in
+  `ingest.finish`, and not applied to a reused document. Never pass on what a client sent as it is.
 
 ### Large uploads off the heap: `uploadSpool`
 
@@ -420,7 +495,7 @@ for the file saved as UTF-8.
 `onUploaded`'s `answer`, when it returns one, adds its fields to it.
 
 Everything else is JSON `{ "error": "…" }`, with a message you can show: `400` for a missing name or
-a body another middleware already parsed, `401` "Sign in first." under `requireOwner`, `404` "This
+a body another middleware already parsed, `401` "Sign in first." under `requireOwner` (the default), `404` "This
 chat no longer exists." for a chat whose folder is gone, `413` over `maxUploadBytes`, `422` for a
 file that cannot be read, `409` "A file is already saved for this upload." when a file is already at the
 path of `prepareUpload`, `503` with `Retry-After` when the server holds as many uploads as it
@@ -464,7 +539,7 @@ input, an [`IngestInput`](../reference/library.md#ingestinput):
 | `name` | The file's name. Cleaned as above. |
 | `mimeType` | Optional. Used for the format when the extension says nothing. Kept as its type and subtype, in lower case, without parameters (0.9.0). |
 | `bytes` | The file, as a `Uint8Array`. A Node `Buffer` is one. Since 0.9.0, give `source: { path }` in its place for a file your route saved to disk: it is read at the ingest's turn ([`IngestFromSource`](../reference/library.md#ingestfromsource)). |
-| `owner` | Optional. The user (or tenant) the document belongs to. Every later call must pass the same. A string that is not empty or only spaces: `""` and `null` throw a `TypeError` ([Storage](./storage.md#how-ownership-works)). Check it before you read the upload, as the handler does: the helper below would answer that error `500` "Upload failed.". |
+| `owner` | Required unless the library has `requireOwner: false` (since 0.99.9). The user (or tenant) the document belongs to. Every later call must pass the same. A string that is not empty or only spaces: `""` and `null` throw a `TypeError` ([Storage](./storage.md#how-ownership-works)). Check it before you read the upload, as the handler does: the helper below would answer that error `500` "Upload failed.". |
 | `scope` | Optional. The chat the document belongs to, such as `[userId, chatId]`. New in 0.9.0. |
 | `signal` | Optional. Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws its `reason`, and nothing is stored. |
 
@@ -1117,6 +1192,186 @@ event. If you do wrap the stream, stop the question yourself:
 `res.once("close", () => stream.abort())`. The
 [node reference](../reference/node.md#when-the-client-goes-away) has both.
 
+### When the stream breaks: a question ID
+
+A stream can break before its last event: a proxy cuts it, a phone changes networks, a laptop
+sleeps. The question stops with it, as above, and the page asks again, which pays for the
+question twice. New in 0.99.9: with a question ID, the request sent again joins the question, and
+the question goes on for a while when its stream breaks.
+
+- The page makes an ID for each question, `crypto.randomUUID()`, and sends it with the question.
+  When the stream breaks before `run.finish` or `run.error`, it sends the same request again, with
+  the same ID.
+- The route runs the question through a [question registry](../reference/ask.md#question-ids),
+  made once per process: `questions.askStream({ ...options, owner, questionId })`, sent with
+  `writeSseEvents` as before.
+- When the stream of the first request breaks, `writeSseEvents` stops reading, and that request
+  leaves the question. The question goes on for 30 seconds (`detachedMs`) with nobody waiting,
+  then stops. The request sent again joins it within that time, or gets its answer for 10 minutes
+  after it ended (`keepMs`), with no model request. A question that failed is not kept: the
+  request sent again asks again.
+
+```ts
+// chat-route.ts, with a question ID.
+import type { Request, Response } from "express";
+import { createQuestionRegistry, errorInfoOf, partialResultOf, QUESTION_ID_PATTERN, type AskEvent, type AskResult, type ChatTurn, type EventStream, type ToolTurn, type UsageTotals } from "llm-large-files";
+import { gemini } from "llm-large-files/gemini";
+import { writeSseEvents } from "llm-large-files/node";
+import { endpoint, files } from "./large-files.js";
+
+/**
+ * Your app's chats, as in the route above, but by questionId: `save` keeps one question per ID (a
+ * second save replaces the first), and `load` gives the history before the question saved under
+ * `questionId`, when one was, so that a request sent again asks with the messages of the first.
+ */
+export type ChatStore = {
+  load(sessionId: string, userId: string, questionId: string): Promise<{ documentIds: string[]; history: Array<ChatTurn | ToolTurn> } | undefined>;
+  save(sessionId: string, turn: { questionId: string; question: string; toolTurns: ToolTurn[]; answer?: string; usage: UsageTotals }): Promise<void>;
+};
+
+// Once per process, as files is: a registry made for each request would hold nothing.
+const questions = createQuestionRegistry();
+const model = gemini(endpoint);
+
+/** POST /api/chat with { sessionId, question, questionId }. */
+export function chatRoute(chats: ChatStore) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const userId = currentUserId(req);
+    if (!userId) return void res.status(401).json({ error: "Sign in to ask." });
+    const { sessionId, question, questionId } = (req.body ?? {}) as { sessionId?: unknown; question?: unknown; questionId?: unknown };
+    if (typeof sessionId !== "string" || typeof question !== "string" || !question.trim()
+      || typeof questionId !== "string" || !QUESTION_ID_PATTERN.test(questionId)) {
+      return void res.status(400).json({ error: "Send a sessionId, a question and a questionId." });
+    }
+    // The history before this question: without the turn a first request may have saved already.
+    const chat = await chats.load(sessionId, userId, questionId);
+    if (!chat) return void res.status(404).json({ error: "No such chat." });
+
+    let stream: EventStream<AskEvent, AskResult>;
+    try {
+      // Starts the question, joins it while it runs, or gives its kept answer.
+      stream = questions.askStream({
+        files,
+        model,
+        owner: userId, // part of the question's key: another user's ID is another question
+        questionId,
+        documentIds: chat.documentIds,
+        messages: [...chat.history, { role: "user", text: question }],
+      });
+    } catch (error) {
+      // Thrown at once, before any event: this questionId names another question (409).
+      const info = errorInfoOf(error);
+      return void res.status(info.status).json({ error: info.message });
+    }
+
+    await writeSseEvents(res, stream, { end: false });
+
+    let result: AskResult | undefined;
+    try {
+      result = await stream.result;
+    } catch (error) {
+      // A request whose stream broke gets its own abort here: partialResultOf gives nothing, and
+      // the request sent again keeps the question.
+      result = partialResultOf(error);
+    }
+    if (result) {
+      await chats.save(sessionId, {
+        questionId, // one question per ID: two requests can get the same result
+        question,
+        toolTurns: result.toolTurns,
+        ...(result.answered ? { answer: result.text } : {}),
+        usage: result.usage,
+      }).catch((error: unknown) => console.error("could not keep the question", error));
+    }
+    if (!res.writableEnded && !res.destroyed) res.end();
+  };
+}
+
+/** POST /api/chat/stop with { questionId }: the Stop button. Leaving the stream only leaves the question. */
+export function stopRoute() {
+  return (req: Request, res: Response): void => {
+    const userId = currentUserId(req);
+    const { questionId } = (req.body ?? {}) as { questionId?: unknown };
+    if (!userId || typeof questionId !== "string") return void res.status(400).json({ error: "Send a questionId." });
+    res.status(200).json({ stopped: questions.stop(questionId, { owner: userId }) });
+  };
+}
+```
+
+What it does, and why:
+
+- **It refuses before it streams.** `askStream` throws a `QuestionConflictError` at once when the
+  ID names another question of this user: other messages, documents or models. `errorInfoOf`
+  gives it status 409 and a message. A page that makes a new ID for each question never gets it.
+- **The owner is part of the key.** A user cannot join another user's question with its ID. Pass
+  `scope` too when your documents have one.
+- **Leaving is not stopping.** The request's signal, a deadline of yours included, only takes this
+  request off the question. The Stop button calls `questions.stop(questionId, { owner })`: every
+  request that waits for the question ends with `run.error`.
+- **The question is kept once.** Two requests can get the same result: the request sent again, and
+  the first one when the server had not yet seen its stream break. A request that left gets its
+  own abort from `stream.result`, for which `partialResultOf` gives nothing. Keep the question by
+  its `questionId`, so that a second save replaces the first.
+- **The history leaves out the question itself.** The first request may have saved its turn before
+  the request sent again loads the chat: a laptop that slept, whose server wrote the whole stream
+  into a connection already dead. `load` gives the history before the turn saved under this
+  `questionId`. With that turn in it, the messages differ from the first request's, and the
+  request sent again is a `409` in place of the kept answer.
+- **One process.** The registry is in memory. A request sent again that reaches another server
+  runs the question again ([Deployment](./deployment.md#streamed-answers-behind-proxies)).
+
+What a request sent again receives depends on what it finds:
+
+| It finds | Its events |
+|---|---|
+| The question running | The events from the moment it joined: no `run.start`, a first `seq` above 1, the text from then on, and `run.finish` or `run.error` last. |
+| The answer kept | `run.finish` alone. |
+| Neither: the question stopped, failed, or ran on another server, or its answer expired | Every event from `run.start`: the question runs again. |
+
+So the page streams the text only after a `run.start`, and shows `result.text` of `run.finish` in
+place of the text it got. Every event carries the `questionId`. `readEvents` and `ChatEvent` are in
+the next section:
+
+```ts
+// chat-retry.ts: runs in the browser. readEvents and ChatEvent are below.
+import { readEvents, type ChatEvent } from "./chat-client.js";
+
+/**
+ * Asks a question, and sends it again with the same questionId when the stream breaks before its
+ * last event. `show` gets the answer as it grows. Returns run.finish or run.error, or undefined.
+ */
+export async function askQuestion(sessionId: string, question: string, show: (text: string) => void): Promise<ChatEvent | undefined> {
+  const questionId = crypto.randomUUID(); // one for each question, the same on each retry
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
+    let streaming = false;
+    let text = "";
+    let last: ChatEvent | undefined;
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, question, questionId }),
+      });
+      if (response.status >= 400 && response.status < 500) return undefined; // refused: the same request would be too
+      if (!response.ok) continue;
+      await readEvents(response, (data) => {
+        const event = data as ChatEvent;
+        // Only a run that starts here sends the whole text: a request that joined one missed its start.
+        if (event.type === "run.start") streaming = true;
+        if (event.type === "text" && streaming) show((text += event.delta));
+        if (event.type === "run.finish") show(event.result.text);
+        if (event.type === "run.finish" || event.type === "run.error") last = event;
+      });
+    } catch (error) {
+      console.error("The stream broke", error); // sent again, with the same questionId
+    }
+    if (last) return last;
+  }
+  return undefined;
+}
+```
+
 ### Reading the events in the browser
 
 `EventSource` sends only `GET` requests without a body, so read a `POST` stream with `fetch`. This
@@ -1764,8 +2019,8 @@ What it does:
 - **The library.** `geminiApi()` with an API key for the endpoint, and `createLargeFiles` with a
   `FileDocumentStore` in `.data/large-files`, `keepOriginals: ["pdf"]`, so the model can look at
   the pages of a PDF ([PDFs](./pdfs.md)), `createIsolatedExtractors()`, so that PDF and Office files
-  are read in child processes with a memory limit, and `requireOwner: true`, so that no document is
-  ever anyone's. To try Vertex AI, swap the endpoint for `vertexAi()`
+  are read in child processes with a memory limit. Owner checks are on by default (`requireOwner`),
+  so that no document is ever anyone's. To try Vertex AI, swap the endpoint for `vertexAi()`
   ([Gemini and Vertex AI](./vertex-and-gemini.md)).
 - **An owner per browser.** The page sets a cookie, `demo-owner`, of 32 random hex digits, with
   `HttpOnly` (no script reads it) and `SameSite=Strict` (no other site's page sends it).
@@ -1773,7 +2028,8 @@ What it does:
   "Sign in first.". So two browsers cannot read, delete or ask about each other's files. It is no
   sign-in: whoever has the cookie is that owner. Put your own sign-in in its place.
 - **Uploads.** `createDocumentHandlers` on `node:http`: `POST /api/documents` to `upload`,
-  `GET /api/documents/:id` to `get`, `DELETE /api/documents/:id` to `remove`.
+  `GET /api/documents` to `list` (since 0.99.9), `GET /api/documents/:id` to `get`,
+  `DELETE /api/documents/:id` to `remove`.
 - **The chat route.** `POST /api/chat` takes `{ chatId, question, documentIds }` as JSON, checked
   before the stream starts (`400` or `413` otherwise). The server keeps each chat's turns, tool
   rounds included, in a `Map` keyed by owner and chat, so that nobody reads another's chat by its

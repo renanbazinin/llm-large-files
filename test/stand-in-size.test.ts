@@ -40,7 +40,7 @@ describe("a stand-in", () => {
   });
 
   it("leaves such a result as it is when the loop makes room", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
     const read = (from: number) => ({ name: "read_document", args: { document_id: meta.id, start_line: from, end_line: from + 199 } });
     // A stored round of an earlier question: the small grouped search, and a read.

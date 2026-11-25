@@ -8,7 +8,7 @@ import { utf8 } from "./fake-model.js";
 
 const doc = (text: string) => new SearchableDocument({ meta: { id: "doc_t", name: "t.txt" } as never, text });
 const linesOf = (result: ToolResult) => (result.matches as Array<{ line: number }>).map((match) => match.line);
-const budget = createLargeFiles({ store: new MemoryDocumentStore() }).budget;
+const budget = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }).budget;
 /** Tools over one document held in memory, with the time for regex searches given. */
 const toolsOver = (text: string, regexBudgetMs?: number) =>
   createDocumentTools({ load: async () => doc(text), documentIds: ["doc_t"], budget, ...(regexBudgetMs !== undefined ? { regexBudgetMs } : {}) });
@@ -119,7 +119,7 @@ describe("group_by by time, cut to its room (finding 28)", () => {
   type Group = { key: string; count: number; first_line: number };
 
   it("keeps the largest groups, in time order, as its note says", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "p.log", bytes: utf8(log) });
     const tools = files.tools([meta]);
     for (const max of [50, 10]) {

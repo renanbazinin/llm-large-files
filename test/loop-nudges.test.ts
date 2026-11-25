@@ -12,7 +12,7 @@ const lastText = (messages: ModelMessage[]) => {
 };
 
 async function largeLog(lines = 2_000) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(lines)) });
   return { files, meta };
 }

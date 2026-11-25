@@ -34,7 +34,7 @@ vi.mock("../src/gemini/generate.js", async (importOriginal) => {
 const say = (text: string) => Response.json({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text }] } }] });
 
 async function notes() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore() });
+  const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false });
   const meta = await files.ingest({ name: "notes.md", bytes: utf8("The code word is heron.\n") });
   return { files, meta };
 }
@@ -51,8 +51,7 @@ describe("askGemini's options since 0.10.0", () => {
       documentIds: [meta.id],
       messages: [{ role: "user", text: "The code word?" }],
       documentPlacement: "last",
-      inlineTables: "text",
-      numberInline: false,
+      storeRounds: "compact",
       filteredAnswer: "drop",
       onToolResult,
       limits: { wholeReadsPerQuestion: 1, toolTurns: 4 },
@@ -60,7 +59,7 @@ describe("askGemini's options since 0.10.0", () => {
     });
     expect(result.text).toBe("Heron.");
     expect(given).toHaveLength(1);
-    expect(given[0]).toMatchObject({ documentPlacement: "last", inlineTables: "text", numberInline: false, filteredAnswer: "drop", onToolResult });
+    expect(given[0]).toMatchObject({ documentPlacement: "last", storeRounds: "compact", filteredAnswer: "drop", onToolResult });
     // limits keep their old names, and win over them.
     expect(given[0]!.limits).toEqual({ callsPerTurn: 3, wholeReadsPerQuestion: 1, toolTurns: 4 });
     // askGemini's own options do not go on: the models carry them.

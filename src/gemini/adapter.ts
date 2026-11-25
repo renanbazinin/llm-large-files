@@ -1,9 +1,10 @@
 // Gemini (Generate Content REST) as a model of `askWithFiles`.
-import { laterResult, TOOL_TURN_VERSION, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelPart, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { checkToolTurnVersion, laterResult, TOOL_TURN_VERSION, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelPart, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { documentsOption } from "../native.js";
 import { TOOL_NAMES } from "../tools.js";
-import type { ToolResult } from "../types.js";
+import type { DocumentsCapability, ToolResult } from "../types.js";
 import { retryAfterMs } from "../retry.js";
-import { idleWatch, noteCutReply, readJson, streamedReply, type IdleWatch } from "../http.js";
+import { base64, idleWatch, noteCutReply, readJson, streamedReply, type IdleWatch } from "../http.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import { resolveHeaders, type GeminiEndpoint } from "./endpoints.js";
 import { errorBodyOf, finishOfGemini, geminiFailure, GeminiRequestError, notJson, silent, statusOfError, unreachable } from "./errors.js";
@@ -32,6 +33,13 @@ export type GeminiModelOptions = {
   maxRequestBytes?: number | undefined;
   /** Tokens billed for one PDF page. Defaults to 530. */
   pageTokens?: number | undefined;
+  /**
+   * The files this model reads natively: small visual files sent whole go to it as `inlineData`
+   * before their text. "pdf" anywhere; "pptx" on the Gemini API (Vertex AI refused Office files on
+   * Gemini 3 models: list "pdf" only there). Off by default. A value that is not valid is a
+   * TypeError when the adapter is made. New in 0.99.9.
+   */
+  documents?: DocumentsCapability | undefined;
   /** Names the model in usage totals. Defaults to the model in the URL. */
   id?: string | undefined;
   /**
@@ -117,9 +125,12 @@ function callsTurn(calls: ToolCall[]): GeminiContent {
 /**
  * A turn of text, without its empty text parts: Vertex AI refuses an empty text parameter (a stored
  * answer that came back empty is one). A native part stays, and a turn with no part left is none.
+ * Its files (`ModelTextMessage.files`, since 0.99.9) come first, each as `inlineData` of its own
+ * type: the provider says which types it reads.
  */
 const textTurn = (message: ModelTextMessage): GeminiContent[] => {
-  const parts = message.parts.flatMap((part): GeminiPart[] => (part.native !== undefined ? [part.native as GeminiPart] : part.text ? [{ text: part.text }] : []));
+  const files = (message.files ?? []).map((file): GeminiPart => ({ inlineData: { mimeType: file.mimeType, data: base64(file.bytes) } }));
+  const parts = [...files, ...message.parts.flatMap((part): GeminiPart[] => (part.native !== undefined ? [part.native as GeminiPart] : part.text ? [{ text: part.text }] : []))];
   return parts.length > 0 ? [{ role: message.role === "user" ? "user" : "model", parts }] : [];
 };
 
@@ -224,9 +235,11 @@ export function fromGeminiContents(contents: GeminiContent[], options: FromGemin
 /**
  * The tool rounds a question returned (`AskResult.toolTurns`) as Gemini `contents`: a model turn
  * of function calls and a user turn of function responses for each. For an application that
- * keeps its history as `contents`: put them between the question and its answer.
+ * keeps its history as `contents`: put them between the question and its answer. A round of a newer
+ * version is a TypeError, as in askWithFiles (since 0.99.9).
  */
 export function geminiToolTurns(turns: ToolTurn[]): GeminiContent[] {
+  for (const turn of turns) checkToolTurnVersion(turn);
   return turns.flatMap((turn) => {
     // Sent again in later questions: without the tool turns this question had left.
     const answers = turn.calls.map(({ result, ...call }) => ({ call, result: laterResult(result) }));
@@ -244,6 +257,7 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
   const fetchImpl = options.fetch ?? fetch;
   const placement = options.toolFilePlacement ?? "inside";
   const refreshable = endpoint.refreshable === true;
+  const documents = documentsOption("gemini()", options.documents, ["pdf", "pptx"]);
   // The turns of a tool round are built once: its pages are megabytes of base64.
   const built = new WeakMap<ModelToolRound, GeminiContent[]>();
   const roundTurns = (round: ModelToolRound): GeminiContent[] => {
@@ -282,6 +296,8 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
       ...(options.maxRequestBytes ? { maxRequestBytes: options.maxRequestBytes } : {}),
       toolFiles: placement,
       pageTokens: options.pageTokens ?? GEMINI_PAGE_TOKENS,
+      // Since 0.99.9, only with the option: without it the object of 0.10.
+      ...(documents ? { documents } : {}),
     },
     requestBytes: (request) => Buffer.byteLength(JSON.stringify(bodyOf(request))),
     generateText: createGeminiGenerateText({

@@ -9,7 +9,7 @@ const SERVER_FIELDS = ["owner", "scope", "sha256", "original", "metaVersion"];
 
 describe("the plan in run.finish and run.error", () => {
   it("has no owner, scope, sha256, original or metaVersion with eventResults (p4-event-results)", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), originals: { read: async () => undefined } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), originals: { read: async () => undefined } });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("hello\nworld"), owner: "user-17", scope: ["u17", "chat9"], id: "up-1", original: { ref: "u17/chat9/uploads/up-1" } });
     // The stored metadata holds them all: the result keeps them, for the server.
     expect(meta).toMatchObject({ owner: "user-17", scope: ["u17", "chat9"] });
@@ -29,7 +29,7 @@ describe("the plan in run.finish and run.error", () => {
   });
 
   it("has none of them in the partial result of run.error either", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)), owner: "user-17", scope: ["u17", "chat9"] });
     const events: AskEvent[] = [];
     const model = fakeModel([calls([{ id: "c1", name: "read_document", args: { document_id: meta.id, start_line: 1, end_line: 2 } }]), new Error("The provider went away.")]);
@@ -45,7 +45,7 @@ describe("the plan in run.finish and run.error", () => {
 
 describe("request.end", () => {
   it("carries the provider's response ID and model when the adapter gives them", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nShort.\n") });
     const events: AskEvent[] = [];
     await askWithFiles({ files, model: fakeModel([says("ok", { responseId: "resp_81f3", responseModel: "gemini-3.8-flash-001" })]), documentIds: [meta.id], messages: [{ role: "user", text: "q" }], onEvent: (event) => events.push(event) });

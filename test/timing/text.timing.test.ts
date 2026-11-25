@@ -21,7 +21,7 @@ describe("small hostile uploads that held the server", () => {
     const sixty = `a${"\u0301\u0316".repeat(30)}`;
     expect(composed(sixty)).toBe(`${sixty.slice(0, 31).normalize("NFC")}\u034f${sixty.slice(31).normalize("NFC")}`);
     expect(composed(`a${"\u0301\u0316".repeat(15)}`)).toBe(`a${"\u0301\u0316".repeat(15)}`.normalize("NFC"));
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const ingest = await timed(() => files.ingest({ name: "zalgo.txt", bytes: utf8(zalgo) }));
     expect(ingest.ms).toBeLessThan(10_000);
     // Real text is untouched: Hebrew with points and cantillation has a few marks a letter.
@@ -59,7 +59,7 @@ describe("ingest of text with many marks (45, 47, 48)", () => {
     expect(result.split("\u034f")).toHaveLength(Math.ceil(4_000_000 / 30));
     // Composing it again changes nothing: a grapheme joiner ends a run.
     expect(composed(result.slice(0, 100_000))).toBe(result.slice(0, 100_000));
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const { value, gap } = await measured(() => files.ingest({ name: "marks.txt", bytes: utf8(`${run}\nafter\n`) }));
     expect(value.lines).toBeGreaterThan(2_000);
     expect(gap).toBeLessThan(600);

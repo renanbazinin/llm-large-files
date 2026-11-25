@@ -35,7 +35,7 @@ async function settleAfterAbort(asking: Promise<unknown>, abortedAt: () => numbe
 describe("the question's abort", () => {
   it("ends a question whose store hangs while it plans the documents (p2-hung-store)", async () => {
     const { store, hang } = hungStore(["getMeta", "get", "delete"]);
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
     hang.on = true;
     const stop = new AbortController();
@@ -57,7 +57,7 @@ describe("the question's abort", () => {
 
   it("ends a question whose store hangs inside a tool call (p3-hung-tool)", async () => {
     const { store, hang } = hungStore(["getMeta", "get", "readTextRange", "getIndex"]);
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
     const stop = new AbortController();
     let abortedAt: number | undefined;
@@ -83,7 +83,7 @@ describe("the question's abort", () => {
   });
 
   it("passes the question's signal on with the access of every store call it asks for", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
     const prepared: Array<PrepareOptions | undefined> = [];
     const tooled: Array<ToolOptions | undefined> = [];
@@ -111,7 +111,7 @@ describe("the question's abort", () => {
 
 describe("a tool call that rejects", () => {
   it("ends the question with run.error, and the model gets nothing of it", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
     const timeout = Object.assign(new Error("The document store did not answer within 30 s."), { name: "DocumentStoreError", code: "ETIMEDOUT", status: 503 });
     const own: LargeFiles = {

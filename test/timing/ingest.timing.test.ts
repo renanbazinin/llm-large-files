@@ -22,7 +22,7 @@ async function docxOf(documentXml: string): Promise<Uint8Array> {
 
 describe("ingest lets other work run", () => {
   it("pauses while a large log is ingested", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const bytes = encoder.encode(serviceLog(120_000));
     const { beats, result } = await beatsDuring(() => files.ingest({ name: "app.log", bytes }));
     expect(result.lines).toBe(120_000);
@@ -31,7 +31,7 @@ describe("ingest lets other work run", () => {
   });
 
   it("pauses between the pages of a PDF", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const { beats, result } = await beatsDuring(() => files.ingest({ name: "book.pdf", bytes: numberedPdf(300) }));
     expect(result.pages).toBe(300);
     expect(beats).toBeGreaterThanOrEqual(3);
@@ -39,7 +39,7 @@ describe("ingest lets other work run", () => {
 
   it("pauses while a large DOCX is unpacked", async () => {
     const docx = await docxOf(`<w:document><w:body>${"<w:p><w:r><w:t>Forty characters of text in a paragraph.</w:t></w:r></w:p>".repeat(150_000)}</w:body></w:document>`);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const { beats, result } = await beatsDuring(() => files.ingest({ name: "long.docx", bytes: docx }));
     expect(result.lines).toBe(150_000);
     expect(beats).toBeGreaterThanOrEqual(3);
@@ -53,7 +53,7 @@ describe("ingest events", () => {
       for (let done = 1; done <= 20_000; done++) input.onProgress?.({ done, total: 20_000, unit: "parts" });
       return { text: "done" };
     };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: chatty } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: chatty } });
     const record = recorder();
     const started = performance.now();
     await files.ingest({ name: "notes.txt", bytes: encoder.encode("ignored"), onEvent: record.onEvent });
@@ -63,7 +63,7 @@ describe("ingest events", () => {
     expect(extract.at(-1)).toMatchObject({ done: 20_000, total: 20_000 });
 
     // A large log: the steps between two events of a stage, but its last, are at least about 12 ms apart.
-    const big = createLargeFiles({ store: await fileStore() });
+    const big = createLargeFiles({ requireOwner: false, store: await fileStore() });
     const log = recorder();
     await big.ingest({ name: "big.log", bytes: encoder.encode(logText(400_000)), onEvent: log.onEvent });
     expectWellFormed(log.events);
@@ -87,7 +87,7 @@ describe("ingest events", () => {
       }
       return { text: "done" };
     };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: alternating } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: alternating } });
     const record = recorder();
     const started = performance.now();
     await files.ingest({ name: "notes.txt", bytes: encoder.encode("ignored"), onEvent: record.onEvent });
@@ -107,7 +107,7 @@ describe("ingest events", () => {
       return { text: "done" };
     };
     const held = recorder();
-    await createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: halfway } })
+    await createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: halfway } })
       .ingest({ name: "notes.txt", bytes: encoder.encode("ignored"), onEvent: held.onEvent });
     expectWellFormed(held.events);
     expect(held.progress().slice(0, 4).map((event) => [event.stage, event.done])).toEqual([["extract", 1], ["pictures", 1], ["extract", 2], ["pictures", 2]]);

@@ -18,7 +18,7 @@ const FULL_NOTES = `Notes (L1) ${"important finding ".repeat(1_400)}`;
 /** probe5's document: a service log of 20,000 lines (1.77 MB), read in parts of 60,000 tokens. */
 let probe: Promise<{ files: LargeFiles; meta: DocumentMeta }> | undefined;
 const probeLog = () => (probe ??= (async () => {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { mapChunkTokens: 60_000 } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 60_000 } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
   return { files, meta };
 })());
@@ -98,7 +98,7 @@ describe("the frame of a part read, which a price counts for each part", () => {
    * system text, where it is, the task and the rules, and the heading it starts under, if any.
    */
   async function frames(name: string, text: string, args: Record<string, unknown>, mapChunkTokens = 60_000) {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10, mapChunkTokens } });
     const meta = await files.ingest({ name, bytes: utf8(text) });
     const lines = text.split("\n");
     const sent: Array<{ system: string; prompt: string }> = [];

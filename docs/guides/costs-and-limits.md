@@ -162,10 +162,11 @@ the behavior of 0.9: no ceiling.
 ```ts
 import { askGemini } from "llm-large-files/gemini";
 
-// files and endpoint as in the first sample. documentIds and question are yours.
+// files and endpoint as in the first sample. userId, documentIds and question are yours.
 const result = await askGemini({
   files,
   endpoint,
+  owner: userId,
   documentIds,
   messages: [{ role: "user", text: question }],
   wholeDocumentAnalysis: false, // no analyze_whole_document: no part reads
@@ -339,8 +340,8 @@ const local = openAiCompatible({
   tokenScale: 1.2,
 });
 
-export async function ask(documentIds: string[], question: string) {
-  const result = await askWithFiles({ files, model: flash, explorer: local, documentIds, messages: [{ role: "user", text: question }] });
+export async function ask(userId: string, documentIds: string[], question: string) {
+  const result = await askWithFiles({ files, model: flash, explorer: local, owner: userId, documentIds, messages: [{ role: "user", text: question }] });
   console.log(result.budget.contextTokens); // 109226: the library's 1,000,000, then 131,072, then / 1.2
   return result;
 }
@@ -671,9 +672,10 @@ explorer model, which makes these requests at its own price.
 
 - **One `view_pages` call shows up to five pages** (`MAX_VIEW_PAGES`). A page costs about 530
   tokens on Gemini, 1,000 on an OpenAI-compatible model and 3,500 on Claude by default (the
-  adapter's `pageTokens`). An OpenAI-compatible model is shown pages only with `pdfInput: true`.
-  Without it, `openAiCompatible()` declares `toolFiles: "none"`, and `view_pages` is offered to no
-  model of the question.
+  adapter's `pageTokens`). An OpenAI-compatible model is shown pages only with `pdfInput: true`,
+  or, as images, with `imageInput: true` (0.99.9). Without either, `openAiCompatible()` declares
+  `toolFiles: "none"`, and `view_pages` is offered to no model of the question. A page drawn as an
+  image counts as one page.
 - **Pages stay in every later request of the question**, so a page shown early is paid for again
   by each request after it. They are not kept in `toolTurns`, so a later question does not pay for
   them again.
@@ -686,6 +688,22 @@ What bounds it: `viewPages: false`; `keepOriginals` only for the formats that ne
 original, no pages); a smaller `reservedTokens`, which also keeps less of the window free for the
 answer (text tool results may then grow the request further). See [PDFs](./pdfs.md).
 
+### Files sent as they are
+
+With `documents` on the adapters (0.99.9), a small visual file sent whole goes to the model as the
+file itself too, next to its text ([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)):
+
+- **It is paid for on every question** that names it, as its text is: its pages times `pageTokens`
+  (a PDF of 10 pages: about 5,300 tokens on Gemini, 35,000 on Claude), and its bytes as base64 in
+  every request of the question.
+- **It takes only the room the plan leaves.** The files are chosen after the text of the files sent
+  whole and the cards, in the order of the plan; one that does not fit is sent as text only.
+- **It can save requests.** The model has every page, so a question over such files is answered
+  in one request, without a look at its pages.
+
+What bounds it: `documents.maxPages` (10) and `maxFileBytes` (4 MiB) on the adapter;
+`nativeDocuments: false` on a question; or no `documents` at all, the default.
+
 ### Documents sent whole
 
 Up to `inlineTokens` (200,000 by default) of document text goes into every chat request of the
@@ -697,16 +715,15 @@ repeats cheaper ([below](#prompt-caching)).
   sent whole can take several when the document is searched.
 - Name in `documentIds` only the documents a question is about. Each one named is planned: sent
   whole, or given a card.
-- Since 0.10.0 their lines are numbered (`numberInline`), so that the answer can cite them: about
-  8% to 16% more tokens for each file sent whole (15.5% for a CSV of short rows, 9.4% for a service
-  log, 8.4% for Hebrew prose). A file at the edge of `inlineTokens` may become a card for it.
-  `numberInline: false` sends them as 0.9 did.
+- Since 0.10.0 their lines are numbered, so that the answer can cite them: about 8% to 16% more
+  tokens for each file sent whole (15.5% for a CSV of short rows, 9.4% for a service log, 8.4% for
+  Hebrew prose). A file at the edge of `inlineTokens` may become a card for it.
 
 ### Tables sent whole
 
 Since 0.10.0 a table sent whole (a CSV, an XLSX workbook, a file with `| cell |` rows) gets
-`search_document`, `read_document` and `aggregate_table` (`inlineTables: "tools"`, the default), so
-that counts and sums over it are exact, not made by eye. What a question costs then:
+`search_document`, `read_document` and `aggregate_table`, so that counts and sums over it are exact,
+not made by eye. What a question costs then:
 
 - **A question that needs no count** stays at one request when the model answers at once, as it
   does when the answer is in the table it sees. The request is a little larger, by the three tool
@@ -728,16 +745,16 @@ that counts and sums over it are exact, not made by eye. What a question costs t
   to a model that does not share the other's cache.
 - **At most**, a model that goes on calling tools uses the question's ceiling: by default about
   `toolTurns` times its first request (`DEFAULT_INPUT_TOKENS`, 1,000,000, at least). For the CSV of
-  3,000 invoices that is 11 requests of about 134,000 tokens, about 1.5M input tokens, where
-  `"text"` makes one request of 133,000. `limits.inputTokens` or `limits.toolTurns` bound it.
+  3,000 invoices that is 11 requests of about 134,000 tokens, about 1.5M input tokens, where 0.9
+  made one request of 133,000. `limits.inputTokens` or `limits.toolTurns` bound it.
 - **Limits sized for 0.9.** A count needs room for about three requests with the table. A ceiling
   (`limits.inputTokens`) or `limits.requests` sized for 0.9's one request leaves no tool turn, and
-  so does `limits.toolTurns: 1`: such a question is then the one request of `"text"`, without the
-  tools, and its counts are made by eye again.
+  so does `limits.toolTurns: 1`: such a question is then one request without the tools, as in 0.9,
+  and its counts are made by eye again.
 
-To keep the cost of 0.9 for such questions, at the price of counts made by eye, pass
-`inlineTables: "text"`. A lower `inlineTokens` sends the table as a card instead: its requests are
-small, and the model reads it only through the tools.
+A lower `inlineTokens` sends the table as a card instead: its requests are small, and the model
+reads it only through the tools. (`inlineTables: "text"`, which sent it whole without the tools,
+was removed in 0.99.9.)
 
 ### An explorer model
 

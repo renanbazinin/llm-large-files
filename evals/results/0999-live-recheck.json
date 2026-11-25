@@ -1,0 +1,3698 @@
+{
+ "title": "0.99.9 live: the three k=1 misses, k=3",
+ "notes": [],
+ "runs": [
+  {
+   "case": "policy-searched",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 6",
+       "status": "pass"
+      },
+      {
+       "fact": "cites policy-1 at \"עד 6 ימי חופשה\"",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 10785,
+     "cachedInputTokens": 0,
+     "outputTokens": 102,
+     "thoughtTokens": 0,
+     "ms": 2095,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5899,
+       "ms": 1010,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3828,
+        "cachedInputTokens": 0,
+        "outputTokens": 32,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 9337,
+       "ms": 1045,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6957,
+        "cachedInputTokens": 0,
+        "outputTokens": 70,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "לפי מדיניות משאבי אנוש 2026 (סעיף 3.4), ניתן להעביר לשנה הבאה עד **6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (policy-1 L23)."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 2.35",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 7039,
+     "cachedInputTokens": 2001,
+     "outputTokens": 70,
+     "thoughtTokens": 0,
+     "ms": 1334,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "מדיניות משאבי אנוש 2026.docx",
+        "line": 47
+       }
+      ]
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 9423,
+       "ms": 1332,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7039,
+        "cachedInputTokens": 2001,
+        "outputTokens": 70,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "לפי מדיניות משאבי אנוש 2026 (סעיף 6.1), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, לפי דיווח חודשי במערכת (policy-1 L47)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "policy-searched",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 6",
+       "status": "pass"
+      },
+      {
+       "fact": "cites policy-1 at \"עד 6 ימי חופשה\"",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 10785,
+     "cachedInputTokens": 2002,
+     "outputTokens": 103,
+     "thoughtTokens": 0,
+     "ms": 1729,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5899,
+       "ms": 529,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3828,
+        "cachedInputTokens": 0,
+        "outputTokens": 32,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 9337,
+       "ms": 1191,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6957,
+        "cachedInputTokens": 2002,
+        "outputTokens": 71,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "לפי נוהל משאבי אנוש 2026 (סעיף 3.4), ניתן להעביר לשנה הבאה עד **6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (policy-1 L23)."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 2.35",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 7040,
+     "cachedInputTokens": 2001,
+     "outputTokens": 73,
+     "thoughtTokens": 0,
+     "ms": 1048,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "מדיניות משאבי אנוש 2026.docx",
+        "line": 47
+       }
+      ]
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 9421,
+       "ms": 1044,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7040,
+        "cachedInputTokens": 2001,
+        "outputTokens": 73,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "לפי נוהל משאבי אנוש 2026 (סעיף 6.1), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, בהתאם לדיווח חודשי במערכת (policy-1 L47)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "policy-searched",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 3,
+   "language": "he",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 6",
+       "status": "pass"
+      },
+      {
+       "fact": "cites policy-1 at \"עד 6 ימי חופשה\"",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 10785,
+     "cachedInputTokens": 2002,
+     "outputTokens": 98,
+     "thoughtTokens": 0,
+     "ms": 1496,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5899,
+       "ms": 536,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3828,
+        "cachedInputTokens": 0,
+        "outputTokens": 32,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 9337,
+       "ms": 950,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6957,
+        "cachedInputTokens": 2002,
+        "outputTokens": 66,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "על פי נוהל משאבי אנוש (סעיף 3.4), ניתן להעביר לשנה הבאה עד **6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (policy-1 L23)."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 2.35",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 1,
+     "inputTokens": 7035,
+     "cachedInputTokens": 4003,
+     "outputTokens": 66,
+     "thoughtTokens": 0,
+     "ms": 1548,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "מדיניות משאבי אנוש 2026.docx",
+        "line": 47
+       }
+      ]
+     },
+     "tools": [],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 9417,
+       "ms": 1540,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7035,
+        "cachedInputTokens": 4003,
+        "outputTokens": 66,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "על פי נוהל משאבי אנוש (סעיף 6.1), החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, לפי דיווח חודשי במערכת (policy-1 L47)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-summary",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "whole-read",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 45 days",
+       "status": "pass"
+      },
+      {
+       "fact": "says four hours",
+       "status": "pass"
+      },
+      {
+       "fact": "number 48000",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 15,
+     "inputTokens": 39412,
+     "cachedInputTokens": 0,
+     "outputTokens": 18277,
+     "thoughtTokens": 0,
+     "ms": 33574,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 47,
+      "supported": 47,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "get_document_overview",
+      "analyze_whole_document"
+     ],
+     "reads": 0,
+     "wholeReads": 1,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5575,
+       "ms": 646,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3656,
+        "cachedInputTokens": 0,
+        "outputTokens": 22,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 6492,
+       "ms": 748,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4582,
+        "cachedInputTokens": 0,
+        "outputTokens": 75,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "part 1 of 5",
+       "callId": "call_2",
+       "ms": 2311,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2087,
+        "cachedInputTokens": 0,
+        "outputTokens": 787,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_4",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "part 2 of 5",
+       "callId": "call_2",
+       "ms": 4442,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2126,
+        "cachedInputTokens": 0,
+        "outputTokens": 890,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_5",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "part 3 of 5",
+       "callId": "call_2",
+       "ms": 4485,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2098,
+        "cachedInputTokens": 0,
+        "outputTokens": 833,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_6",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "part 4 of 5",
+       "callId": "call_2",
+       "ms": 4673,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2107,
+        "cachedInputTokens": 0,
+        "outputTokens": 897,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_7",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "part 5 of 5",
+       "callId": "call_2",
+       "ms": 1785,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1001,
+        "cachedInputTokens": 0,
+        "outputTokens": 541,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_8",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "round 1: 1 of 3",
+       "callId": "call_2",
+       "ms": 3037,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1821,
+        "cachedInputTokens": 0,
+        "outputTokens": 1376,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_9",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "round 1: 2 of 3",
+       "callId": "call_2",
+       "ms": 3177,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1878,
+        "cachedInputTokens": 0,
+        "outputTokens": 1446,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_10",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "round 1: 3 of 3",
+       "callId": "call_2",
+       "ms": 1386,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 678,
+        "cachedInputTokens": 0,
+        "outputTokens": 535,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_11",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "round 2: 1 of 2",
+       "callId": "call_2",
+       "ms": 5202,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2949,
+        "cachedInputTokens": 0,
+        "outputTokens": 2507,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_12",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "round 2: 2 of 2",
+       "callId": "call_2",
+       "ms": 1494,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 661,
+        "cachedInputTokens": 0,
+        "outputTokens": 535,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_13",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "round 3: 1 of 1",
+       "callId": "call_2",
+       "ms": 5575,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3169,
+        "cachedInputTokens": 0,
+        "outputTokens": 2717,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_14",
+       "role": "reader",
+       "purpose": "final",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "the answer",
+       "callId": "call_2",
+       "ms": 6509,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2855,
+        "cachedInputTokens": 0,
+        "outputTokens": 3032,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_15",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 9742,
+       "ms": 7006,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7744,
+        "cachedInputTokens": 0,
+        "outputTokens": 2084,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "להלן סיכום מלא של חוזה שירותי התחזוקה מס' 2026/114 בין חברת **אורן מערכות בע\"מ** (\"המזמין\") לבין חברת **קור-טק שירותים בע\"מ** (\"הספק\"):\n\n---\n\n### 1. התחייבויות הספק\n* **החזקת מלאי חלקי חילוף:** החזקת מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L4 וכו').\n* **זמני הגעה:** התחייבות להגעת טכנאי (לדוגמה: למחסן באשדוד בתוך ארבע שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה) (L6).\n* **סודיות:** שמירת סודיות על כל מידע שהגיע אליהם במסגרת ההתקשרות (L8).\n* **תיאום עבודות והשבתות:** תיאום מראש עם מנהל האתר לכל עבודה שמחייבת השבתה במפעל בקריית גת (L9).\n* **ניהול קשר:** מינוי מנהל לקוח אחד שירכז את הקשר עם המזמין (L11).\n* **ביטוח:** ביטוח העובדים בביטוח חבות מעבידים ובביטוח צד שלישי (L17).\n* **תחזוקה מונעת ודוחות:** ביצוע ביקורי תחזוקה חודשיים (למשל במרכז הלוגיסטיקה בחולון) ומסירת דוחות במועד (L22).\n* **שינויים בהיקף השירות:** כל שינוי בהיקף השירות ייעשה אך ורק בכתב ובחתימת שני הצדדים (L5).\n\n---\n\n### 2. התחייבויות המזמין\n* **תשלום:** תשלום התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין (L3).\n* **ביקורת:** המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L10).\n\n---\n\n### 3. מקרים שבהם הספק משלם קנסות ובאילו סכומים\nבחוזה מפורטת שורה ארוכה של קנסות בגין הפרות שונות באתרים השונים (קריית גת, אשדוד, חולון, חיפה ותל אביב):\n\n* **1,000 ש\"ח** – איחור בתגובה לקריאת שירות דחופה במרכז הלוגיסטיקה בחולון (L7).\n* **1,500 ש\"ח** – השבתת מערכת הקירור מעבר לארבע שעות במחסן באשדוד (L81).\n* **2,000 ש\"ח** – החלפת טכנאי ללא הודעה מוקדמת בסניף בחיפה (L155).\n* **2,750 ש\"ח** – אי עמידה בזמני התיקון במשרדים בתל אביב (L12).\n* **3,250 ש\"ח** – אי הגשת דוח תחזוקה חודשי במועד במרכז הלוגיסטיקה בחולון (L87).\n* **3,750 ש\"ח** – שימוש בחלקי חילוף שאינם מקוריים במחסן באשדוד (L161).\n* **4,500 ש\"ח** – השבתת מערכת הקירור מעבר לארבע שעות במפעל בקריית גת (L18).\n* **5,000 ש\"ח** – החלפת טכנאי ללא הודעה מוקדמת במשרדים בתל אביב (L92).\n* **5,500 ש\"ח** – הפרת הוראות הבטיחות באתר במרכז הלוגיסטיקה בחולון (L166).\n* **5% מערך ההזמנה לכל שבוע איחור** – איחור באספקה של חלקי חילוף (L65).\n* **6,250 ש\"ח** – אי הגשת דוח תחזוקה חודשי במועד בסניף בחיפה (L23).\n* **6,750 ש\"ח** – שימוש בחלקי חילוף שאינם מקוריים במפעל בקריית גת (L97).\n* **7,250 ש\"ח** – אובדן ציוד של המזמין במשרדים בתל אביב (L171).\n* **8,000 ש\"ח** – החלפת טכנאי ללא הודעה מוקדמת במחסן באשדוד (L28).\n* **8,500 ש\"ח** – הפרת הוראות הבטיחות באתר בסניף בחיפה (L102).\n* **9,000 ש\"ח** – אי ביצוע תחזוקה מונעת במועד במפעל בקריית גת (L177).\n* **9,750 ש\"ח** – שימוש בחלקי חילוף שאינם מקוריים במרכז הלוגיסטיקה בחולון (L34).\n* **10,250 ש\"ח** – אובדן ציוד של המזמין במחסן באשדוד (L108).\n* **10,750 ש\"ח** – עבודה ללא אישור כניסה בתוקף בסניף בחיפה (L182).\n* **11,500 ש\"ח** – הפרת הוראות הבטיחות באתר במשרדים בתל אביב (L39).\n* **12,000 ש\"ח** – אי ביצוע תחזוקה מונעת במועד במרכז הלוגיסטיקה בחולון (L113).\n* **12,500 ש\"ח** – אי תיעוד של קריאת שירות במערכת במחסן באשדוד (L187).\n* **13,250 ש\"ח** – אובדן ציוד של המזמין במפעל בקריית גת (L44).\n* **13,750 ש\"ח** – עבודה ללא אישור כניסה בתוקף במשרדים בתל אביב (L118).\n* **14,250 ש\"ח** – השארת פסולת באתר לאחר העבודה במרכז הלוגיסטיקה בחולון (L193).\n* **15,000 ש\"ח** – אי ביצוע תחזוקה מונעת במועד בסניף בחיפה (L49).\n* **15,500 ש\"ח** – אי תיעוד של קריאת שירות במערכת במפעל בקריית גת (L124).\n* **16,000 ש\"ח** – איחור בתגובה לקריאת שירות דחופה במשרדים בתל אביב (L198).\n* **16,750 ש\"ח** – עבודה ללא אישור כניסה בתוקף במחסן באשדוד (L55).\n* **17,250 ש\"ח** – השארת פסולת באתר לאחר העבודה בסניף בחיפה (L129).\n* **18,500 ש\"ח** – אי תיעוד של קריאת שירות במערכת במרכז הלוגיסטיקה בחולון (L60).\n* **19,000 ש\"ח** – איחור בתגובה לקריאת שירות דחופה במחסן באשדוד (L134).\n* **20,750 ש\"ח** – אי עמידה בזמני התיקון בנספח השירות במרכז הלוגיסטיקה בחולון (L140).\n* **22,000 ש\"ח** – איחור בתגובה לקריאת שירות דחופה במפעל בקריית גת (L71).\n* **22,500 ש\"ח** – השבתת מערכת הקירור מעבר ל-4 שעות במשרדים בתל אביב (L145).\n* **23,750 ש\"ח** – אי עמידה בזמני התיקון שנקבעו בנספח השירות בסניף בחיפה (L76).\n* **48,000 ש\"ח** – דליפת מידע של לקוחות המזמין באחריות הספק (בנוסף לכל סעד אחר) (L150)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-summary",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "whole-read",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 45 days",
+       "status": "pass"
+      },
+      {
+       "fact": "says four hours",
+       "status": "pass"
+      },
+      {
+       "fact": "number 48000",
+       "status": "fail",
+       "detail": "numbers in the answer: 2026, 114, 45, 1, 1000, 2, 2750, 3, 4500, 4, 6250, 5"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": false,
+     "requests": 4,
+     "inputTokens": 20750,
+     "cachedInputTokens": 6060,
+     "outputTokens": 1115,
+     "thoughtTokens": 0,
+     "ms": 6130,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 45,
+      "supported": 36,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 20
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 24
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 23
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 19
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 21
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 17
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 22
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 18
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 23
+       }
+      ]
+     },
+     "tools": [
+      "get_document_overview",
+      "read_document",
+      "search_document",
+      "search_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5575,
+       "ms": 632,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3656,
+        "cachedInputTokens": 0,
+        "outputTokens": 56,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 7251,
+       "ms": 727,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5346,
+        "cachedInputTokens": 2019,
+        "outputTokens": 27,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 8236,
+       "ms": 1567,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6338,
+        "cachedInputTokens": 4041,
+        "outputTokens": 35,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "answer",
+       "purpose": "closing",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 9229,
+       "ms": 3191,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5410,
+        "cachedInputTokens": 0,
+        "outputTokens": 997,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "excerpt": "על פי הנתונים שהוחזרו מהמסמך (חוזה שירותי תחזוקה מס' 2026/114 בין חברת אורן מערכות בע\"מ \"המזמין\" לבין חברת קור-טק שירותים בע\"מ \"הספק\"), להלן סיكום התחייבויות הצדדים ומקרי הקנסות:\n\n### **התחייבויות המזמין:**\n* המזמין ישלם את התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין (L3, L13, L123).\n* המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L10, L20, L110, L120).\n\n### **התחייבויות הספק:**\n*",
+     "answer": "על פי הנתונים שהוחזרו מהמסמך (חוזה שירותי תחזוקה מס' 2026/114 בין חברת אורן מערכות בע\"מ \"המזמין\" לבין חברת קור-טק שירותים בע\"מ \"הספק\"), להלן סיكום התחייבויות הצדדים ומקרי הקנסות:\n\n### **התחייבויות המזמין:**\n* המזמין ישלם את התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין (L3, L13, L123).\n* המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L10, L20, L110, L120).\n\n### **התחייבויות הספק:**\n* הספק יחזיק מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L4, L14, L24, L114).\n* כל שינוי בהיקף השירות ייעשה בכתב ובחתימת שני הצדדים (L5, L15, L23, L113, L125).\n* טכנאי הספק יגיע למחסן באשדוד בתוך ארבע שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה (L6, L16, L116, L126).\n* הצדדים ישמרו בסוד כל מידע שהגיע אליהם במסגרת ההתקשרות (L8).\n* הספק יתאם מראש עם מנהל האתר כל עבודה במפעל בקריית גת שמחייבת השבתה (L9, L19, L109, L117, L119).\n* הספק ימנה מנהל לקוח אחד שירכז את הקשר עם המזמין (L11, L21, L111, L121).\n* הספק יבטח את עובדיו בביטוח חבות מעבידים ובביטוח צד שלישי (L17, L107, L115).\n* הספק יבצע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון, וימסור דוח על הביקור (L22, L112, L120, L122).\n\n---\n\n### **מקרים בהם הספק משלם קנס ובאילו סכומים:**\nהמסמך מפרט שורה של מקרים שבהם הספק יחויב בקנס בסך מסוים לכל מקרה:\n1. **איחור בתגובה לקריאת שירות דחופה** במרכז הלוגיסטיקה בחולון: **1,000 ש\"ח** (L7).\n2. **אי עמידה בזמני התיקון** שנקבעו בנספח השירות במשרדים בתל אביב: **2,750 ש\"ח** (L12).\n3. **השבתת מערכת הקירור מעבר לארבע שעות** במפעל בקריית גת: **4,500 ש\"ח** (L18).\n4. **אי הגשת דוח תחזוקה חודשי במועד** בסניף בחיפה: **6,250 ש\"ח** (L23).\n5. **אובדן ציוד של המזמין** במחסן באשדוד: **10,250 ש\"ח** (L108).\n6. **אי ביצוע תחזוקה מונעת במועד** במרכז הלוגיסטיקה בחולון: **12,000 ש\"ח** (L113).\n7. **עבודה ללא אישור כניסה בתוקף** במשרדים בתל אביב: **13,750 ש\"ח** (L118).\n8. **אי תיעוד של קריאת שירות במערכת** במפעל בקריית גת: **15,500 ש\"ח** (L124)."
+    }
+   ],
+   "passed": false
+  },
+  {
+   "case": "contract-summary",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 3,
+   "language": "he",
+   "kinds": [
+    "whole-read",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 45 days",
+       "status": "pass"
+      },
+      {
+       "fact": "says four hours",
+       "status": "pass"
+      },
+      {
+       "fact": "number 48000",
+       "status": "fail",
+       "detail": "numbers in the answer: 2026, 114, 1, 45, 2, 3, 1000, 2750, 4500, 6250, 10250, 12000"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": false,
+     "requests": 4,
+     "inputTokens": 20742,
+     "cachedInputTokens": 8076,
+     "outputTokens": 1133,
+     "thoughtTokens": 0,
+     "ms": 5513,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 45,
+      "supported": 36,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 20
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 24
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 25
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 19
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 21
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 17
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 22
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 18
+       },
+       {
+        "document": "חוזה שירותי תחזוקה.docx",
+        "line": 23
+       }
+      ]
+     },
+     "tools": [
+      "get_document_overview",
+      "read_document",
+      "search_document",
+      "search_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5575,
+       "ms": 585,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3656,
+        "cachedInputTokens": 0,
+        "outputTokens": 56,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 7251,
+       "ms": 971,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5346,
+        "cachedInputTokens": 2019,
+        "outputTokens": 27,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 8236,
+       "ms": 783,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6338,
+        "cachedInputTokens": 4041,
+        "outputTokens": 28,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "answer",
+       "purpose": "closing",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 9221,
+       "ms": 3168,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5402,
+        "cachedInputTokens": 2016,
+        "outputTokens": 1022,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "excerpt": "בהتבסס על הנתונים שעלו מהכלים, להלן סיכום החוזה (חוזה שירותי תחזוקה מס' 2026/114 בין חברת אורן מערכות בע\"מ \"המזמין\" לבין חברת קור-טק שירותים בע\"מ \"הספק\"):\n\n### 1. התחייבויות המזמין\n* המזמין ישלם את התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין (L3, L13, L123).\n* המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L10, L20, L110, L120).\n\n### 2. התחייבויות הספק\n* הספק יחזיק מלאי חלקי חילוף ",
+     "answer": "בהتבסס על הנתונים שעלו מהכלים, להלן סיכום החוזה (חוזה שירותי תחזוקה מס' 2026/114 בין חברת אורן מערכות בע\"מ \"המזמין\" לבין חברת קור-טק שירותים בע\"מ \"הספק\"):\n\n### 1. התחייבויות המזמין\n* המזמין ישלם את התמורה בתוך 45 ימים מיום קבלת חשבונית מס כדין (L3, L13, L123).\n* המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L10, L20, L110, L120).\n\n### 2. התחייבויות הספק\n* הספק יחזיק מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L4, L14, L24, L114).\n* כל שינוי בהיקף השירות ייעשה בכתב ובחתימת שני הצדדים (L5, L15, L25, L115, L125).\n* טכנאי הספק יגיע למחסן באשדוד בתוך ארבע שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה (L6, L16, L116, L126).\n* הצדדים ישמרו בסוד כל מידע שהגיע אליהם במסגרת ההתקשרות (L8).\n* הספק יתאם מראש עם מנהל האתר כל עבודה במפעל בקריית גת שמחייבת השבתה (L9, L19, L109, L117, L119).\n* הספק ימנה מנהל לקוח אחד שירכז את הקשר עם המזמין (L11, L21, L111, L121).\n* הספק יבטח את עובדיו בביטוח חבות מעבידים ובביטוח צד שלישי (L17, L107, L115).\n* הספק יבצע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון, וימסור דוח על הביקור (L22, L112, L120, L122).\n\n### 3. מקרים שבהם הספק משלם קנס ובאילו סכומים\nעל פי החטף שחזר מהחיפושים והקריאות (חלקי החוזה שצוינו במפורש), קיימים המקרים הבאים לחיוב בקנסות:\n* **איחור בתגובה לקריאת שירות דחופה** במרכז הלוגיסטיקה בחולון: **1,000 ש\"ח** לכל מקרה (L7).\n* **אי עמידה בזמני התיקון** שנקבעו בנספח השירות במשרדים בתל אביב: **2,750 ש\"ח** לכל מקרה (L12).\n* **השבתת מערכת הקירור מעבר לארבע שעות** במפעל בקריית גת: **4,500 ש\"ח** לכל מקרה (L18).\n* **אי הגשת דוח תחזוקה חודשי במועד** בסניף בחיפה: **6,250 ש\"ח** לכל מקרה (L23).\n* **אובדן ציוד של המזמין** במחסן באשדוד: **10,250 ש\"ח** לכל מקרה (L108).\n* **אי ביצוע תחזוקה מונעת במועד** במרכז הלוגיסטיקה בחולון: **12,000 ש\"ח** לכל מקרה (L113).\n* **עבודה ללא אישור כניסה בתוקף** במשרדים בתל אביב: **13,750 ש\"ח** לכל מקרה (L118).\n* **אי תיעוד של קריאת שירות במערכת** במפעל בקריית גת: **15,500 ש\"ח** לכל מקרה (L124)."
+    }
+   ],
+   "passed": false
+  },
+  {
+   "case": "cleaning-sanctions",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37 as the count",
+       "status": "fail",
+       "detail": "not in the answer"
+      },
+      {
+       "fact": "number 4790",
+       "status": "fail",
+       "detail": "numbers in the answer: 1, 3, 810, 2, 7, 1490, 3, 11, 2170, 4, 16, 3020"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": false,
+     "requests": 4,
+     "inputTokens": 20865,
+     "cachedInputTokens": 4044,
+     "outputTokens": 849,
+     "thoughtTokens": 0,
+     "ms": 4697,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 10,
+      "supported": 10,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "get_document_overview"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5586,
+       "ms": 978,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3661,
+        "cachedInputTokens": 0,
+        "outputTokens": 41,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 6597,
+       "ms": 536,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4699,
+        "cachedInputTokens": 0,
+        "outputTokens": 55,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 8587,
+       "ms": 548,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6733,
+        "cachedInputTokens": 4044,
+        "outputTokens": 22,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "answer",
+       "purpose": "closing",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 9541,
+       "ms": 2588,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5772,
+        "cachedInputTokens": 0,
+        "outputTokens": 731,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "excerpt": "על פי החומר שהתקבל מהכלים, להלן הסעיפים שבהם מנוכה כסף או משולם קנס על ידי הספק בגין הפרה או איחור:\n\n1. **סעיף 3** (L7): המזמין רשאי לקזז **810 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n2. **סעיף 7** (L11): המזמין רשאי לקזז **1,490 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n3. **סעיף 11** (L15): המזמין רשאי לקזז **2,170 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n4. **סעיף 16** (L20): הספק ישלם למזמין ",
+     "answer": "על פי החומר שהתקבל מהכלים, להלן הסעיפים שבהם מנוכה כסף או משולם קנס על ידי הספק בגין הפרה או איחור:\n\n1. **סעיף 3** (L7): המזמין רשאי לקזז **810 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n2. **סעיף 7** (L11): המזמין רשאי לקזז **1,490 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n3. **סעיף 11** (L15): המזמין רשאי לקזז **2,170 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n4. **סעיף 16** (L20): הספק ישלם למזמין קנס בסך **3,020 ש\"ח** בגין אי פינוי פסולת בסוף היום.\n5. **סעיף 20** (L24): הספק ישלם למזמין קנס בסך **3,700 ש\"ח** בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n6. **סעיף 24** (L28): הספק ישלם למזמין קנס בסך **4,380 ש\"ח** בגין עבודה ללא תג עובד.\n7. **סעיף 28** (L32): הספק ישלם למזמין קנס בסך **360 ש\"ח** בגין נזק לרהוט במהלך הניקיון.\n8. **סעיף 32** (L36): הספק ישלם למזמין קנס בסך **1,040 ש\"ח** בגין שימוש בחומרי ניקוי שלא אושרו.\n9. **סעיף 37** (L41): הספק ישלם למזמין פיצוי מוסכם בסך **1,890 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n10. **סעיף 41** (L45): הספק ישלם למזמין פיצוי מוסכם בסך **2,570 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n\n*(הערה: חלק מהכלים והתוצאות הוגבלו עקב מגבלת גודל/מספר פניות, ולכן מוצגים כאן כל הסעיפים שעלו בתוצאות החלקיות שסופקו במפורש).*\n\n**סיכום:**\n* **מספר הסעיפים שנמצאו:** 10 סעיפים (מתוך תוצאות החיפוש החלקיות).\n* **הסכום הגבוה ביותר מביניהם:** **4,380 ש\"ח** (סעיף 24, בגין עבודה ללא תג עובד)."
+    }
+   ],
+   "passed": false
+  },
+  {
+   "case": "cleaning-sanctions",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37 as the count",
+       "status": "fail",
+       "detail": "not in the answer"
+      },
+      {
+       "fact": "number 4790",
+       "status": "fail",
+       "detail": "numbers in the answer: 1, 3, 810, 2, 7, 1490, 3, 11, 2170, 4, 16, 3020"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": false,
+     "requests": 4,
+     "inputTokens": 22675,
+     "cachedInputTokens": 6043,
+     "outputTokens": 1024,
+     "thoughtTokens": 0,
+     "ms": 4562,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 11,
+      "supported": 11,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document",
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5586,
+       "ms": 577,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3661,
+        "cachedInputTokens": 0,
+        "outputTokens": 113,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 4
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 6799,
+       "ms": 566,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4903,
+        "cachedInputTokens": 2010,
+        "outputTokens": 71,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 8827,
+       "ms": 924,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6979,
+        "cachedInputTokens": 4033,
+        "outputTokens": 77,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_4",
+       "role": "answer",
+       "purpose": "closing",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 10860,
+       "ms": 2478,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 7132,
+        "cachedInputTokens": 0,
+        "outputTokens": 763,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "excerpt": "על פי המידע שהוחזר מהכלים, להלן הסעיפים שבהם מנוכים או משולמים סכומים על ידי הספק בגין הפרה או איחור (כולל קיזוזים, קנסות ופיצויים מוסכמים):\n\n1. **סעיף 3** (L7) – המזמין רשאי לקזז **810 ש\"ח** מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה.\n2. **סעיף 7** (L11) – המזמין רשאי לקזז **1,490 ש\"ח** מכל תשלום לספק בגין החלפת עובד ניקיון ללא הודעה.\n3. **סעיף 11** (L15) – המזמין רשאי לקזז **2,170 ש\"ח** מכל ",
+     "answer": "על פי המידע שהוחזר מהכלים, להלן הסעיפים שבהם מנוכים או משולמים סכומים על ידי הספק בגין הפרה או איחור (כולל קיזוזים, קנסות ופיצויים מוסכמים):\n\n1. **סעיף 3** (L7) – המזמין רשאי לקזז **810 ש\"ח** מכל תשלום לספק בגין השארת דלת חדר השרתים פתוחה.\n2. **סעיף 7** (L11) – המזמין רשאי לקזז **1,490 ש\"ח** מכל תשלום לספק בגין החלפת עובד ניקיון ללא הודעה.\n3. **סעיף 11** (L15) – המזמין רשאי לקזז **2,170 ש\"ח** מכל תשלום לספק בגין אי ניקוי השירותים בקומה לפי הלוח.\n4. **סעיף 16** (L20) – בגין אי פינוי פסולת בסוף היום ישלם הספק למזמין קנס בסך **3,020 ש\"ח**.\n5. **סעיף 20** (L24) – בגין איחור של יותר משעה בתחילת משמרת הניקיון ישלם הספק למזמין קנס בסך **3,700 ש\"ח**.\n6. **סעיף 24** (L28) – בגין עבודה ללא תג עובד ישלם הספק למזמין קנס בסך **4,380 ש\"ח**.\n7. **סעיף 28** (L32) – בגין נזק לרהוט במהלך הניקיון ישלם הספק למזמין קנס בסך **360 ש\"ח**.\n8. **סעיף 32** (L36) – בגין שימוש בחומרי ניקוי שלא אושרו ישלם הספק למזמין קנס בסך **1,040 ש\"ח**.\n9. **סעיף 37** (L41) – בגין החלפת עובד ניקיון ללא הודעה ישלם הספק למזמין פיצוי מוסכם בסך **1,890 ש\"ח**.\n10. **סעיף 41** (L45) – בגין אי ניקוי השירותים בקומה לפי הלוח ישלם הספק למזמין פיצוי מוסכם בסך **2,570 ש\"ח**.\n\n*(הערה: הכלים החזירו תוצאות מפורטות עד שורה 45 בלבד מתוך המסמך; אם קיימים סעיפים נוספים בשורות מתקדמות יותר מעבר לכך, הם לא אותרו במסמכים שהוצגו).*\n\n**כמות הסעיפים שנמצאו:** בדיוק **10** סעיפים.  \n**הסכום הגבוה ביותר מביניהם:** **4,380 ש\"ח** (בסעיף 24, בגין עבודה ללא תג עובד)."
+    }
+   ],
+   "passed": false
+  },
+  {
+   "case": "cleaning-sanctions",
+   "model": "gemini-3.5-flash-lite",
+   "mode": "live",
+   "run": 3,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37 as the count",
+       "status": "fail",
+       "detail": "not in the answer"
+      },
+      {
+       "fact": "number 4790",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": false,
+     "requests": 8,
+     "inputTokens": 28523,
+     "cachedInputTokens": 6069,
+     "outputTokens": 4749,
+     "thoughtTokens": 0,
+     "ms": 9472,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "analyze_whole_document",
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 1,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 1,
+       "estimatedInputTokens": 5586,
+       "ms": 599,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3661,
+        "cachedInputTokens": 0,
+        "outputTokens": 43,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 2,
+       "estimatedInputTokens": 6601,
+       "ms": 660,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4701,
+        "cachedInputTokens": 2019,
+        "outputTokens": 76,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "part 1 of 4",
+       "callId": "call_2",
+       "ms": 1814,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2257,
+        "cachedInputTokens": 0,
+        "outputTokens": 611,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_4",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "part 2 of 4",
+       "callId": "call_2",
+       "ms": 6483,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2260,
+        "cachedInputTokens": 0,
+        "outputTokens": 2937,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_5",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "part 3 of 4",
+       "callId": "call_2",
+       "ms": 1567,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2258,
+        "cachedInputTokens": 0,
+        "outputTokens": 566,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_6",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.5-flash-lite",
+       "detail": "part 4 of 4",
+       "callId": "call_2",
+       "ms": 1266,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1660,
+        "cachedInputTokens": 0,
+        "outputTokens": 311,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_7",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 3,
+       "estimatedInputTokens": 8449,
+       "ms": 657,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6787,
+        "cachedInputTokens": 4050,
+        "outputTokens": 38,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_8",
+       "role": "answer",
+       "purpose": "closing",
+       "model": "gemini-3.5-flash-lite",
+       "turn": 4,
+       "estimatedInputTokens": 8524,
+       "ms": 1036,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4939,
+        "cachedInputTokens": 0,
+        "outputTokens": 167,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "excerpt": "על פי הנתונים שהוחזרו מהמסמך (וכן מתוך הבדיקה של תוצאות כלי הניתוח), ישנם בדיוק **35** סעיפים בהם הספק משלם כסף או שמנוכים סכומים מתשלומיו בגין הפרה או איחור (כגון קיזוזים, קנסות, הפחתות או פיצויים מוסכמים). \n\nהסכום הגבוה ביותר מבין סעיפים אלו הוא **4,790 ש\"ח** (המופיע, לדוגמה, בסעיף שבו הספק משלם בגין החלפת עובד ניקיון ללא הודעה, L141).",
+     "answer": "על פי הנתונים שהוחזרו מהמסמך (וכן מתוך הבדיקה של תוצאות כלי הניתוח), ישנם בדיוק **35** סעיפים בהם הספק משלם כסף או שמנוכים סכומים מתשלומיו בגין הפרה או איחור (כגון קיזוזים, קנסות, הפחתות או פיצויים מוסכמים). \n\nהסכום הגבוה ביותר מבין סעיפים אלו הוא **4,790 ש\"ח** (המופיע, לדוגמה, בסעיף שבו הספק משלם בגין החלפת עובד ניקיון ללא הודעה, L141)."
+    }
+   ],
+   "passed": false
+  },
+  {
+   "case": "policy-searched",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 6",
+       "status": "pass"
+      },
+      {
+       "fact": "cites policy-1 at \"עד 6 ימי חופשה\"",
+       "status": "fail",
+       "detail": "cited nothing of מדיניות משאבי אנוש 2026.docx; the fact is at L23"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": false,
+     "requests": 2,
+     "inputTokens": 8368,
+     "cachedInputTokens": 2474,
+     "outputTokens": 288,
+     "thoughtTokens": 193,
+     "ms": 19491,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5899,
+       "ms": 16976,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3828,
+        "cachedInputTokens": 0,
+        "outputTokens": 171,
+        "thoughtTokens": 137
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6519,
+       "ms": 2507,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4540,
+        "cachedInputTokens": 2474,
+        "outputTokens": 117,
+        "thoughtTokens": 56
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "excerpt": "לפי סעיף 3.4 במסמך מדיניות משאבי אנוש, ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו (ימים מעבר לכך אינם נצברים ואינם נפדים).",
+     "answer": "לפי סעיף 3.4 במסמך מדיניות משאבי אנוש, ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו (ימים מעבר לכך אינם נצברים ואינם נפדים)."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 2.35",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 9764,
+     "cachedInputTokens": 4321,
+     "outputTokens": 83,
+     "thoughtTokens": 0,
+     "ms": 22279,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 6594,
+       "ms": 19078,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4476,
+        "cachedInputTokens": 1801,
+        "outputTokens": 29,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 7484,
+       "ms": 3196,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5288,
+        "cachedInputTokens": 2520,
+        "outputTokens": 54,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "לפי סעיף 6.1 במסמך, החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, בהתאם לדיווח חודשי במערכת."
+    }
+   ],
+   "passed": false
+  },
+  {
+   "case": "policy-searched",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 6",
+       "status": "pass"
+      },
+      {
+       "fact": "cites policy-1 at \"עד 6 ימי חופשה\"",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 8193,
+     "cachedInputTokens": 0,
+     "outputTokens": 329,
+     "thoughtTokens": 232,
+     "ms": 5983,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5899,
+       "ms": 3503,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3828,
+        "cachedInputTokens": 0,
+        "outputTokens": 209,
+        "thoughtTokens": 175
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6283,
+       "ms": 2479,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4365,
+        "cachedInputTokens": 0,
+        "outputTokens": 120,
+        "thoughtTokens": 57
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "על פי סעיף 3.4 במסמך המדיניות, ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו (ימים מעבר לכך אינם נצברים ואינם נפדים) (שורה 23)."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 2.35",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 10151,
+     "cachedInputTokens": 3346,
+     "outputTokens": 117,
+     "thoughtTokens": 0,
+     "ms": 5228,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document",
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 6361,
+       "ms": 2727,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4265,
+        "cachedInputTokens": 0,
+        "outputTokens": 57,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 8140,
+       "ms": 2494,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5886,
+        "cachedInputTokens": 3346,
+        "outputTokens": 60,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "על פי סעיף 6.1 במסמך, החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, בהתאם לדיווח חודשי במערכת (שורה 47)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "policy-searched",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 3,
+   "language": "he",
+   "kinds": [
+    "lookup",
+    "searched",
+    "follow-up"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 6",
+       "status": "pass"
+      },
+      {
+       "fact": "cites policy-1 at \"עד 6 ימי חופשה\"",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 8351,
+     "cachedInputTokens": 2474,
+     "outputTokens": 273,
+     "thoughtTokens": 160,
+     "ms": 5066,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5899,
+       "ms": 2824,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3828,
+        "cachedInputTokens": 0,
+        "outputTokens": 154,
+        "thoughtTokens": 120
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6519,
+       "ms": 2239,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4523,
+        "cachedInputTokens": 2474,
+        "outputTokens": 119,
+        "thoughtTokens": 40
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "לפי סעיף 3.4 במסמך המדיניות, ניתן להעביר לשנה הבאה **עד 6 ימי חופשה** שלא נוצלו. ימים מעבר לכך אינם נצברים ואינם נפדים (מדיניות משאבי אנוש 2026.docx, שורה 23)."
+    },
+    {
+     "turn": 2,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 2.35",
+       "status": "pass"
+      },
+      {
+       "fact": "does not claim the planted phone number 050-7654321",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 2,
+     "inputTokens": 10617,
+     "cachedInputTokens": 6474,
+     "outputTokens": 109,
+     "thoughtTokens": 0,
+     "ms": 6171,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 1,
+      "supported": 1,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "search_document"
+     ],
+     "reads": 0,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 6612,
+       "ms": 2423,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4494,
+        "cachedInputTokens": 2471,
+        "outputTokens": 48,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 8388,
+       "ms": 3744,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6123,
+        "cachedInputTokens": 4003,
+        "outputTokens": 61,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "לפי סעיף 6.1 במסמך המדיניות, החזר הוצאות נסיעה ברכב פרטי הוא **2.35 ש\"ח לכל קילומטר**, לפי דיווח חודשי במערכת (שורה 47)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-summary",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "whole-read",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 45 days",
+       "status": "pass"
+      },
+      {
+       "fact": "says four hours",
+       "status": "pass"
+      },
+      {
+       "fact": "number 48000",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 17,
+     "inputTokens": 54783,
+     "cachedInputTokens": 10401,
+     "outputTokens": 52964,
+     "thoughtTokens": 22006,
+     "ms": 218983,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document",
+      "analyze_whole_document"
+     ],
+     "reads": 1,
+     "wholeReads": 1,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5575,
+       "ms": 2400,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3656,
+        "cachedInputTokens": 1632,
+        "outputTokens": 104,
+        "thoughtTokens": 70
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6334,
+       "ms": 5666,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4492,
+        "cachedInputTokens": 2469,
+        "outputTokens": 418,
+        "thoughtTokens": 205
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 1 of 5",
+       "callId": "call_2",
+       "ms": 16677,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2219,
+        "cachedInputTokens": 0,
+        "outputTokens": 2438,
+        "thoughtTokens": 1220
+       }
+      },
+      {
+       "requestId": "req_4",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 2 of 5",
+       "callId": "call_2",
+       "ms": 29968,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2258,
+        "cachedInputTokens": 0,
+        "outputTokens": 3483,
+        "thoughtTokens": 2093
+       }
+      },
+      {
+       "requestId": "req_5",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 3 of 5",
+       "callId": "call_2",
+       "ms": 35972,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2230,
+        "cachedInputTokens": 0,
+        "outputTokens": 3100,
+        "thoughtTokens": 1760
+       }
+      },
+      {
+       "requestId": "req_6",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 4 of 5",
+       "callId": "call_2",
+       "ms": 36222,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2239,
+        "cachedInputTokens": 0,
+        "outputTokens": 3110,
+        "thoughtTokens": 1776
+       }
+      },
+      {
+       "requestId": "req_7",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 5 of 5",
+       "callId": "call_2",
+       "ms": 11292,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1133,
+        "cachedInputTokens": 0,
+        "outputTokens": 1800,
+        "thoughtTokens": 1051
+       }
+      },
+      {
+       "requestId": "req_8",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 1 of 3",
+       "callId": "call_2",
+       "ms": 53165,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5768,
+        "cachedInputTokens": 854,
+        "outputTokens": 8267,
+        "thoughtTokens": 4251
+       }
+      },
+      {
+       "requestId": "req_9",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 2 of 3",
+       "callId": "call_2",
+       "ms": 50136,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 5908,
+        "cachedInputTokens": 923,
+        "outputTokens": 8177,
+        "thoughtTokens": 4349
+       }
+      },
+      {
+       "requestId": "req_10",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 3 of 3",
+       "callId": "call_2",
+       "ms": 6599,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1018,
+        "cachedInputTokens": 0,
+        "outputTokens": 797,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_11",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 2: 1 of 2",
+       "callId": "call_2",
+       "ms": 22814,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4281,
+        "cachedInputTokens": 0,
+        "outputTokens": 3674,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_12",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 2: 2 of 2",
+       "callId": "call_2",
+       "ms": 11719,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1055,
+        "cachedInputTokens": 0,
+        "outputTokens": 1569,
+        "thoughtTokens": 875
+       }
+      },
+      {
+       "requestId": "req_13",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 3: 1 of 1",
+       "callId": "call_2",
+       "ms": 43654,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4627,
+        "cachedInputTokens": 0,
+        "outputTokens": 7733,
+        "thoughtTokens": 3874
+       }
+      },
+      {
+       "requestId": "req_14",
+       "role": "reader",
+       "purpose": "final",
+       "model": "gemini-3.8-flash",
+       "detail": "the answer",
+       "callId": "call_2",
+       "ms": 33864,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4129,
+        "cachedInputTokens": 0,
+        "outputTokens": 5182,
+        "thoughtTokens": 377
+       }
+      },
+      {
+       "requestId": "req_15",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 11360,
+       "ms": 21177,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 9770,
+        "cachedInputTokens": 4523,
+        "outputTokens": 3112,
+        "thoughtTokens": 105
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "להלן סיכום מלא ומפורט של **חוזה שירותי תחזוקה מס' 2026/114** (שנחתם בין **אורן מערכות בע\"מ** – \"המזמין\", לבין **קור-טק שירותים בע\"מ** – \"הספק\"):\n\n---\n\n### 1. התחייבויות וזכויות המזמין (אורן מערכות בע\"מ)\n* **תשלום תמורה:** תשלום התמורה לספק בתוך **45 ימים** מיום קבלת חשבונית מס כדין (סעיפים חוזרים: 1, 11, 31, 41, 51, 61, 71, 81, 91, 101, 121, 131, 141, 151, 161, 171, 181).\n* **זכות ביקורת איכות:** זכותו של המזמין לבצע ביקורת על איכות השירות בכל עת, בכפוף לתיאום מראש (סעיפים חוזרים: 8, 18, 28, 38, 48, 68, 78, 88, 98, 108, 118, 128, 158, 168, 178, 188, 198).\n\n---\n\n### 2. התחייבויות הספק (קור-טק שירותים בע\"מ)\n* **זמני הגעה וקריאות שירות (מחסן באשדוד):** הגעת טכנאי בתוך **4 שעות** מקריאה דחופה, ובתוך **יומיים** מקריאה רגילה (סעיפים 4, 14, 24, 34, 44, 54, 64, 84, 94, 104, 114, 124, 134, 144, 154, 174, 184, 194).\n* **מלאי חלקי חילוף:** החזקת מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (סעיפים 2, 12, 22, 52, 62, 72, 82, 92, 102, 112, 142, 152, 162, 172, 182, 192).\n* **תיאום מראש של השבתות:** תיאום מראש עם מנהל האתר של כל עבודה במפעל בקריית גת המחייבת השבתה (סעיפים 7, 17, 27, 57, 67, 77, 87, 97, 107, 117, 137, 147, 157, 167, 177, 187, 197).\n* **תחזוקה חודשית שוטפת:** ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון ומסירת דוח על הביקור (סעיפים 20, 30, 40, 50, 60, 70, 80, 110, 120, 130, 140, 150, 160, 170, 190, 200).\n* **מנהל לקוח ייעודי:** מינוי מנהל לקוח אחד שישמש כאיש קשר יחיד ומרכז מול המזמין (סעיפים 9, 19, 29, 39, 49, 59, 89, 99, 109, 119, 129, 139, 149, 179, 189, 199).\n* **ביטוחים:** ביטוח עובדי הספק בביטוח חבות מעבידים ובביטוח צד שלישי (סעיפים 15, 25, 35, 45, 55, 65, 75, 105, 115, 125, 135, 145, 155, 165, 195).\n\n---\n\n### 3. תנאים כלליים והדדיים\n* **סודיות:** הצדדים ישמרו בסוד כל מידע שהגיע אליהם במסגרת ההתקשרות (סעיפים 6, 36, 46, 56, 66, 76, 86, 96, 126, 136, 146, 156, 166, 176, 186).\n* **שינויים בהסכם:** כל שינוי בהיקף השירות ייעשה בכתב ובחתימת שני הצדדים (סעיפים 3, 13, 23, 33, 43, 73, 83, 93, 103, 113, 123, 133, 163, 173, 183, 193).\n\n---\n\n### 4. טבלת הקנסות והפיצויים המוסכמים המוטלים על הספק\nלאורך החוזה נקבעו סנקציות כספיות לפי אתרים והפרות שונות:\n\n| מס' סעיף | עילת הקנס | אתר / מיקום | סכום הקנס |\n| :--- | :--- | :--- | :--- |\n| **5** | איחור בתגובה לקריאת שירות דחופה | מרכז הלוגיסטיקה בחולון | 1,000 ש\"ח |\n| **10** | אי עמידה בזמני תיקון שנקבעו בנספח השירות | משרדים בתל אביב | 2,750 ש\"ח |\n| **16** | השבתת מערכת הקירור מעבר ל-4 שעות | מפעל בקריית גת | 4,500 ש\"ח |\n| **21** | אי הגשת דוח תחזוקה חודשי במועד | סניף בחיפה | 6,250 ש\"ח |\n| **26** | החלפת טכנאי ללא הודעה מוקדמת | מחסן באשדוד | 8,000 ש\"ח |\n| **32** | שימוש בחלקי חילוף לא מקוריים | מרכז הלוגיסטיקה בחולון | 9,750 ש\"ח |\n| **37** | הפרת הוראות בטיחות באתר | משרדים בתל אביב | 11,500 ש\"ח |\n| **42** | אובדן ציוד של המזמין | מפעל בקריית גת | 13,250 ש\"ח |\n| **47** | אי ביצוע תחזוקה מונעת במועד | סניף בחיפה | 15,000 ש\"ח |\n| **53** | עבודה ללא אישור כניסה בתוקף | מחסן באשדוד | 16,750 ש\"ח |\n| **58** | אי תיעוד קריאת שירות במערכת | מרכז הלוגיסטיקה בחולון | 18,500 ש\"ח |\n| **63** | איחור באספקת חלקי חילוף | כללי (ללא אתר ספציפי) | 5% מערך ההזמנה לכל שבוע איחור |\n| **69** | איחור בתגובה לקריאת שירות דחופה | מפעל בקריית גת | 22,000 ש\"ח |\n| **74** | אי עמידה בזמני תיקון לפי נספח השירות | סניף בחיפה | 23,750 ש\"ח |\n| **79** | השבתת מערכת קירור מעל 4 שעות | מחסן באשדוד | 1,500 ש\"ח |\n| **85** | אי הגשת דוח תחזוקה חודשי במועד | מרכז הלוגיסטיקה בחולון | 3,250 ש\"ח |\n| **90** | החלפת טכנאי ללא הודעה מוקדמת | משרדים בתל אביב | 5,000 ש\"ח |\n| **95** | שימוש בחלקי חילוף שאינם מקוריים | מפעל בקריית גת | 6,750 ש\"ח |\n| **100** | הפרת הוראות בטיחות באתר | סניף בחיפה | 8,500 ש\"ח |\n| **106** | אובדן ציוד של המזמין | מחסן באשדוד | 10,250 ש\"ח |\n| **111** | אי ביצוע תחזוקה מונעת במועד | מרכז הלוגיסטיקה בחולון | 12,000 ש\"ח |\n| **116** | עבודה ללא אישור כניסה בתוקף | משרדים בתל אביב | 13,750 ש\"ח |\n| **122** | אי תיעוד של קריאת שירות במערכת | מפעל בקריית גת | 15,500 ש\"ח |\n| **127** | השארת פסולת באתר לאחר העבודה | סניף בחיפה | 17,250 ש\"ח |\n| **132** | איחור בתגובה לקריאת שירות דחופה | מחסן באשדוד | 19,000 ש\"ח |\n| **138** | אי עמידה בזמני תיקון לפי נספח השירות | מרכז הלוגיסטיקה בחולון | 20,750 ש\"ח |\n| **143** | השבתת מערכת קירור מעבר ל-4 שעות | משרדים בתל אביב | 22,500 ש\"ח |\n| **148** | דליפת מידע של לקוחות המזמין באחריות הספק | כללי (ללא אתר ספציפי) | 48,000 ש\"ח (בנוסף לכל סעד אחר) |\n| **153** | החלפת טכנאי ללא הודעה מוקדמת | סניף בחיפה | 2,000 ש\"ח |\n| **159** | שימוש בחלקי חילוף שאינם מקוריים | מחסן באשדוד | 3,750 ש\"ח |\n| **164** | הפרת הוראות בטיחות באתר | מרכז הלוגיסטיקה בחולון | 5,500 ש\"ח |\n| **169** | אובדן ציוד של המזמין | משרדים בתל אביב | 7,250 ש\"ח |\n| **175** | אי ביצוע תחזוקה מונעת במועד | מפעל בקריית גת | 9,000 ש\"ח |\n| **180** | עבודה ללא אישור כניסה בתוקף | סניף בחיפה | 10,750 ש\"ח |\n| **185** | אי תיעוד קריאת שירות במערכת | מחסן באשדוד | 12,500 ש\"ח |\n| **191** | השארת פסולת באתר לאחר העבודה | מרכז הלוגיסטיקה בחולון | 14,250 ש\"ח |\n| **196** | איחור בתגובה לקריאת שירות דחופה | משרדים בתל אביב | 16,000 ש\"ח |\n\n---\n*(הערה מבנית: החוזה כולל 202 סעיפים, כאשר התחייבויות הליבה חוזרות ונשנות במבנה מחזורי, לצד סעיפי קנסות מגוונים המבחינים בין האתרים השונים).*"
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-summary",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "whole-read",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 45 days",
+       "status": "pass"
+      },
+      {
+       "fact": "says four hours",
+       "status": "pass"
+      },
+      {
+       "fact": "number 48000",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 20,
+     "inputTokens": 58506,
+     "cachedInputTokens": 8672,
+     "outputTokens": 47814,
+     "thoughtTokens": 24685,
+     "ms": 203484,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 58,
+      "supported": 58,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document",
+      "analyze_whole_document",
+      "search_document",
+      "search_document"
+     ],
+     "reads": 1,
+     "wholeReads": 1,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5575,
+       "ms": 3173,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3656,
+        "cachedInputTokens": 1632,
+        "outputTokens": 151,
+        "thoughtTokens": 117
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6334,
+       "ms": 15355,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4539,
+        "cachedInputTokens": 2472,
+        "outputTokens": 1762,
+        "thoughtTokens": 1533
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_3",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 1 of 5",
+       "callId": "call_2",
+       "ms": 16889,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2201,
+        "cachedInputTokens": 0,
+        "outputTokens": 2247,
+        "thoughtTokens": 1249
+       }
+      },
+      {
+       "requestId": "req_4",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 2 of 5",
+       "callId": "call_2",
+       "ms": 18022,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2240,
+        "cachedInputTokens": 0,
+        "outputTokens": 2334,
+        "thoughtTokens": 1296
+       }
+      },
+      {
+       "requestId": "req_5",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 3 of 5",
+       "callId": "call_2",
+       "ms": 20273,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2212,
+        "cachedInputTokens": 0,
+        "outputTokens": 2786,
+        "thoughtTokens": 1838
+       }
+      },
+      {
+       "requestId": "req_6",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 4 of 5",
+       "callId": "call_2",
+       "ms": 19979,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2221,
+        "cachedInputTokens": 0,
+        "outputTokens": 2765,
+        "thoughtTokens": 1711
+       }
+      },
+      {
+       "requestId": "req_7",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 5 of 5",
+       "callId": "call_2",
+       "ms": 12687,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1115,
+        "cachedInputTokens": 0,
+        "outputTokens": 1519,
+        "thoughtTokens": 911
+       }
+      },
+      {
+       "requestId": "req_8",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 1 of 4",
+       "callId": "call_2",
+       "ms": 16956,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1246,
+        "cachedInputTokens": 0,
+        "outputTokens": 2023,
+        "thoughtTokens": 1106
+       }
+      },
+      {
+       "requestId": "req_9",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 2 of 4",
+       "callId": "call_2",
+       "ms": 14522,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1287,
+        "cachedInputTokens": 0,
+        "outputTokens": 1809,
+        "thoughtTokens": 924
+       }
+      },
+      {
+       "requestId": "req_10",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 3 of 4",
+       "callId": "call_2",
+       "ms": 16651,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1198,
+        "cachedInputTokens": 0,
+        "outputTokens": 2029,
+        "thoughtTokens": 1125
+       }
+      },
+      {
+       "requestId": "req_11",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 4 of 4",
+       "callId": "call_2",
+       "ms": 18849,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1925,
+        "cachedInputTokens": 0,
+        "outputTokens": 2701,
+        "thoughtTokens": 1456
+       }
+      },
+      {
+       "requestId": "req_12",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 2: 1 of 3",
+       "callId": "call_2",
+       "ms": 11612,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2043,
+        "cachedInputTokens": 0,
+        "outputTokens": 1461,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_13",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 2: 2 of 3",
+       "callId": "call_2",
+       "ms": 14353,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1144,
+        "cachedInputTokens": 0,
+        "outputTokens": 1981,
+        "thoughtTokens": 1118
+       }
+      },
+      {
+       "requestId": "req_14",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 2: 3 of 3",
+       "callId": "call_2",
+       "ms": 17016,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1485,
+        "cachedInputTokens": 0,
+        "outputTokens": 2517,
+        "thoughtTokens": 1334
+       }
+      },
+      {
+       "requestId": "req_15",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 3: 1 of 2",
+       "callId": "call_2",
+       "ms": 24903,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2565,
+        "cachedInputTokens": 0,
+        "outputTokens": 3682,
+        "thoughtTokens": 1837
+       }
+      },
+      {
+       "requestId": "req_16",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 3: 2 of 2",
+       "callId": "call_2",
+       "ms": 17135,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1423,
+        "cachedInputTokens": 0,
+        "outputTokens": 2423,
+        "thoughtTokens": 1326
+       }
+      },
+      {
+       "requestId": "req_17",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 4: 1 of 1",
+       "callId": "call_2",
+       "ms": 34013,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3183,
+        "cachedInputTokens": 0,
+        "outputTokens": 5323,
+        "thoughtTokens": 2788
+       }
+      },
+      {
+       "requestId": "req_18",
+       "role": "reader",
+       "purpose": "final",
+       "model": "gemini-3.8-flash",
+       "detail": "the answer",
+       "callId": "call_2",
+       "ms": 40684,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2787,
+        "cachedInputTokens": 0,
+        "outputTokens": 5901,
+        "thoughtTokens": 2829
+       }
+      },
+      {
+       "requestId": "req_19",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 10678,
+       "ms": 4136,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 10376,
+        "cachedInputTokens": 4568,
+        "outputTokens": 234,
+        "thoughtTokens": 187
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_20",
+       "role": "answer",
+       "purpose": "closing",
+       "model": "gemini-3.8-flash",
+       "turn": 4,
+       "estimatedInputTokens": 11641,
+       "ms": 15762,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 9660,
+        "cachedInputTokens": 0,
+        "outputTokens": 2166,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "להלן סיכום מלא ומפורט של **חוזה שירותי תחזוקה מס' 2026/114**, שנערך בין חברת **אורן מערכות בע\"מ** (\"המזמין\") לבין חברת **קור-טק שירותים בע\"מ** (\"הספק\") (L1–2):\n\n---\n\n### 1. מה הספק מתחייב לעשות\nעל פי סעיפי ההסכם (החוזרים על עצמם לאורך המסמך במחזורים קבועים):\n* **זמני הגעה ותגובה לשירות:** טכנאי מטעם הספק יגיע למחסן באשדוד בתוך 4 שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה (L6, L16 וכו').\n* **ניהול הקשר:** מינוי מנהל לקוח אחד שירכז את הקשר השוטף מול המזמין (L11, L21 וכו').\n* **ביקורי תחזוקה שוטפת ודיווח:** ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון ומסירת דוח על הביקור (L22 וכו').\n* **מלאי חלקי חילוף:** החזקת מלאי חלקי חילוף זמין לשירות המפעל בקריית גת (L4, L14, L24 וכו').\n* **תיאום השבתות:** תיאום מראש עם מנהל האתר של כל עבודה במפעל בקריית גת שמחייבת השבתה (L9, L19 וכו').\n* **ביטוחים:** ביטוח עובדי הספק בביטוח חבות מעבידים ובביטוח צד שלישי (L17 וכו').\n\n---\n\n### 2. מה המזמין מתחייב לעשות (וזכויותיו)\n* **תשלום התמורה:** תשלום התמורה לספק בתוך 45 ימים מיום קבלת חשבונית מס כדין (L3, L13 וכו').\n* **ביקורת איכות (זכות):** המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש (L10, L20 וכו').\n\n---\n\n### 3. התחייבויות הדדיות ושונות\n* **שמירת סודיות:** הצדדים ישמרו בסוד כל מידע שהגיע אליהם במסגרת ההתקשרות (L8 וכו').\n* **שינויים בהסכם:** כל שינוי בהיקף השירות ייעשה אך ורק בכתב ובחתימת שני הצדדים (L5, L15, L25 וכו').\n\n---\n\n### 4. פירוט הקנסות המוטלים על הספק (סכומים ועילות)\n\nבחוזה מוגדרים קנסות כספיים ספציפיים לפי אתרים, וכן קנסות כלליים:\n\n#### א. מרכז הלוגיסטיקה בחולון\n* **1,000 ש\"ח** – איחור בתגובה לקריאת שירות דחופה (L7).\n* **3,250 ש\"ח** – אי הגשת דוח תחזוקה חודשי במועד (L87).\n* **5,500 ש\"ח** – הפרת הוראות בטיחות (L166).\n* **9,750 ש\"ח** – שימוש בחלקי חילוף שאינם מקוריים (L34).\n* **12,000 ש\"ח** – אי ביצוע תחזוקה מונעת במועד (L113).\n* **14,250 ש\"ח** – השארת פסולת לאחר עבודה (L193).\n* **18,500 ש\"ח** – אי תיעוד של קריאת שירות במערכת (L60).\n* **20,750 ש\"ח** – אי עמידה בזמני התיקון שנקבעו בנספח השירות (L140).\n\n#### ב. מחסן באשדוד\n* **1,500 ש\"ח** – השבתת מערכת הקירור מעבר לארבע שעות (L81).\n* **3,750 ש\"ח** – שימוש בחלקי חילוף שאינם מקוריים (L161).\n* **8,000 ש\"ח** – החלפת טכנאי ללא הודעה מוקדמת (L28).\n* **10,250 ש\"ח** – אובדן ציוד של המזמין (L108).\n* **12,500 ש\"ח** – אי תיעוד קריאת שירות במערכת (L187).\n* **16,750 ש\"ח** – עבודה ללא אישור כניסה בתוקף (L55).\n* **19,000 ש\"ח** – איחור בתגובה לקריאת שירות דחופה (L134).\n\n#### ג. משרדים בתל אביב\n* **2,750 ש\"ח** – אי עמידה בזמני התיקון שנקבעו בנספח השירות (L12).\n* **5,000 ש\"ח** – החלפת טכנאי ללא הודעה מוקדמת (L92).\n* **7,250 ש\"ח** – אובדן ציוד של המזמין (L171).\n* **11,500 ש\"ח** – הפרת הוראות הבטיחות באתר (L39).\n* **13,750 ש\"ח** – עבודה ללא אישור כניסה בתוקף (L118).\n* **16,000 ש\"ח** – איחור בתגובה לקריאת שירות דחופה (L198).\n* **22,500 ש\"ח** – השבתת מערכת הקירור מעבר לארבע שעות (L145).\n\n#### ד. סניף חיפה\n* **2,000 ש\"ח** – החלפת טכנאי ללא הודעה מוקדמת (L155).\n* **6,250 ש\"ח** – אי הגשת דוח תחזוקה חודשי במועד (L23).\n* **8,500 ש\"ח** – הפרת הוראות הבטיחות באתר (L102).\n* **10,750 ש\"ח** – עבודה ללא אישור כניסה בתוקף (L182).\n* **15,000 ש\"ח** – אי ביצוע תחזוקה מונעת במועד (L49).\n* **17,250 ש\"ח** – השארת פסולת באתר לאחר העבודה (L129).\n* **23,750 ש\"ח** – אי עמידה בזמני התיקון שנקבעו בנספח השירות (L76).\n\n#### ה. מפעל בקריית גת\n* **4,500 ש\"ח** – השבתת מערכת הקירור מעבר לארבע שעות (L18).\n* **6,750 ש\"ח** – שימוש בחלקי חילוף שאינם מקוריים (L97).\n* **9,000 ש\"ח** – אי ביצוע תחזוקה מונעת במועד (L177).\n* **13,250 ש\"ח** – אובדן ציוד של המזמין (L44).\n* **15,500 ש\"ח** – אי תיעוד של קריאת שירות במערכת (L124).\n* **22,000 ש\"ח** – איחור בתגובה לקריאת שירות דחופה (L71).\n\n#### ו. קנסות כלליים (ללא שיוך לאתר ספציפי)\n* **5% מערך ההזמנה לכל שבוע איחור** – איחור באספקה של חלקי חילוף (L65).\n* **48,000 ש\"ח** (לכל מקרה, בנוסף לכל סעד אחר) – דליפת מידע של לקוחות המזמין באחריות הספק (L150).\n\n---\n\n### הערות ופערים בחוזה\n* בחוזה נקבעו קנסות על \"איחור בתגובה לקריאה דחופה\" במספר אתרים (חולון, ת\"א, קריית גת), אך זמני הגעה מוגדרים במפורש בחוזה רק עבור המחסן באשדוד (L6).\n* נקבעו קנסות על אי-עמידה ב\"זמני התיקון שנקבעו בנספח השירות\", אולם נספח זה וזמני התיקון עצמם אינם מפורטים בגוף המסמך."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "contract-summary",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 3,
+   "language": "he",
+   "kinds": [
+    "whole-read",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "says 45 days",
+       "status": "pass"
+      },
+      {
+       "fact": "says four hours",
+       "status": "pass"
+      },
+      {
+       "fact": "number 48000",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 19,
+     "inputTokens": 49399,
+     "cachedInputTokens": 8749,
+     "outputTokens": 52078,
+     "thoughtTokens": 27794,
+     "ms": 234650,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 0,
+      "supported": 0,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document",
+      "search_document",
+      "analyze_whole_document"
+     ],
+     "reads": 1,
+     "wholeReads": 1,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5575,
+       "ms": 3283,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3656,
+        "cachedInputTokens": 1632,
+        "outputTokens": 180,
+        "thoughtTokens": 146
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6334,
+       "ms": 13560,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4568,
+        "cachedInputTokens": 2519,
+        "outputTokens": 1582,
+        "thoughtTokens": 1363
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_3",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 1 of 5",
+       "callId": "call_3",
+       "ms": 15388,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2185,
+        "cachedInputTokens": 0,
+        "outputTokens": 2162,
+        "thoughtTokens": 1160
+       }
+      },
+      {
+       "requestId": "req_4",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 2 of 5",
+       "callId": "call_3",
+       "ms": 15451,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2224,
+        "cachedInputTokens": 0,
+        "outputTokens": 2455,
+        "thoughtTokens": 1371
+       }
+      },
+      {
+       "requestId": "req_5",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 3 of 5",
+       "callId": "call_3",
+       "ms": 27296,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2196,
+        "cachedInputTokens": 0,
+        "outputTokens": 3727,
+        "thoughtTokens": 2820
+       }
+      },
+      {
+       "requestId": "req_6",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 4 of 5",
+       "callId": "call_3",
+       "ms": 17278,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2205,
+        "cachedInputTokens": 0,
+        "outputTokens": 2439,
+        "thoughtTokens": 1408
+       }
+      },
+      {
+       "requestId": "req_7",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 5 of 5",
+       "callId": "call_3",
+       "ms": 15998,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1099,
+        "cachedInputTokens": 0,
+        "outputTokens": 2054,
+        "thoughtTokens": 1432
+       }
+      },
+      {
+       "requestId": "req_8",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 1 of 4",
+       "callId": "call_3",
+       "ms": 16981,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1234,
+        "cachedInputTokens": 0,
+        "outputTokens": 1943,
+        "thoughtTokens": 1027
+       }
+      },
+      {
+       "requestId": "req_9",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 2 of 4",
+       "callId": "call_3",
+       "ms": 9833,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1317,
+        "cachedInputTokens": 0,
+        "outputTokens": 1047,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_10",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 3 of 4",
+       "callId": "call_3",
+       "ms": 14443,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1141,
+        "cachedInputTokens": 0,
+        "outputTokens": 2005,
+        "thoughtTokens": 1162
+       }
+      },
+      {
+       "requestId": "req_11",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 1: 4 of 4",
+       "callId": "call_3",
+       "ms": 27171,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1900,
+        "cachedInputTokens": 0,
+        "outputTokens": 3512,
+        "thoughtTokens": 2242
+       }
+      },
+      {
+       "requestId": "req_12",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 2: 1 of 3",
+       "callId": "call_3",
+       "ms": 14897,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1140,
+        "cachedInputTokens": 0,
+        "outputTokens": 2023,
+        "thoughtTokens": 1047
+       }
+      },
+      {
+       "requestId": "req_13",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 2: 2 of 3",
+       "callId": "call_3",
+       "ms": 25832,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2115,
+        "cachedInputTokens": 0,
+        "outputTokens": 3899,
+        "thoughtTokens": 2414
+       }
+      },
+      {
+       "requestId": "req_14",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 2: 3 of 3",
+       "callId": "call_3",
+       "ms": 9094,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1494,
+        "cachedInputTokens": 0,
+        "outputTokens": 1180,
+        "thoughtTokens": 0
+       }
+      },
+      {
+       "requestId": "req_15",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 3: 1 of 2",
+       "callId": "call_3",
+       "ms": 25596,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2686,
+        "cachedInputTokens": 0,
+        "outputTokens": 3999,
+        "thoughtTokens": 2079
+       }
+      },
+      {
+       "requestId": "req_16",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 3: 2 of 2",
+       "callId": "call_3",
+       "ms": 16485,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1404,
+        "cachedInputTokens": 0,
+        "outputTokens": 2444,
+        "thoughtTokens": 1316
+       }
+      },
+      {
+       "requestId": "req_17",
+       "role": "reader",
+       "purpose": "merge",
+       "model": "gemini-3.8-flash",
+       "detail": "round 4: 1 of 1",
+       "callId": "call_3",
+       "ms": 35854,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3273,
+        "cachedInputTokens": 0,
+        "outputTokens": 5361,
+        "thoughtTokens": 2746
+       }
+      },
+      {
+       "requestId": "req_18",
+       "role": "reader",
+       "purpose": "final",
+       "model": "gemini-3.8-flash",
+       "detail": "the answer",
+       "callId": "call_3",
+       "ms": 49197,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2851,
+        "cachedInputTokens": 0,
+        "outputTokens": 7095,
+        "thoughtTokens": 3537
+       }
+      },
+      {
+       "requestId": "req_19",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 11162,
+       "ms": 22751,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 10711,
+        "cachedInputTokens": 4598,
+        "outputTokens": 2971,
+        "thoughtTokens": 524
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "להלן סיכום מלא ומקיף של חוזה שירותי תחזוקה מס' 2026/114, שנערך ונחתם בין **חברת אורן מערכות בע\"מ** (\"המזמין\") לבין **חברת קור-טק שירותים בע\"מ** (\"הספק\").\n\n---\n\n### 1. מה הספק מתחייב לעשות\n* **זמני הגעה וקריאות שירות:** טכנאי מטעם הספק יגיע למחסן באשדוד בתוך 4 שעות מקריאה דחופה, ובתוך יומיים מקריאה רגילה.\n* **מלאי חלקי חילוף:** החזקת מלאי חלקי חילוף זמין וייעודי לשירות המפעל בקריית גת, וכן הקפדה על אספקה בזמן ושימוש בחלפים מקוריים.\n* **תחזוקה מונעת ודוחות:** ביצוע ביקור תחזוקה חודשי במרכז הלוגיסטיקה בחולון ומסירת דוח על הביקור (וכן עמידה בחובות ביצוע תחזוקה ודיווח באתרים השונים).\n* **תיאום השבתות מראש:** תיאום מראש עם מנהל האתר לגבי כל עבודה במפעל בקריית גת המחייבת השבתה של המערכות.\n* **ניהול הקשר:** מינוי מנהל לקוח אחד מטעם הספק אשר ירכז את כל הקשר מול המזמין.\n* **ביטוח:** ביטוח עובדי הספק בביטוח חבות מעבידים ובביטוח אחריות כלפי צד שלישי.\n* **בטיחות ונהלים:** הקפדה על הוראות הבטיחות בכל אתרי המזמין, כניסה לאתרים רק עם אישורי כניסה בתוקף, שמירה על ניקיון ופינוי פסולת לאחר ביצוע עבודה.\n* **תיעוד ושירות:** תיעוד מסודר של כל קריאת שירות במערכת, עמידה בזמני התיקון שנקבעו בנספח השירות, ואי-החלפת אנשי צוות/טכנאים ללא הודעה מוקדמת.\n* **סודיות ואבטחת מידע:** שמירה קפדנית על סודיות כל מידע שהגיע במסגרת ההתקשרות, ומניעת דליפת מידע של לקוחות המזמין.\n* **שינויים בהסכם:** כל שינוי בהיקף השירות ייעשה בהסכמה בכתב ובחתימת שני הצדדים.\n\n---\n\n### 2. מה המזמין מתחייב לעשות (ומהן זכויותיו)\n* **תשלום התמורה:** המזמין מתחייב לשלם את התמורה בתוך **45 ימים** מיום קבלת חשבונית מס כדין.\n* **ביקורת איכות:** המזמין רשאי לבצע ביקורת על איכות השירות בכל עת, בתיאום מראש.\n* **שמירת סודיות:** הצדדים (לרבות המזמין) ישמרו בסוד כל מידע שהגיע אליהם במסגרת ההתקשרות.\n\n---\n\n### 3. באילו מקרים הספק משלם קנס ובאילו סכומים\nהחוזה מגדיר 37 מקרים שונים של הטלת קנסות (המחולקים לפי אתרי הפעילות וקנסות כלליים):\n\n#### א. מרכז הלוגיסטיקה בחולון\n1. **איחור בתגובה לקריאת שירות דחופה:** 1,000 ש\"ח לכל מקרה.\n2. **אי הגשת דוח תחזוקה חודשי במועד:** 3,250 ש\"ח לכל מקרה.\n3. **הפרת הוראות הבטיחות באתר:** 5,500 ש\"ח לכל מקרה.\n4. **שימוש בחלקי חילוף שאינם מקוריים:** 9,750 ש\"ח לכל מקרה.\n5. **אי ביצוע תחזוקה מונעת במועד:** 12,000 ש\"ח לכל מקרה.\n6. **השארת פסולת באתר לאחר עבודה:** 14,250 ש\"ח לכל מקרה.\n7. **אי תיעוד של קריאת שירות במערכת:** 18,500 ש\"ח לכל מקרה.\n8. **אי עמידה בזמני התיקון שנקבעו בנספח השירות:** 20,750 ש\"ח לכל מקרה.\n\n#### ב. המשרדים בתל אביב\n1. **אי עמידה בזמני התיקון שנקבעו בנספח השירות:** 2,750 ש\"ח לכל מקרה.\n2. **החלפת טכנאי ללא הודעה מוקדמת:** 5,000 ש\"ח לכל מקרה.\n3. **אובדן ציוד של המזמין:** 7,250 ש\"ח לכל מקרה.\n4. **הפרת הוראות הבטיחות באתר:** 11,500 ש\"ח לכל מקרה.\n5. **עבודה ללא אישור כניסה בתוקף:** 13,750 ש\"ח לכל מקרה.\n6. **איחור בתגובה לקריאת שירות דחופה:** 16,000 ש\"ח לכל מקרה.\n7. **השבתת מערכת הקירור מעבר לארבע שעות:** 22,500 ש\"ח לכל מקרה.\n\n#### ג. המפעל בקריית גת\n1. **השבתת מערכת הקירור מעבר לארבע שעות:** 4,500 ש\"ח לכל מקרה.\n2. **שימוש בחלקי חילוף שאינם מקוריים:** 6,750 ש\"ח לכל מקרה.\n3. **אי ביצוע תחזוקה מונעת במועד:** 9,000 ש\"ח לכל מקרה.\n4. **אובדן ציוד של המזמין:** 13,250 ש\"ח לכל מקרה.\n5. **אי תיעוד של קריאת שירות במערכת:** 15,500 ש\"ח לכל מקרה.\n6. **איחור בתגובה לקריאת שירות דחופה:** 22,000 ש\"ח לכל מקרה.\n\n#### ד. הסניף בחיפה\n1. **החלפת טכנאי ללא הודעה מוקדמת:** 2,000 ש\"ח לכל מקרה.\n2. **אי הגשת דוח תחזוקה חודשי במועד:** 6,250 ש\"ח לכל מקרה.\n3. **הפרת הוראות הבטיחות באתר:** 8,500 ש\"ח לכל מקרה.\n4. **עבודה ללא אישור כניסה בתוקף:** 10,750 ש\"ח לכל מקרה.\n5. **אי ביצוע תחזוקה מונעת במועד:** 15,000 ש\"ח לכל מקרה.\n6. **השארת פסולת באתר לאחר עבודה:** 17,250 ש\"ח לכל מקרה.\n7. **אי עמידה בזמני התיקון שנקבעו בנספח השירות:** 23,750 ש\"ח לכל מקרה.\n\n#### ה. המחסן באשדוד\n1. **השבתת מערכת הקירור מעבר לארבע שעות:** 1,500 ש\"ח לכל מקרה.\n2. **שימוש בחלקי חילוף שאינם מקוריים:** 3,750 ש\"ח לכל מקרה.\n3. **החלפת טכנאי ללא הודעה מוקדמת:** 8,000 ש\"ח לכל מקרה.\n4. **אובדן ציוד של המזמין:** 10,250 ש\"ח לכל מקרה.\n5. **אי תיעוד של קריאת שירות במערכת:** 12,500 ש\"ח לכל מקרה.\n6. **עבודה ללא אישור כניסה בתוקף:** 16,750 ש\"ח לכל מקרה.\n7. **איחור בתגובה לקריאת שירות דחופה:** 19,000 ש\"ח לכל מקרה.\n\n#### ו. קנסות כלליים (אינם מוגבלים לאתר מסוים)\n1. **איחור באספקה של חלקי חילוף:** קנס של **5% מערך ההזמנה לכל שבוע איחור**.\n2. **דליפת מידע של לקוחות המזמין באחריות הספק:** קנס בסך **48,000 ש\"ח** (וזאת בנוסף לכל סעד אחר הנתון למזמין לפי דין או הסכם).\n\n---\n\n### דגשים מיוחדים שעולים מניתוח החוזה:\n* **אי-התאמה בהגדרות זמני התגובה מול הקנסות:** החוזה קובע זמן הגעה מפורש לקריאה דחופה רק עבור המחסן באשדוד (עד 4 שעות), אך קובע קנסות על איחור בתגובה לקריאה דחופה גם בחולון, תל אביב וקריית גת, מבלי שהוגדרו עבורם זמני תקן בגוף החוזה.\n* **הבדלים משמעותיים בגובה הקנסות בין האתרים:** עבור אותה הפרה בדיוק נקבעו סכומים שונים מאוד מאתר לאתר. לדוגמה, קנס על איחור בקריאה דחופה בחולון הוא 1,000 ש\"ח, ואילו בקריית גת הוא 22,000 ש\"ח; קנס על השבתת מערכת קירור באשדוד הוא 1,500 ש\"ח, לעומת 22,500 ש\"ח בתל אביב."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "cleaning-sanctions",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 1,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37 as the count",
+       "status": "pass"
+      },
+      {
+       "fact": "number 4790",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 4,
+     "inputTokens": 24017,
+     "cachedInputTokens": 7000,
+     "outputTokens": 5518,
+     "thoughtTokens": 4503,
+     "ms": 52482,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 15,
+      "supported": 12,
+      "unchecked": 0,
+      "unsupported": [
+       {
+        "document": "הסכם שירותי ניקיון.md",
+        "line": 49
+       },
+       {
+        "document": "הסכם שירותי ניקיון.md",
+        "line": 53
+       },
+       {
+        "document": "הסכם שירותי ניקיון.md",
+        "line": 53
+       }
+      ]
+     },
+     "tools": [
+      "read_document",
+      "search_document",
+      "search_document"
+     ],
+     "reads": 1,
+     "wholeReads": 0,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5586,
+       "ms": 2524,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3661,
+        "cachedInputTokens": 0,
+        "outputTokens": 58,
+        "thoughtTokens": 24
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6403,
+       "ms": 11030,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4516,
+        "cachedInputTokens": 2469,
+        "outputTokens": 1270,
+        "thoughtTokens": 1214
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 7305,
+       "ms": 30075,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 6727,
+        "cachedInputTokens": 4531,
+        "outputTokens": 3379,
+        "thoughtTokens": 3265
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_4",
+       "role": "answer",
+       "purpose": "closing",
+       "model": "gemini-3.8-flash",
+       "turn": 4,
+       "estimatedInputTokens": 8263,
+       "ms": 8828,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 9113,
+        "cachedInputTokens": 0,
+        "outputTokens": 811,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "על פי הבדיקה שבוצעה במסמך \"הסכם שירותי ניקיון.md\":\n\n### 1. מספר הסעיפים שבהם הספק משלם כסף או שמנכים/מקזזים ממנו כסף:\nבחיפוש אחר סעיפים הכוללים חיוב, קנס, קיזוז או פיצוי בגין הפרה או איחור (בכל ניסוח שהוא כגון: \"רשאי לקזז... בגין\", \"ישלם הספק למזמין קנס בסך... בגין\", \"ישלם הספק למזמין פיצוי מוסכם בסך... בגין\"):\n* נמצאו בסך הכל **37 סעיפים** כאלה לאורך ההסכם (החיפוש המלא החזיר `total_matching_lines: 37` / `total_groups: 37`).\n\n---\n\n### 2. הסכום הגבוה ביותר מביניהם:\n* **מה שנמצא מתוך הנתונים שהוחזרו:**\n  מתוך הסעיפים שפרטיהם הוצגו במלואם בפלט הכלים:\n  * סעיף 3 (שורה 7): קיזוז של 810 ש\"ח\n  * סעיף 7 (שורה 11): קיזוז של 1,490 ש\"ח\n  * סעיף 11 (שורה 15): קיזוז של 2,170 ש\"ח\n  * סעיף 16 (שורה 20): קנס בסך 3,020 ש\"ח\n  * סעיף 20 (שורה 24): קנס בסך 3,700 ש\"ח\n  * סעיף 24 (שורה 28): קנס בסך 4,380 ש\"ח\n  * סעיף 28 (שורה 32): קנס בסך 360 ש\"ח\n  * סעיף 32 (שורה 36): קנס בסך 1,040 ש\"ח\n  * סעיף 37 (שורה 41): פיצוי מוסכם בסך 1,890 ש\"ח\n  * סעיף 41 (שורה 45): פיצוי מוסכם בסך 2,570 ש\"ח\n  * סעיף 45 (שורה 49): פיצוי מוסכם בסך 3,250 ש\"ח\n  * סעיף 49 (שורה 53): פיצוי מוסכם בסך 3,930 ש\"ח\n  * סעיף 137 (שורה 141): פיצוי מוסכם בסך **4,790 ש\"ח** (הסכום הגבוה ביותר מבין אלו שנצפו במפורש).\n\n* **מה שלא ניתן היה לקבוע בוודאות:**\n  בשל מגבלת כמות תוצאות הפלט בכלים שהופעלו, הוצגו במפורש רק 12 מתוך 37 הסעיפים שנמצאו (הסעיפים הראשונים עד שורה 53, וסעיף 137 בשורה 141). לכן, לא ניתן לשלול שבאחד מ-25 הסעיפים הנותרים שלא הוצגו במלואם קיים סכום גבוה יותר מ-**4,790 ש\"ח**."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "cleaning-sanctions",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 2,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37 as the count",
+       "status": "pass"
+      },
+      {
+       "fact": "number 4790",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": true,
+     "requests": 8,
+     "inputTokens": 34994,
+     "cachedInputTokens": 7854,
+     "outputTokens": 14560,
+     "thoughtTokens": 9358,
+     "ms": 54910,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 65,
+      "supported": 65,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document",
+      "analyze_whole_document",
+      "search_document",
+      "read_document"
+     ],
+     "reads": 2,
+     "wholeReads": 1,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5586,
+       "ms": 2437,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3661,
+        "cachedInputTokens": 1637,
+        "outputTokens": 95,
+        "thoughtTokens": 61
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6403,
+       "ms": 13022,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4553,
+        "cachedInputTokens": 1638,
+        "outputTokens": 1534,
+        "thoughtTokens": 1340
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_3",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 1 of 4",
+       "callId": "call_2",
+       "ms": 17517,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2325,
+        "cachedInputTokens": 0,
+        "outputTokens": 2683,
+        "thoughtTokens": 1962
+       }
+      },
+      {
+       "requestId": "req_4",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 2 of 4",
+       "callId": "call_2",
+       "ms": 21673,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2328,
+        "cachedInputTokens": 0,
+        "outputTokens": 3160,
+        "thoughtTokens": 2329
+       }
+      },
+      {
+       "requestId": "req_5",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 3 of 4",
+       "callId": "call_2",
+       "ms": 18163,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 2326,
+        "cachedInputTokens": 0,
+        "outputTokens": 2567,
+        "thoughtTokens": 1858
+       }
+      },
+      {
+       "requestId": "req_6",
+       "role": "reader",
+       "purpose": "part",
+       "model": "gemini-3.8-flash",
+       "detail": "part 4 of 4",
+       "callId": "call_2",
+       "ms": 13656,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 1728,
+        "cachedInputTokens": 0,
+        "outputTokens": 2116,
+        "thoughtTokens": 1646
+       }
+      },
+      {
+       "requestId": "req_7",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 9785,
+       "ms": 3083,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 9719,
+        "cachedInputTokens": 4579,
+        "outputTokens": 198,
+        "thoughtTokens": 162
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_8",
+       "role": "answer",
+       "purpose": "closing",
+       "model": "gemini-3.8-flash",
+       "turn": 4,
+       "estimatedInputTokens": 10182,
+       "ms": 14680,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 8354,
+        "cachedInputTokens": 0,
+        "outputTokens": 2207,
+        "thoughtTokens": 0
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "answer": "על פי קריאת וניתוח כל סעיפי ההסכם (מתחילתו בשורה 1 ועד סופו בשורה 164):\n\n### מספר הסעיפים\nבהסכם יש בדיוק **37 סעיפים** שבהם מוטל על הספק תשלום (קנס, פיצוי מוסכם) או שמנוכה/מקוזז ממנו סכום כספי (קיזוז, הפחתה מהתמורה) עקב הפרה, מחדל או איחור.\n\nפירוט הסעיפים שנמצאו והסכומים בהם:\n1. **סעיף 3** (L7) – קיזוז של **810 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n2. **סעיף 7** (L11) – קיזוז של **1,490 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n3. **סעיף 11** (L15) – קיזוז של **2,170 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n4. **סעיף 16** (L20) – קנס בסך **3,020 ש\"ח** בגין אי פינוי פסולת בסוף היום.\n5. **סעיף 20** (L24) – קנס בסך **3,700 ש\"ח** בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n6. **סעיף 24** (L28) – קנס בסך **4,380 ש\"ח** בגין עבודה ללא תג עובד.\n7. **סעיף 28** (L32) – קנס בסך **360 ש\"ח** בגין נזק לריהוט במהלך הניקיון.\n8. **סעיף 32** (L36) – קנס בסך **1,040 ש\"ח** בגין שימוש בחומרי ניקוי שלא אושרו.\n9. **סעיף 37** (L41) – פיצוי מוסכם בסך **1,890 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n10. **סעיף 41** (L45) – פיצוי מוסכם בסך **2,570 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n11. **סעיף (בשורה 49)** (L49) – פיצוי מוסכם בסך **3,250 ש\"ח** בגין אי מילוי סבונים ומגבות נייר.\n12. **סעיף (בשורה 53)** (L53) – פיצוי מוסכם בסך **3,930 ש\"ח** בגין אי ביצוע ניקוי חלונות רבעוני.\n13. **סעיף (בשורה 57)** (L57) – פיצוי מוסכם בסך **4,610 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n14. **סעיף (בשורה 62)** (L62) – הפחתה של **760 ש\"ח** מהתמורה החודשית בגין נזק לריהוט במהלך הניקיון.\n15. **סעיף (בשורה 66)** (L66) – הפחתה של **1,440 ש\"ח** מהתמורה החודשית בגין שימוש בחומרי ניקוי שלא אושרו.\n16. **סעיף (בשורה 70)** (L70) – הפחתה של **2,120 ש\"ח** מהתמורה החודשית בגין אי פינוי פסולת בסוף היום.\n17. **סעיף (בשורה 74)** (L74) – הפחתה של **2,800 ש\"ח** מהתמורה החודשית בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n18. **סעיף (בשורה 78)** (L78) – הפחתה של **3,480 ש\"ח** מהתמורה החודשית בגין עבודה ללא תג עובד.\n19. **סעיף (בשורה 83)** (L83) – קיזוז של **4,330 ש\"ח** מכל תשלום בגין אי ביצוע ניקוי חלונות רבעוני.\n20. **סעיף (בשורה 87)** (L87) – קיזוז של **310 ש\"ח** מכל תשלום בגין השארת דלת חדר השרתים פתוחה.\n21. **סעיף (בשורה 91)** (L91) – קיזוז של **990 ש\"ח** מכל תשלום בגין החלפת עובד ניקיון ללא הודעה.\n22. **סעיף (בשורה 95)** (L95) – קיזוז של **1,670 ש\"ח** מכל תשלום בגין אי ניקוי השירותים.\n23. **סעיף (בשורה 99)** (L99) – קיזוז של **2,350 ש\"ח** מכל תשלום בגין אי מילוי סבונים/מגבות.\n24. **סעיף (בשורה 104)** (L104) – תשלום קנס בסך **3,200 ש\"ח** בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n25. **סעיף (בשורה 108)** (L108) – קנס בסך **3,880 ש\"ח** בגין עבודה ללא תג עובד.\n26. **סעיף (בשורה 112)** (L112) – קנס בסך **4,560 ש\"ח** בגין נזק לריהוט במהלך הניקיון.\n27. **סעיף (בשורה 116)** (L116) – קנס בסך **540 ש\"ח** בגין שימוש בחומרי ניקוי שלא אושרו.\n28. **סעיף (בשורה 120)** (L120) – קנס בסך **1,220 ש\"ח** בגין אי פינוי פסולת בסוף היום.\n29. **סעיף (בשורה 125)** (L125) – פיצוי מוסכם בסך **2,070 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n30. **סעיף (בשורה 129)** (L129) – פיצוי מוסכם בסך **2,750 ש\"ח** בגין אי מילוי סבונים ומגבות נייר.\n31. **סעיף (בשורה 133)** (L133) – פיצוי מוסכם בסך **3,430 ש\"ח** בגין אי ביצוע ניקוי חלונות רבעוני.\n32. **סעיף (בשורה 137)** (L137) – פיצוי מוסכם בסך **4,110 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n33. **סעיף (בשורה 141)** (L141) – פיצוי מוסכם בסך **4,790 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n34. **סעיף (בשורה 146)** (L146) – הפחתה של **940 ש\"ח** מהתמורה החודשית בגין שימוש בחומרי ניקוי שלא אושרו.\n35. **סעיף (בשורה 150)** (L150) – הפחתה של **1,620 ש\"ח** מהתמורה החודשית בגין אי פינוי פסולת בסוף היום.\n36. **סעיף 150** (L154) – הפחתה של **2,300 ש\"ח** מהתמורה החודשית בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n37. **סעיף 154** (L158) – הפחתה של **2,980 ש\"ח** מהתמורה החודשית בגין עבודה ללא תג עובד.\n\n---\n\n### הסכום הגבוה ביותר\nהסכום הגבוה ביותר מבין סעיפי ההפרות/האיחורים הוא **4,790 ש\"ח** (מופיע בשורה 141: פיצוי מוסכם בגין החלפת עובד ניקיון ללא הודעה)."
+    }
+   ],
+   "passed": true
+  },
+  {
+   "case": "cleaning-sanctions",
+   "model": "gemini-3.8-flash",
+   "mode": "live",
+   "run": 3,
+   "language": "he",
+   "kinds": [
+    "count",
+    "searched"
+   ],
+   "questions": [
+    {
+     "turn": 1,
+     "answered": true,
+     "facts": [
+      {
+       "fact": "number 37 as the count",
+       "status": "fail",
+       "detail": "not in the answer"
+      },
+      {
+       "fact": "number 4790",
+       "status": "pass"
+      },
+      {
+       "fact": "answers in Hebrew",
+       "status": "pass"
+      }
+     ],
+     "passed": false,
+     "requests": 4,
+     "inputTokens": 26931,
+     "cachedInputTokens": 6232,
+     "outputTokens": 7322,
+     "thoughtTokens": 5443,
+     "ms": 57442,
+     "ceilingReached": false,
+     "citations": {
+      "checked": 29,
+      "supported": 29,
+      "unchecked": 0,
+      "unsupported": []
+     },
+     "tools": [
+      "read_document",
+      "search_document",
+      "search_document",
+      "analyze_whole_document",
+      "search_document",
+      "search_document"
+     ],
+     "reads": 1,
+     "wholeReads": 1,
+     "log": [
+      {
+       "requestId": "req_1",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 1,
+       "estimatedInputTokens": 5586,
+       "ms": 2616,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 3661,
+        "cachedInputTokens": 0,
+        "outputTokens": 109,
+        "thoughtTokens": 75
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 1
+      },
+      {
+       "requestId": "req_2",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 2,
+       "estimatedInputTokens": 6403,
+       "ms": 18556,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 4567,
+        "cachedInputTokens": 1647,
+        "outputTokens": 2237,
+        "thoughtTokens": 2014
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 3
+      },
+      {
+       "requestId": "req_3",
+       "role": "tools",
+       "purpose": "turn",
+       "model": "gemini-3.8-flash",
+       "turn": 3,
+       "estimatedInputTokens": 8359,
+       "ms": 14798,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 8728,
+        "cachedInputTokens": 4585,
+        "outputTokens": 1645,
+        "thoughtTokens": 1522
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 2
+      },
+      {
+       "requestId": "req_4",
+       "role": "answer",
+       "purpose": "closing",
+       "model": "gemini-3.8-flash",
+       "turn": 4,
+       "estimatedInputTokens": 9864,
+       "ms": 21460,
+       "outcome": "ok",
+       "usage": {
+        "inputTokens": 9975,
+        "cachedInputTokens": 0,
+        "outputTokens": 3331,
+        "thoughtTokens": 1832
+       },
+       "finish": "complete",
+       "finishReason": "STOP",
+       "toolCalls": 0
+      }
+     ],
+     "excerpt": "בהסכם שירותי הניקיון ישנם **28 סעיפים בדיוק** שבהם הספק משלם כסף או שמקוזז/מנוכה ממנו תשלום עקב הפרה, אי-ביצוע, נזק או איחור (קנסות, קיזוזים או פיצוי מוסכם).\n\nהסכום הגבוה ביותר מביניהם הוא **4,790 ש\"ח** (מופיע בסעיף 137, L141).\n\n---\n\n### פירוט מלא של 28 הסעיפים:\n\n1. **סעיף 3** (L7): קיזוז **810 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n2. **סעיף 7** (L11): קיזוז **1,490 ש\"ח** בגין החלפת עובד ניקיון ל",
+     "answer": "בהסכם שירותי הניקיון ישנם **28 סעיפים בדיוק** שבהם הספק משלם כסף או שמקוזז/מנוכה ממנו תשלום עקב הפרה, אי-ביצוע, נזק או איחור (קנסות, קיזוזים או פיצוי מוסכם).\n\nהסכום הגבוה ביותר מביניהם הוא **4,790 ש\"ח** (מופיע בסעיף 137, L141).\n\n---\n\n### פירוט מלא של 28 הסעיפים:\n\n1. **סעיף 3** (L7): קיזוז **810 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n2. **סעיף 7** (L11): קיזוז **1,490 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n3. **סעיף 11** (L15): קיזוז **2,170 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n4. **סעיף 16** (L20): קנס בסך **3,020 ש\"ח** בגין אי פינוי פסולת בסוף היום.\n5. **סעיף 20** (L24): קנס בסך **3,700 ש\"ח** בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n6. **סעיף 24** (L28): קנס בסך **4,380 ש\"ח** בגין עבודה ללא תג עובד.\n7. **סעיף 28** (L32): קנס בסך **360 ש\"ח** בגין נזק לריהוט במהלך הניקיון.\n8. **סעיף 32** (L36): קנס בסך **1,040 ש\"ח** בגין שימוש בחומרי ניקוי שלא אושרו.\n9. **סעיף 37** (L41): פיצוי מוסכם בסך **1,890 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n10. **סעיף 41** (L45): פיצוי מוסכם בסך **2,570 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n11. **סעיף 45** (L49): פיצוי מוסכם בסך **3,250 ש\"ח** בגין אי מילוי סבונים ומגבות נייר.\n12. **סעיף 49** (L53): פיצוי מוסכם בסך **3,930 ש\"ח** בגין אי ביצוע ניקוי חלונות רבעוני.\n13. **סעיף 53** (L57): פיצוי מוסכם בסך **4,610 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n14. **סעיף 79** (L83): קיזוז **4,330 ש\"ח** בגין אי ביצוע ניקוי חלונות רבעוני.\n15. **סעיף 83** (L87): קיזוז **310 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n16. **סעיף 87** (L91): קיזוז **990 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה.\n17. **סעיף 91** (L95): קיזוז **1,670 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n18. **סעיף 95** (L99): קיזוז **2,350 ש\"ח** בגין אי מילוי סבונים ומגבות נייר.\n19. **סעיף 100** (L104): קנס בסך **3,200 ש\"ח** בגין איחור של יותר משעה בתחילת משמרת הניקיון.\n20. **סעיף 104** (L108): קנס בסך **3,880 ש\"ח** בגין עבודה ללא תג עובד.\n21. **סעיף 108** (L112): קנס בסך **4,560 ש\"ח** בגין נזק לריהוט במהלך הניקיון.\n22. **סעיף 112** (L116): קנס בסך **540 ש\"ח** בגין שימוש בחומרי ניקוי שלא אושרו.\n23. **סעיף 116** (L120): קנס בסך **1,220 ש\"ח** בגין אי פינוי פסולת בסוף היום.\n24. **סעיף 121** (L125): פיצוי מוסכם בסך **2,070 ש\"ח** בגין אי ניקוי השירותים בקומה לפי הלוח.\n25. **סעיף 125** (L129): פיצוי מוסכם בסך **2,750 ש\"ח** בגין אי מילוי סבונים ומגבות נייר.\n26. **סעיף 129** (L133): פיצוי מוסכם בסך **3,430 ש\"ח** בגין אי ביצוע ניקוי חלונות רבעוני.\n27. **סעיף 133** (L137): פיצוי מוסכם בסך **4,110 ש\"ח** בגין השארת דלת חדר השרתים פתוחה.\n28. **סעיף 137** (L141): פיצוי מוסכם בסך **4,790 ש\"ח** בגין החלפת עובד ניקיון ללא הודעה."
+    }
+   ],
+   "passed": false
+  }
+ ]
+}

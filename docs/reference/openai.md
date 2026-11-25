@@ -1,18 +1,19 @@
 # `llm-large-files/openai`
 
 This page lists every export of `llm-large-files/openai` with its options, defaults, return values
-and errors: the `openAiCompatible()` adapter, its error class, and the converters for a history
-kept as Chat Completions messages. It is for you if a model of your question sits behind a Chat
-Completions endpoint: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp,
-or the OpenAI layer of the Gemini API. The recipe for each server is in the guide
-[OpenAI-compatible endpoints](../guides/openai-compatible.md).
+and errors: the `openAiCompatible()` adapter, the `openAiResponses()` adapter (new in 0.99.9),
+their error class, and the converters for a history kept as Chat Completions messages. It is for
+you if a model of your question sits behind a Chat Completions endpoint: OpenAI, Azure OpenAI,
+DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp, or the OpenAI layer of the Gemini API; or
+behind OpenAI's Responses API, for OpenAI's reasoning models with tools. The recipe for each server
+is in the guide [OpenAI-compatible endpoints](../guides/openai-compatible.md).
 
 ```ts
-import { fromOpenAiMessages, openAiCompatible, openAiToolTurns, OpenAiRequestError } from "llm-large-files/openai";
-import type { OpenAiCompatibleOptions, OpenAiMessage } from "llm-large-files/openai";
+import { fromOpenAiMessages, openAiCompatible, openAiResponses, openAiToolTurns, OpenAiRequestError } from "llm-large-files/openai";
+import type { OpenAiCompatibleOptions, OpenAiMessage, OpenAiResponsesOptions } from "llm-large-files/openai";
 // What the signatures below use from the main entry:
 import { ModelRequestError } from "llm-large-files";
-import type { ChatMessage, ModelAdapter, ModelErrorKind, ToolTurn } from "llm-large-files";
+import type { ChatMessage, DocumentsCapability, ModelAdapter, ModelErrorKind, ToolTurn } from "llm-large-files";
 ```
 
 The entry point needs no OpenAI SDK: it posts JSON to the URL you give, with `fetch`.
@@ -21,6 +22,8 @@ The entry point needs no OpenAI SDK: it posts JSON to the URL you give, with `fe
 
 - [The model adapter](#the-model-adapter): [`openAiCompatible()`](#openaicompatibleoptions),
   [`OpenAiCompatibleOptions`](#openaicompatibleoptions-1)
+- [The Responses API adapter](#the-responses-api-adapter): [`openAiResponses()`](#openairesponsesoptions),
+  [`OpenAiResponsesOptions`](#openairesponsesoptions-1)
 - [Errors](#errors): [`OpenAiRequestError`](#openairequesterror)
 - [Chat Completions messages](#chat-completions-messages): [`OpenAiMessage`](#openaimessage),
   [`fromOpenAiMessages()`](#fromopenaimessageshistory), [`openAiToolTurns()`](#openaitoolturnsturns)
@@ -35,7 +38,8 @@ declare function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapte
 
 A model behind a Chat Completions endpoint, as a [`ModelAdapter`](./ask.md#modeladapter) for
 [`askWithFiles`](./ask.md#askwithfilesoptions): the model that answers, or the `explorer`. It makes
-no request when it is created and throws nothing. The options are in
+no request when it is created. It throws only for a `documents` value that is not valid (since
+0.99.9): a `TypeError` (a `RangeError` for a limit out of range). The options are in
 [`OpenAiCompatibleOptions`](#openaicompatibleoptions-1).
 
 The adapter it returns:
@@ -43,7 +47,7 @@ The adapter it returns:
 | Member | Value |
 |---|---|
 | `id` | `options.id`, else `options.model`. It names the model in `usage.byModel` and in messages. |
-| `capabilities` | `toolFiles` is `"beside"` with `pdfInput`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set), so the loop counts a scale of 1 by default. No `outputTokens`, not `appendOnly`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
+| `capabilities` | `toolFiles` is `"beside"` with `pdfInput` or `imageInput`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set), so the loop counts a scale of 1 by default. With `imageInput` (0.99.9), `toolFileTypes` is `["image/png", "image/jpeg"]`, or `["application/pdf", "image/png", "image/jpeg"]` with `pdfInput` too; with `documents`, `documents` with its defaults filled in. Without those two options, the object of 0.10. No `outputTokens`, not `appendOnly`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
 | `send(request, hooks?)` | One chat request, described below. |
 | `requestBytes(request)` | The size in bytes of the JSON body of that request, without the two fields a stream adds. |
 | `generateText` | The part reader of whole-file reads, described below. With it, `analyze_whole_document` can be offered when this adapter is the model that uses the tools (the explorer, when there is one), unless `wholeDocumentAnalysis` is `false`. |
@@ -72,6 +76,11 @@ A chat request carries no output limit and no sampling field unless you put them
 - A turn of text is a message whose `content` is a string: its text parts, joined by a blank line.
   A turn with native parts has a list as `content`: `{ type: "text", text }` for each text part,
   and each native part as it is.
+- A turn with files (`ModelTextMessage.files`, 0.99.9) has a list as `content`, its files first: a
+  PDF as `{ type: "file", file: { filename, file_data: "data:application/pdf;base64,…" } }`, an
+  image (PNG, JPEG, GIF, WebP) as `{ type: "image_url", image_url: { url: "data:image/png;base64,…" } }`,
+  then its text parts as one `{ type: "text", text }`, joined by a blank line. A file of another
+  type is a `TypeError` before anything is sent.
 - User turns that follow each other are made one, because some servers (DeepSeek's reasoner, the
   chat templates of Mistral and Gemma models) refuse two user turns in a row.
 - A model turn of this question goes back as it came (`ModelReply.raw`), with any
@@ -80,9 +89,11 @@ A chat request carries no output limit and no sampling field unless you put them
   adapter) becomes an assistant message with `content: null` and `tool_calls`, the arguments as a
   JSON string. A call without an ID is given `call_{round}_{n}`.
 - Each result is a message `{ role: "tool", tool_call_id, content }`, `content` being the result as
-  JSON. With `pdfInput`, the files the tools returned (the pages of `view_pages`) follow in one user
-  message: for each file, a text part `"{file name} (returned by view_pages):"` and a part
-  `{ type: "file", file: { filename, file_data: "data:application/pdf;base64,…" } }`.
+  JSON. With `pdfInput` or `imageInput`, the files the tools returned (the pages of `view_pages`)
+  follow in one user message: for each file, a text part `"{file name} (returned by view_pages):"`
+  and a part `{ type: "file", file: { filename, file_data: "data:application/pdf;base64,…" } }`,
+  or, for a page drawn as an image (0.99.9),
+  `{ type: "image_url", image_url: { url: "data:image/jpeg;base64,…" } }`, with no `detail`.
 
 **Streaming.** A chat request is streamed when `hooks.onText` is given and `stream` is not `false`.
 Under `askWithFiles` that is the answering model's request when you pass `onText`; an explorer's
@@ -178,7 +189,7 @@ when it is a plain word (see [`analyze_whole_document`](./tools.md#analyze_whole
 import { askWithFiles } from "llm-large-files";
 import { openAiCompatible } from "llm-large-files/openai";
 
-// files, documentIds and messages come from your application.
+// files, documentIds, messages and userId (their owner) come from your application.
 const model = openAiCompatible({
   model: "gpt-5.5",
   apiKey: process.env.OPENAI_API_KEY!,
@@ -189,6 +200,7 @@ const model = openAiCompatible({
 const result = await askWithFiles({
   files,
   model,
+  owner: userId,
   documentIds,
   messages,
   onText: (delta) => process.stdout.write(delta), // the answer streams
@@ -215,6 +227,8 @@ type OpenAiCompatibleOptions = {
   systemRole?: "system" | "developer" | undefined;
   answerWithoutTools?: "tool_choice" | "omit" | undefined;
   pdfInput?: boolean | undefined;
+  imageInput?: boolean | undefined; // new in 0.99.9
+  documents?: DocumentsCapability | undefined; // new in 0.99.9
   stream?: boolean | undefined;
   contextTokens?: number | undefined;
   maxRequestBytes?: number | undefined;
@@ -243,10 +257,12 @@ The options of [`openAiCompatible()`](#openaicompatibleoptions).
 | `systemRole` | `"system" \| "developer"` | `"system"` | The role of the system message, in chat requests and in part reads. `"developer"` for an endpoint that wants the newer name. |
 | `answerWithoutTools` | `"tool_choice" \| "omit"` | `"tool_choice"` | How the request that must be answered in text says so. `"tool_choice"` keeps the tools and sends `tool_choice: "none"`. `"omit"` leaves the tools out and sends no `tool_choice`, for a server that does not know `tool_choice`. |
 | `pdfInput` | `boolean` | `false` | Send the pages of `view_pages` to the model, as `file` parts in a user message after the tool messages of the round. It makes `capabilities.toolFiles` `"beside"`. Off, `toolFiles` is `"none"`, and `view_pages` is not offered to any model of the question. Turn it on only for a model that reads PDF input: a tool message holds text only, and many servers behind this API take no PDF at all. |
+| `imageInput` | `boolean` | `false` | Send the pages of `view_pages` as images: each page a JPEG of 1,568 pixels on its longest side, in an `image_url` part, in a user message after the tool messages. For a model that reads images and no PDF (vLLM, DeepSeek, most servers behind this API). It makes `toolFiles` `"beside"` and lists `"image/png"` and `"image/jpeg"` in `toolFileTypes`; with `pdfInput` too, PDF comes first and is used. Drawing pages needs `unpdf` 2 (Node 24 or later) and `@napi-rs/canvas` ([Pages as images](../guides/pdfs.md#pages-as-images)). New in 0.99.9. |
+| `documents` | [`DocumentsCapability`](./ask.md#toolfiletype-documentscapability-and-nativedocumentformat) | none | The files this model reads natively: `{ formats: ["pdf"] }` sends a small visual PDF sent whole as a `file` part before its text ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). Only `"pdf"`: Chat Completions reads no other file. A value that is not valid is a `TypeError` (a `RangeError` for a limit out of range) when the adapter is made: `openAiCompatible(): documents.formats may name only "pdf", and names "pptx".` New in 0.99.9. |
 | `stream` | `boolean` | `true` | Stream a chat request that has `onText`. `false` never streams, for a server without streaming. A request without `onText` is not streamed either way. |
 | `contextTokens` | `number` | none | The model's context window in tokens. Set as `capabilities.contextTokens`, it keeps the budget of a question within it. Without it the library's budget holds: 1,000,000 tokens unless you set another. |
 | `maxRequestBytes` | `number` | none | The largest request body the endpoint takes, in bytes. Set as `capabilities.maxRequestBytes`, it keeps the budget within it. Without it the library's budget holds: 10,000,000 bytes unless you set another. |
-| `pageTokens` | `number` | `1_000` | Tokens one PDF page shown by `view_pages` costs. The loop sizes the pages a question may look at from it. It matters only with `pdfInput`. |
+| `pageTokens` | `number` | `1_000` | Tokens one page shown by `view_pages` costs, as a PDF page or an image. The loop sizes the pages a question may look at from it, and counts each file sent as it is at its pages times this. It matters only with `pdfInput`, `imageInput` or `documents`. DeepSeek bills at most 384 tokens an image: 1,000 counts high, and only shows fewer pages. |
 | `tokenScale` | `number` | none, counted as 1 | This model's tokens for one token of the library's estimate, which is fitted to Gemini. A model whose tokenizer counts a third more for the same text takes 1.33, and its documents are planned for a window that much smaller. |
 | `timeoutMs` | `number` | `180_000` | The longest a part read's request may take, in milliseconds, each try counted apart, except that a request sent again with the other name of the output limit (see `maxTokensField`) shares the time of the first. A request that runs longer is aborted, and is an `OpenAiRequestError` of kind `"timeout"` and status 0 (since 0.10.0). 0 sets no limit (since 0.10.0; before, it aborted every part read at once). Not used for chat requests. |
 | `firstByteTimeoutMs` | `number` | `600_000` | The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count: a model that thinks sends nothing until it has thought, and a reply that is not streamed comes whole at the end. A request that gets nothing for that long is aborted with an `OpenAiRequestError` (`status` 0, `kind` `"timeout"`), which `askWithFiles` sends again once. 0, a negative or a non-finite number waits without end. The key and headers are resolved before the wait starts. Not used for part reads. |
@@ -259,6 +275,268 @@ and [`DEFAULT_IDLE_TIMEOUT_MS`](./errors-and-retries.md#default_idle_timeout_ms)
 them to: [errors and reliability](../guides/errors-and-reliability.md). What a page costs and how
 the budget follows the model: [costs and limits](../guides/costs-and-limits.md),
 [PDFs](../guides/pdfs.md).
+
+## The Responses API adapter
+
+### openAiResponses(options)
+
+```ts
+declare function openAiResponses(options: OpenAiResponsesOptions): ModelAdapter;
+```
+
+New in 0.99.9. A model behind OpenAI's Responses API (`/responses`), or the v1 API of Azure OpenAI,
+as a [`ModelAdapter`](./ask.md#modeladapter) for [`askWithFiles`](./ask.md#askwithfilesoptions):
+the model that answers, or the `explorer`. Use it for OpenAI's reasoning models with tools, which
+reason while they call the document tools: OpenAI points to this API for reasoning, tool calls and
+conversations of several turns, and its reasoning guide says that Chat Completions does not support
+function calling with some of its newer models. It makes no request when it is created. It throws
+only for a `documents` value that is not valid: a `TypeError` (a `RangeError` for a limit out of
+range). The options are in [`OpenAiResponsesOptions`](#openairesponsesoptions-1).
+
+It was built from OpenAI's API reference and guides and Azure OpenAI's Responses page (read November
+2026), and tested against fake servers. It has not been run against OpenAI or Azure.
+
+The adapter it returns:
+
+| Member | Value |
+|---|---|
+| `id` | `options.id`, else `options.model`. It names the model in `usage.byModel` and in messages. |
+| `capabilities` | `toolFiles` is `toolFilePlacement`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set). With a `toolFilePlacement` other than `"none"`, `toolFileTypes` is `["application/pdf", "image/png", "image/jpeg"]`: a PDF, or pages drawn as images when another model of the question takes no PDF. With `documents`, `documents` with its defaults filled in. No `outputTokens`, not `appendOnly`, not `clearsToolResults`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
+| `send(request, hooks?)` | One chat request, described below. |
+| `requestBytes(request)` | The size in bytes of the JSON body of that request, without `stream`, with `include` while the adapter still sends it. |
+| `generateText` | The part reader of whole-file reads, described below. With it, `analyze_whole_document` can be offered when this adapter is the model that uses the tools. |
+
+**Where it posts.** Every request goes to `url`, or to `baseUrl` (default
+`https://api.openai.com/v1`, trailing slashes removed) followed by `/responses`. For Azure OpenAI,
+`baseUrl` is `https://{resource}.openai.azure.com/openai/v1`, whose path needs no `api-version`.
+The headers are those of `openAiCompatible()`: `Content-Type: application/json`;
+`Authorization: Bearer {apiKey}` when `apiKey` gives a non-empty string; then `headers`, which can
+replace either. Both are resolved before every request, so a function can return a renewed key or
+an Entra ID token.
+
+**The body of a chat request**, in this order, a later field replacing an earlier one:
+
+- `model`.
+- `instructions`: the system instruction, when it is not empty.
+- `input`: the conversation, as input items (below).
+- `tools`, each as `{ type: "function", name, description, parameters, strict: false }`, when the
+  request offers tools. Left out, `strict` would make the API turn the schemas into strict ones,
+  which changes their optional properties. A request that must be answered in text adds
+  `tool_choice: "none"`, and keeps the tools.
+- `store: false`.
+- `include: ["reasoning.encrypted_content"]`, unless `encryptedReasoning` is `false` or a server
+  refused it (see "Reasoning items").
+- `stream: true`, when the request is streamed. There is no `stream_options`.
+- Every field of `body`.
+
+A chat request carries no output limit, no sampling field and no `reasoning` unless you put them in
+`body`. Do not put `previous_response_id` or `conversation` in it: the adapter sends the whole
+conversation with every request, which would then be there twice. `background: true` is not
+supported: the adapter would read the queued response as a reply with no end.
+
+**The conversation in the request.**
+
+- A turn of text is `{ role, content }`, whose `content` is a string: its text parts, joined by a
+  blank line. A turn with native parts (an `input_image` or `input_file` of your own) has a list as
+  `content`: each native part as it is, and each text part as `{ type: "input_text", text }` in a
+  user turn, `{ type: "output_text", text }` in an assistant turn. The API refuses `input_text` from
+  the assistant.
+- A turn with files (`ModelTextMessage.files`) has a list as `content`, its files first: a PDF as
+  `input_file`, an image (PNG, JPEG, GIF, WebP) as `input_image` with `detail: "auto"`, then its
+  text parts as one `input_text` (`output_text` from the assistant), joined by a blank line. A file
+  of another type is a `TypeError` before anything is sent.
+- User turns that follow each other are made one, as `openAiCompatible()` does.
+- A model turn of this question goes back as it came (`ModelReply.raw`): every output item of the
+  response, in order, with its ID: reasoning items with their encrypted content, messages, calls.
+- A stored tool round (the `toolTurns` of an earlier question), or a round of another adapter,
+  becomes one `{ type: "function_call", call_id, name, arguments }` for each call, the arguments as
+  a JSON string, without an item `id`: it is linked to no stored or reasoning item. A call without
+  an ID is given `call_{round}_{n}`.
+- Each result is `{ type: "function_call_output", call_id, output }`, `output` being the result as
+  JSON. With `toolFilePlacement: "inside"`, a result that returned files (the pages of
+  `view_pages`) has a list as `output`: the JSON as `input_text`, then each file. With `"beside"`,
+  the files follow the outputs of the round in one user turn: for each file, an `input_text`
+  `"{file name} (returned by view_pages):"` and the file. A PDF is
+  `{ type: "input_file", filename, file_data: "data:application/pdf;base64,…" }`, an image
+  `{ type: "input_image", image_url: "data:image/png;base64,…", detail: "auto" }`.
+
+**Reasoning items.** The requests are stateless, as OpenAI and Azure describe it for `store: false`:
+
+- Within a question, the output items of a response go back in every later request of the
+  question, in order. A reasoning item goes back only with its `encrypted_content`: under
+  `store: false` the server keeps nothing, and refuses an item it knows only by its ID ("Item with
+  id 'rs_…' not found"). With `body: { store: true }`, it goes back either way.
+- Between questions, nothing of the provider's is kept. `AskResult.toolTurns` holds the calls and
+  their results, as for every adapter, and a later question sends them as calls without item IDs.
+  The model has no reasoning from earlier questions, as with Claude's thinking blocks.
+- `include` asks for the encrypted content of reasoning. OpenAI sends it by default under
+  `store: false` now, and still accepts `include`; older deployments and some servers that speak
+  this API need it. When `encryptedReasoning` is left out and a server refuses it (HTTP 400 with
+  `param: "include"`, or a message about `reasoning.encrypted_content` or encrypted content), the
+  request is sent once more without it, and the adapter stops asking for it. With
+  `encryptedReasoning: true` the error is thrown instead; with `false` it is never asked for.
+
+**Streaming.** A chat request is streamed when `hooks.onText` is given and `stream` is not `false`.
+Under `askWithFiles` that is the answering model's request when you pass `onText`; an explorer's
+requests are never streamed. A reply of another type than `text/event-stream`, or of none, is read
+by its first characters, as on `openAiCompatible()`.
+
+- Each `response.output_text.delta` goes to `onText` as it arrives. The text of another message
+  item starts with a blank line.
+- The events of each output item are put together under its `output_index`, so the items of
+  parallel calls may come interleaved. The item of `response.output_item.done` is the one kept: the
+  encrypted content of an item that was only added may not be whole.
+- `response.completed` or `response.incomplete` ends the reply, and so does a proxy's `[DONE]`. A
+  server that then leaves the connection open is read for one more second at most.
+- A call that was added and not done when the reply ended gets a `problem` (it did not arrive
+  whole), and is not run. A message that was not done keeps the text of its deltas. A reasoning
+  item that was not done is left out.
+- A server that sent no item events: the items are the `output` of the response it ended with.
+- Other events (content parts, reasoning summaries, annotations) are not read, and count as pieces
+  of the reply for `idleTimeoutMs`.
+
+**The reply** ([`ModelReply`](./ask.md#modelreply)):
+
+- `text` is the `output_text` of the message items: the parts of one message joined, the messages
+  joined by a blank line. When there is none and the model refused, it is the refusal, which goes
+  to `onText` too.
+- `calls` are the `function_call` items that have a name, in output order. A call without a
+  `call_id` is given `call_` and 24 hexadecimal characters, in the call and in `raw`. Arguments that
+  are not a JSON object give the call a `problem`, and go back as `"{}"`; empty ones go back as
+  `"{}"` too. When the response is incomplete for `max_output_tokens`, every call gets a `problem`
+  that says it was cut off at the output limit, and none is run.
+- `raw` is the list of output items that goes back, as they came. A call without a name, and a
+  reasoning item without encrypted content under `store: false`, are left out.
+- `finishReason`, `finish` and `blockReason`:
+
+  | The response | `finishReason` | `finish` |
+  |---|---|---|
+  | `status: "completed"` | `"completed"` | `"complete"` |
+  | `status: "incomplete"`, reason `max_output_tokens` | `"max_output_tokens"` | `"cut"` |
+  | `status: "incomplete"`, reason `content_filter` | `"content_filter"` | `"filtered"`; with no text and no call, also `blockReason: "content_filter"` |
+  | `status: "incomplete"`, another reason (`max_messages`) | that reason | not set |
+  | `status: "incomplete"`, no reason | `"incomplete"` | not set |
+  | Ended by `[DONE]` alone | not set | not set |
+
+- `usage`: `inputTokens` is `input_tokens`; `cachedInputTokens` is
+  `input_tokens_details.cached_tokens`; `outputTokens` is `output_tokens`; `thoughtTokens` is
+  `output_tokens_details.reasoning_tokens`. A missing number counts 0. `providerUsage` is the
+  `usage` object as it came.
+- `responseId` and `responseModel` are the response's `id` and `model`.
+
+**Part reads** (`generateText`, for `analyze_whole_document`) go to the same URL with the same
+headers and are never streamed. The body is `model`, `instructions` (the system text, when it is not
+empty), `input` (one user turn, the prompt), `max_output_tokens`, `store: false`, then the fields of
+`analysisBody(limit)`. Neither `body` nor `include` is sent: nothing is replayed. Each request may
+take `timeoutMs` (180 s; 0 for none). A reply incomplete for `max_output_tokens` with nothing
+written, or with half its limit or more spent reasoning, is asked again with 32,768 output tokens
+([`THINKING_OUTPUT_TOKENS`](./gemini.md#thinking_output_tokens)), as on `openAiCompatible()`. A
+reply incomplete for `content_filter` keeps its text, said to be incomplete. A reply with no text
+throws `Error("The model returned no text (max_output_tokens).")`, the reason in brackets being the
+status, or the reason it is incomplete.
+
+**Errors.** Every error is an [`OpenAiRequestError`](#openairequesterror). `send` does not send
+anything again itself, except a request without `include` (above):
+[`askWithFiles`](./ask.md#askwithfilesoptions) decides what is retried.
+
+| Case | Message | `status` | `kind` |
+|---|---|---|---|
+| The server answered with an HTTP error | As on `openAiCompatible()`: the body's `error.message`, a `message` or `detail` at the top of the body, else "The model returned HTTP {status}.", with `code`, `param` and `retryAfterMs` when the server gave them | The HTTP status | Told from the status, the message and `code` |
+| An `error` event (OpenAI's, flat, or Azure's, with an `error` object), `response.failed`, or a body of 200 with an `error` or `status: "failed"` | Its `message`, else "The model reported an error.", with its `code` and `param` | From its type or code: Azure's `too_many_requests` 429, `forbidden` 403 and `user_error` 400; `invalid_prompt`, `content_filter`, `data_residency_mismatch`, `bio_policy`, `misalignment_policy_violation` and any word with `image` in it 400; `vector_store_timeout` 408; then as on `openAiCompatible()`: a numeric code, `server_error` 500, `rate_limit_exceeded` 429; any other 500 | Told from the status, the message and `code` |
+| The connection failed | "The model could not be reached ({reason})." | 0 | `"unreachable"` |
+| A body of 200 that is empty, or a stream that closed with no `response.completed`, `response.incomplete` or `[DONE]` | "The model could not be reached (the reply was empty).", or "The model's reply ended before it was complete." The loop sends it again as a reply cut off on its way, unless text of it was shown. | 0 | `"unreachable"` |
+| Nothing arrived for a whole wait (`firstByteTimeoutMs`, `idleTimeoutMs`) | "The model sent nothing for {seconds} s." | 0 | `"timeout"` |
+| A part read past `timeoutMs` | "The model took longer than {wait} to answer." | 0 | `"timeout"` |
+| A body that is not JSON (a gateway's page) | "The model's reply could not be read: it was not JSON ({type}). A proxy or gateway may have answered in its place." Not sent again. | The response's | `"invalid"` |
+| An event of the stream longer than 64,000,000 characters | "The model's reply could not be read: an event of its stream held more than 64,000,000 characters." Not sent again. | The response's | `"invalid"` |
+| `hooks.signal` aborted | The signal's reason, as it is | none | none |
+
+A prompt refused by a policy (`invalid_prompt`, or Azure's guardrail on input, HTTP 400
+`content_filter`) is an error of kind `"invalid"`, not a `blockReason`, as on `openAiCompatible()`.
+
+```ts
+import { askWithFiles } from "llm-large-files";
+import { openAiResponses } from "llm-large-files/openai";
+
+// files, owner, documentIds and messages come from your application.
+const model = openAiResponses({
+  model: "gpt-5.5",
+  apiKey: process.env.OPENAI_API_KEY!,
+  contextTokens: 1_050_000,                               // gpt-5.5's window, by OpenAI's model page
+  body: { reasoning: { effort: "medium" } },              // any field of the chat request
+  analysisBody: () => ({ reasoning: { effort: "low" } }), // the part reads of a whole-file read
+});
+
+const result = await askWithFiles({
+  files,
+  model,
+  owner,
+  documentIds,
+  messages,
+  onText: (delta) => process.stdout.write(delta), // the answer streams
+});
+console.log(result.usage.byModel["gpt-5.5"]); // thoughtTokens holds the reasoning tokens
+```
+
+Guide: [OpenAI's Responses API](../guides/openai-compatible.md#openais-responses-api), with the
+recipes for OpenAI and Azure OpenAI.
+
+### `OpenAiResponsesOptions`
+
+```ts
+type OpenAiResponsesOptions = {
+  model: string;
+  baseUrl?: string | undefined;
+  url?: string | undefined;
+  apiKey?: string | (() => string | Promise<string>) | undefined;
+  headers?: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>) | undefined;
+  body?: Record<string, unknown> | undefined;
+  analysisBody?: ((maxOutputTokens: number) => Record<string, unknown>) | undefined;
+  encryptedReasoning?: boolean | undefined;
+  toolFilePlacement?: "inside" | "beside" | "none" | undefined;
+  documents?: DocumentsCapability | undefined;
+  stream?: boolean | undefined;
+  contextTokens?: number | undefined;
+  maxRequestBytes?: number | undefined;
+  pageTokens?: number | undefined;
+  tokenScale?: number | undefined;
+  timeoutMs?: number | undefined;
+  firstByteTimeoutMs?: number | undefined;
+  idleTimeoutMs?: number | undefined;
+  id?: string | undefined;
+  fetch?: typeof fetch | undefined;
+};
+```
+
+The options of [`openAiResponses()`](#openairesponsesoptions). New in 0.99.9.
+
+| Option | Type | Default | What it does |
+|---|---|---|---|
+| `model` | `string` | required | The model name the endpoint knows, sent as `model` in every chat request and part read: `"gpt-5.5"`, an Azure deployment name. |
+| `baseUrl` | `string` | `"https://api.openai.com/v1"` | The base of the API. Trailing slashes are removed and `/responses` is added. Azure OpenAI: `https://{resource}.openai.azure.com/openai/v1`. Not used when `url` is set. |
+| `url` | `string` | `baseUrl` + `/responses` | The whole Responses URL, used as it is, query string included: a gateway. |
+| `apiKey` | `string \| (() => string \| Promise<string>)` | none | Sent as `Authorization: Bearer {key}`. A function is called before every request: an Entra ID token for Azure OpenAI. Left out, or an empty string, no `Authorization` header is sent. |
+| `headers` | `Record<string, string> \| (() => Record<string, string> \| Promise<Record<string, string>>)` | none | More headers, merged last: they can replace `Content-Type` and `Authorization`. Azure's `api-key` goes here. A function is called before every request. |
+| `body` | `Record<string, unknown>` | none | More fields for the body of every chat request: `reasoning` (`{ effort, summary }`), `max_output_tokens`, `prompt_cache_key`, `service_tier`, `text`, `truncation`, `include`, `store`. Spread last, so a field here replaces the adapter's own, `input`, `tools`, `store` and `stream` included; a field set to `undefined` is left out of the JSON. Not sent with part reads. |
+| `analysisBody` | `(maxOutputTokens: number) => Record<string, unknown>` | none | More fields for the body of each part read, given the output limit that request is sent with: `reasoning: { effort: "low" }`. Spread last. |
+| `encryptedReasoning` | `boolean` | asked for, until a server refuses it | Whether chat requests send `include: ["reasoning.encrypted_content"]`, so that a reasoning model's thinking goes back with the tool results of the next request. Left out, a request that a server refuses with HTTP 400 about `include` or encrypted content is sent again without it, and the adapter stops asking. `true` always asks, and throws that error. `false` never asks: a reasoning item that comes without encrypted content is then not sent back, unless `body.store` is `true`. |
+| `toolFilePlacement` | `"inside" \| "beside" \| "none"` | `"none"` | Where the pages of `view_pages` go: `"inside"` the `function_call_output`, as content parts after its JSON; `"beside"` it, in a user turn after the outputs of the round; `"none"`, nowhere. It sets `capabilities.toolFiles`: with `"none"`, `view_pages` is not offered to any model of the question. No one has checked yet which OpenAI or Azure models read a PDF given this way: try yours before you turn it on. A page drawn as an image goes as `input_image`, when another model of the question takes no PDF ([Pages as images](../guides/pdfs.md#pages-as-images)). |
+| `documents` | [`DocumentsCapability`](./ask.md#toolfiletype-documentscapability-and-nativedocumentformat) | none | The files this model reads natively: `{ formats: ["pdf"] }` sends a small visual PDF sent whole as an `input_file` part before its text ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). Only `"pdf"`. A value that is not valid is a `TypeError` when the adapter is made. |
+| `stream` | `boolean` | `true` | Stream a chat request that has `onText`. `false` never streams, for a server without streaming. A request without `onText` is not streamed either way. |
+| `contextTokens` | `number` | none | The model's context window in tokens. Set as `capabilities.contextTokens`, it keeps the budget of a question within it. Without it the library's budget holds. |
+| `maxRequestBytes` | `number` | none | The largest request body the endpoint takes, in bytes. Set as `capabilities.maxRequestBytes`, it keeps the budget within it. |
+| `pageTokens` | `number` | `1_000` | Tokens one PDF page shown by `view_pages` costs. It matters only when `toolFilePlacement` is not `"none"`. |
+| `tokenScale` | `number` | none, counted as 1 | This model's tokens for one token of the library's estimate, which is fitted to Gemini. |
+| `timeoutMs` | `number` | `180_000` | The longest a part read's request may take, in milliseconds, each try counted apart. A request that runs longer is aborted, and is an `OpenAiRequestError` of kind `"timeout"` and status 0. 0 sets no limit. Not used for chat requests. |
+| `firstByteTimeoutMs` | `number` | `600_000` | The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count: a reasoning model sends nothing until it has thought. A request that gets nothing for that long is aborted with an `OpenAiRequestError` (`status` 0, `kind` `"timeout"`), which `askWithFiles` sends again once. 0 waits without end. Not used for part reads. |
+| `idleTimeoutMs` | `number` | `300_000` | The longest wait, in milliseconds, between two pieces of a chat reply once it has started to arrive. Any bytes count. The same error; `askWithFiles` sends the request again once, unless text of it was shown. 0 waits without end. Not used for part reads. |
+| `id` | `string` | `model` | The name of the model in `usage.byModel` and in messages. |
+| `fetch` | `typeof fetch` | the global `fetch` | Used for chat requests and part reads: a proxy, logging, tests. |
+
+Four options of `openAiCompatible()` are not options here. Part reads always send
+`max_output_tokens` (`maxTokensField`). The system text goes in `instructions` (`systemRole`). The
+request for the answer sends `tool_choice: "none"` and keeps the tools (`answerWithoutTools`). Pages
+go where `toolFilePlacement` says (`pdfInput`), the name `anthropic()` uses too.
 
 ## Errors
 
@@ -284,6 +562,8 @@ could not be reached (`status` 0). It is a
 [`ModelRequestError`](./errors-and-retries.md#modelrequesterror), so code that handles every
 provider through `ModelRequestError` and `kind` needs no case of its own for it. The table under
 [`openAiCompatible()`](#openaicompatibleoptions) lists when the adapter throws one.
+[`openAiResponses()`](#openairesponsesoptions) throws it too, as its own table lists (new in
+0.99.9).
 
 | Field | Type | What it holds |
 |---|---|---|
@@ -305,9 +585,9 @@ yourself only in a test or in a wrapper around the adapter.
 import { askWithFiles, partialResultOf } from "llm-large-files";
 import { OpenAiRequestError } from "llm-large-files/openai";
 
-// files, model, documentIds and messages as above.
+// files, model, documentIds, messages and userId as above.
 try {
-  await askWithFiles({ files, model, documentIds, messages });
+  await askWithFiles({ files, model, owner: userId, documentIds, messages });
 } catch (error) {
   if (error instanceof OpenAiRequestError) {
     console.error(error.status, error.kind, error.code, error.param, error.message);
@@ -366,7 +646,9 @@ declare function openAiToolTurns(turns: ToolTurn[]): OpenAiMessage[];
 
 The tool rounds a question returned ([`AskResult.toolTurns`](./ask.md#askresult)) as Chat
 Completions messages, for an application that keeps its history in that form. Put them between the
-question and its answer. It throws nothing.
+question and its answer. It throws only for a round of a newer version (`version` above
+`TOOL_TURN_VERSION`), or whose `version` is not a number (NaN, or a string such as `"1"`): the
+`TypeError` of `askWithFiles` (since 0.99.9).
 
 Each round becomes an assistant message `{ role: "assistant", content: null, tool_calls }`, the
 arguments as a JSON string, followed by one `{ role: "tool", tool_call_id, content }` for each call,
@@ -380,11 +662,11 @@ function runs, so that the rounds of two questions kept in one history never sha
 import { askWithFiles } from "llm-large-files";
 import { fromOpenAiMessages, openAiToolTurns, type OpenAiMessage } from "llm-large-files/openai";
 
-// files, model and documentIds as above. history is the chat so far, kept by your application
+// files, model, documentIds and userId as above. history is the chat so far, kept by your application
 // as Chat Completions messages, ending with the user's question.
 async function answer(history: OpenAiMessage[]): Promise<string> {
   const { system, messages } = fromOpenAiMessages(history);
-  const result = await askWithFiles({ files, model, system, documentIds, messages });
+  const result = await askWithFiles({ files, model, owner: userId, system, documentIds, messages });
   // Keep what the tools returned between the question and the answer: a follow-up question
   // then finds it without searching again.
   history.push(...openAiToolTurns(result.toolTurns), { role: "assistant", content: result.text });

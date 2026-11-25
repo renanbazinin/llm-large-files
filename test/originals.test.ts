@@ -23,7 +23,7 @@ describe("original files", () => {
 
   it("keeps nothing unless the caller asks for it", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const meta = await files.ingest({ name: "report.pdf", bytes: pdf });
     expect(meta.originalKept).toBeUndefined();
     expect(Object.keys(meta)).not.toContain("originalKept");
@@ -32,7 +32,7 @@ describe("original files", () => {
   });
 
   it("keeps the uploaded file of the formats that are listed, byte for byte", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const report = await files.ingest({ name: "report.pdf", bytes: pdf });
     const notes = await files.ingest({ name: "notes.md", bytes: utf8("# Notes") });
     expect(report.originalKept).toBe(true);
@@ -44,7 +44,7 @@ describe("original files", () => {
   });
 
   it("keeps a copy, so a caller that reuses its upload buffer does not change the stored file", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const upload = pdf.slice();
     const meta = await files.ingest({ name: "report.pdf", bytes: upload });
     upload.fill(0);
@@ -52,7 +52,7 @@ describe("original files", () => {
   });
 
   it("gives the original only to the owner of the document", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: pdf, owner: "alice" });
     expect(await files.getOriginal(meta.id, { owner: "bob" })).toBeUndefined();
     expect(await files.getOriginal(meta.id)).toBeUndefined();
@@ -65,7 +65,7 @@ describe("original files", () => {
     let clock = new Date("2026-01-01T00:00:00Z");
     const now = () => clock;
     const store = new MemoryDocumentStore({ now });
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"], ttlMs: 60_000, now });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], ttlMs: 60_000, now });
     // The files the store really holds: getOriginal alone would hide one left behind for a document that is gone.
     const held = (store as unknown as { originals: Map<string, Uint8Array> }).originals;
     const deleted = await files.ingest({ name: "a.pdf", bytes: pdf });
@@ -89,7 +89,7 @@ describe("original files", () => {
 
   it("works with a store that cannot keep originals: the documents are stored without them", async () => {
     const store = storeWithoutOriginals();
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: pdf });
     expect(meta.originalKept).toBeUndefined();
     expect(store.documents.get(meta.id)?.text).toContain("Page 1 of the test file.");
@@ -117,7 +117,7 @@ describe("original files", () => {
       },
       getOriginal: async (id) => originals.get(id),
     };
-    const files = createLargeFiles({ store: failing, keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: failing, keepOriginals: ["pdf"] });
     // The store's own error is the cause of a DocumentStoreError since 0.9.0.
     const failure = await files.ingest({ name: "report.pdf", bytes: pdf }).catch((error: unknown) => error);
     expect(failure).toMatchObject({ name: "DocumentStoreError", operation: "write", cause: new Error("disk full") });
@@ -128,7 +128,7 @@ describe("original files", () => {
 
   it("reports a document without its original when the store lost the file", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: pdf });
     // A store that lost the file (a cleaned volume, a partial restore) still has the document.
     (store as unknown as { originals: Map<string, Uint8Array> }).originals.clear();
@@ -146,14 +146,14 @@ describe("FileDocumentStore with original files", () => {
 
   it("writes <id>.bin next to the text and the metadata, and reads it back after a restart", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "large-files-"));
-    const files = createLargeFiles({ store: new FileDocumentStore(directory), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: pdf });
     const text = await files.ingest({ name: "notes.md", bytes: utf8("# Notes") });
     expect((await readdir(directory)).sort()).toEqual([`${meta.id}.bin`, `${meta.id}.idx`, `${meta.id}.json`, `${meta.id}.txt`, `${text.id}.idx`, `${text.id}.json`, `${text.id}.txt`].sort());
     expect(new Uint8Array(await readFile(path.join(directory, `${meta.id}.bin`)))).toEqual(pdf);
     expect((JSON.parse(await readFile(path.join(directory, `${meta.id}.json`), "utf8")) as DocumentMeta).originalKept).toBe(true);
 
-    const restarted = createLargeFiles({ store: new FileDocumentStore(directory), keepOriginals: ["pdf"] });
+    const restarted = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), keepOriginals: ["pdf"] });
     expect(await restarted.getOriginal(meta.id)).toEqual(pdf);
     expect(await restarted.getOriginal(text.id)).toBeUndefined();
   });
@@ -163,7 +163,7 @@ describe("FileDocumentStore with original files", () => {
     let clock = new Date("2026-01-01T00:00:00Z");
     const now = () => clock;
     const store = new FileDocumentStore(directory, { now });
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"], ttlMs: 60_000, now });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], ttlMs: 60_000, now });
     const deleted = await files.ingest({ name: "a.pdf", bytes: pdf });
     const kept = await files.ingest({ name: "b.pdf", bytes: pdf });
     expect(await files.delete(deleted.id)).toBe(true);
@@ -182,7 +182,7 @@ describe("FileDocumentStore with original files", () => {
     let clock = new Date("2026-01-01T00:00:00Z");
     const now = () => clock;
     const store = new FileDocumentStore(directory, { now });
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"], ttlMs: 60_000, now });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], ttlMs: 60_000, now });
     const meta = await files.ingest({ name: "a.pdf", bytes: pdf });
     clock = new Date("2026-01-01T00:02:00Z");
     expect(await store.getOriginal(meta.id)).toBeUndefined();
@@ -199,9 +199,9 @@ describe("FileDocumentStore with original files", () => {
 
   it("answers that there is no original for a document stored before originals were kept", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "large-files-"));
-    const before = createLargeFiles({ store: new FileDocumentStore(directory) });
+    const before = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory) });
     const meta = await before.ingest({ name: "old.pdf", bytes: pdf });
-    const after = createLargeFiles({ store: new FileDocumentStore(directory), keepOriginals: ["pdf"] });
+    const after = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), keepOriginals: ["pdf"] });
     expect((await after.getMeta(meta.id))?.originalKept).toBeUndefined();
     expect(await after.getOriginal(meta.id)).toBeUndefined();
   });

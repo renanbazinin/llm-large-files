@@ -84,10 +84,10 @@ describe("reading by range gives what reading the whole text gives", () => {
     // second on an idle machine, 3 to 4 s in a usual run, up to 48 s on a busy machine.
     it(`for a text of kind "${kind}", in pieces of any size`, { timeout: 120_000 }, async () => {
       const budget = { inlineTokens: 5, mapChunkTokens: 2_000, maxMapChunks: 100 };
-      const memory = createLargeFiles({ store: new MemoryDocumentStore(), budget });
+      const memory = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget });
       const expected = await transcript(memory, await memory.ingest({ name: `${kind}.txt`, bytes: bytes(text) }));
       for (const scanChunkBytes of [1, 97, 4_096, 1 << 20]) {
-        const files = createLargeFiles({ store: new FileDocumentStore(await folder()), budget, wholeDocumentBytes: 0, scanChunkBytes });
+        const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(await folder()), budget, wholeDocumentBytes: 0, scanChunkBytes });
         expect(await transcript(files, await files.ingest({ name: `${kind}.txt`, bytes: bytes(text) }))).toEqual(expected);
       }
     });
@@ -117,7 +117,7 @@ describe("FileDocumentStore on a volume", () => {
   it("writes a line index next to the text at ingest, and removes it with the document", async () => {
     const directory = await folder();
     const store = new FileDocumentStore(directory);
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
     expect((await readdir(directory)).sort()).toEqual([`${meta.id}.idx`, `${meta.id}.json`, `${meta.id}.txt`]);
     expect(parseTextIndex((await store.getIndex(meta.id))!, meta)).toEqual(buildTextIndex(TEXTS.log!));
@@ -138,7 +138,7 @@ describe("FileDocumentStore on a volume", () => {
         return super.readTextRange(id, start, end);
       }
     }
-    const files = createLargeFiles({ store: new Counting(directory), budget: { inlineTokens: 5 }, wholeDocumentBytes: 20_000 });
+    const files = createLargeFiles({ requireOwner: false, store: new Counting(directory), budget: { inlineTokens: 5 }, wholeDocumentBytes: 20_000 });
     const small = await files.ingest({ name: "small.log", bytes: bytes(TEXTS.log!.slice(0, 10_000)) });
     const large = await files.ingest({ name: "large.log", bytes: bytes(TEXTS.log!) });
     const tools = files.tools([small, large]);
@@ -155,25 +155,25 @@ describe("FileDocumentStore on a volume", () => {
 
   it("opens an older document that has no index, builds the index once, and saves it for the next server", async () => {
     const directory = await folder();
-    const writer = createLargeFiles({ store: new FileDocumentStore(directory) });
+    const writer = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory) });
     const meta = await writer.ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
-    const expected = await transcript(createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: Infinity, budget: { inlineTokens: 5, mapChunkTokens: 2_000, maxMapChunks: 100 } }), meta);
+    const expected = await transcript(createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), wholeDocumentBytes: Infinity, budget: { inlineTokens: 5, mapChunkTokens: 2_000, maxMapChunks: 100 } }), meta);
     // As 0.3.x left it: the text and the metadata, no index.
     await rm(path.join(directory, `${meta.id}.idx`));
 
-    const podA = createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5, mapChunkTokens: 2_000, maxMapChunks: 100 } });
+    const podA = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5, mapChunkTokens: 2_000, maxMapChunks: 100 } });
     expect(await transcript(podA, meta)).toEqual(expected);
     const saved = await readFile(path.join(directory, `${meta.id}.idx`));
     expect(parseTextIndex(new Uint8Array(saved), meta)).toEqual(buildTextIndex(TEXTS.log!));
     // Another server finds it ready.
-    const podB = createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5, mapChunkTokens: 2_000, maxMapChunks: 100 } });
+    const podB = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5, mapChunkTokens: 2_000, maxMapChunks: 100 } });
     expect(await transcript(podB, meta)).toEqual(expected);
   });
 
   it("rebuilds an index that is damaged, cut short, of another version, or of another document", async () => {
     const directory = await folder();
     const store = new FileDocumentStore(directory);
-    const files = createLargeFiles({ store, budget: { inlineTokens: 5 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 5 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
     const other = await files.ingest({ name: "other.log", bytes: bytes(TEXTS.unicode!) });
     const good = (await store.getIndex(meta.id))!;
@@ -182,7 +182,7 @@ describe("FileDocumentStore on a volume", () => {
     const damaged = [new Uint8Array(0), bytes("not an index"), good.subarray(0, good.length - 4), wrongVersion, (await store.getIndex(other.id))!];
     for (const index of damaged) {
       await writeFile(path.join(directory, `${meta.id}.idx`), index);
-      const fresh = createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5 } });
+      const fresh = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5 } });
       const result = await fresh.tools([meta]).execute("read_document", { document_id: meta.id, start_line: 899, end_line: 900 });
       expect(result.text).toBe(`899| ${TEXTS.log!.split("\n")[898]}\n900| ${TEXTS.log!.split("\n")[899]}`);
       expect(Buffer.compare(await readFile(path.join(directory, `${meta.id}.idx`)), Buffer.from(good))).toBe(0);
@@ -192,13 +192,13 @@ describe("FileDocumentStore on a volume", () => {
   it("notices an index that looks right but points to the wrong bytes, and reads correctly from the next call on", async () => {
     const directory = await folder();
     const store = new FileDocumentStore(directory);
-    const meta = await createLargeFiles({ store }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
+    const meta = await createLargeFiles({ requireOwner: false, store }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
     const index = parseTextIndex((await store.getIndex(meta.id))!, meta)!;
     // Every line from line 11 on is said to start one byte later than it does.
     for (let line = 10; line < index.lineStarts.length; line++) index.lineStarts[line]! += 1;
     await store.putIndex(meta.id, serializeTextIndex(index));
 
-    const files = createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5 } });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5 } });
     const tools = files.tools([meta]);
     const first = await tools.execute("read_document", { document_id: meta.id, start_line: 11, end_line: 20 });
     expect(first.error).toMatch(/did not match its index/);
@@ -207,21 +207,21 @@ describe("FileDocumentStore on a volume", () => {
     expect(parseTextIndex((await store.getIndex(meta.id))!, meta)).toEqual(buildTextIndex(TEXTS.log!));
     // prepare() reads the card of such a document without failing at all.
     await store.putIndex(meta.id, serializeTextIndex(index));
-    const prepared = await createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5 } }).prepare([meta.id], { tokens: 0, bytes: 0 });
+    const prepared = await createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5 } }).prepare([meta.id], { tokens: 0, bytes: 0 });
     expect(prepared.missing).toEqual([]);
     expect(prepared.blocks.get(meta.id)).toContain(`  25| ${TEXTS.log!.split("\n")[24]}`);
   });
 
   it("works on a read-only volume and with a store that keeps no index", async () => {
     const directory = await folder();
-    const meta = await createLargeFiles({ store: new FileDocumentStore(directory) }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
+    const meta = await createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory) }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
     await rm(path.join(directory, `${meta.id}.idx`));
     class ReadOnly extends FileDocumentStore {
       override async putIndex(): Promise<void> {
         throw Object.assign(new Error("EROFS: read-only file system"), { code: "EROFS" });
       }
     }
-    const readOnly = createLargeFiles({ store: new ReadOnly(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5 } });
+    const readOnly = createLargeFiles({ requireOwner: false, store: new ReadOnly(directory), wholeDocumentBytes: 0, budget: { inlineTokens: 5 } });
     expect((await readOnly.tools([meta]).execute("search_document", { document_id: meta.id, query: "ERROR", mode: "exact" })).total_matching_lines).toBe(25);
     expect(await readdir(directory)).not.toContain(`${meta.id}.idx`);
 
@@ -234,14 +234,14 @@ describe("FileDocumentStore on a volume", () => {
       delete: (id) => file.delete(id),
       readTextRange: (id, start, end) => file.readTextRange(id, start, end),
     };
-    const own = createLargeFiles({ store: minimal, wholeDocumentBytes: 0, budget: { inlineTokens: 5 } });
+    const own = createLargeFiles({ requireOwner: false, store: minimal, wholeDocumentBytes: 0, budget: { inlineTokens: 5 } });
     expect((await own.tools([meta]).execute("search_document", { document_id: meta.id, query: "ERROR", mode: "exact" })).total_matching_lines).toBe(25);
   });
 
   it("answers a document deleted in the middle of a search as no longer available", async () => {
     const directory = await folder();
     const store = new FileDocumentStore(directory);
-    const files = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 1_000, budget: { inlineTokens: 5 } });
+    const files = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, scanChunkBytes: 1_000, budget: { inlineTokens: 5 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
     let reads = 0;
     const original = store.readTextRange.bind(store);
@@ -267,7 +267,7 @@ describe("FileDocumentStore on a volume", () => {
       running--;
       return original(id, start, end);
     };
-    const files = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 4_000, maxConcurrentScans: 2, budget: { inlineTokens: 5 } });
+    const files = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, scanChunkBytes: 4_000, maxConcurrentScans: 2, budget: { inlineTokens: 5 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
     const tools = files.tools([meta]);
     const results = await Promise.all(Array.from({ length: 8 }, () => tools.execute("search_document", { document_id: meta.id, query: "ERROR", mode: "exact" })));
@@ -295,9 +295,9 @@ describe("FileDocumentStore on a volume", () => {
       await new Promise((resolve) => setTimeout(resolve, 2));
       return original(id, start, end);
     };
-    const files = createLargeFiles({ store, wholeDocumentBytes: 0, scanChunkBytes: 8_000, maxConcurrentScans: 1, budget: { inlineTokens: 5 } });
+    const files = createLargeFiles({ requireOwner: false, store, wholeDocumentBytes: 0, scanChunkBytes: 8_000, maxConcurrentScans: 1, budget: { inlineTokens: 5 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
-    const memory = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 5 } });
+    const memory = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 5 } });
     const reference = await memory.ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
     const tools = files.tools([meta]);
     await tools.execute("read_document", { document_id: meta.id, start_line: 1, end_line: 1 }); // opens the document
@@ -342,7 +342,7 @@ describe("FileDocumentStore on a volume", () => {
       }
     }
     const search = (files: LargeFiles, meta: DocumentMeta) => files.tools([meta]).execute("search_document", { document_id: meta.id, query: "ERROR", mode: "exact", context_lines: 1 });
-    const kept = createLargeFiles({ store: new Counting(directory), wholeDocumentBytes: 0, scanChunkBytes: 8_000, budget: { inlineTokens: 5 } });
+    const kept = createLargeFiles({ requireOwner: false, store: new Counting(directory), wholeDocumentBytes: 0, scanChunkBytes: 8_000, budget: { inlineTokens: 5 } });
     const meta = await kept.ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
     const first = await search(kept, meta);
     const afterFirst = reads.count;
@@ -351,14 +351,14 @@ describe("FileDocumentStore on a volume", () => {
     expect(reads.count).toBe(afterFirst);
 
     // A cache too small for a quarter of the decoded text keeps none of it.
-    const small = createLargeFiles({ store: new Counting(directory), wholeDocumentBytes: 0, scanChunkBytes: 8_000, cacheBytes: 40_000, budget: { inlineTokens: 5 } });
+    const small = createLargeFiles({ requireOwner: false, store: new Counting(directory), wholeDocumentBytes: 0, scanChunkBytes: 8_000, cacheBytes: 40_000, budget: { inlineTokens: 5 } });
     await search(small, meta);
     const before = reads.count;
     expect(await search(small, meta)).toEqual(first);
     expect(reads.count - before).toBeGreaterThan(5);
 
     // Deleted by another server: not served from the pieces.
-    await createLargeFiles({ store: new FileDocumentStore(directory) }).delete(meta.id);
+    await createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory) }).delete(meta.id);
     expect((await search(kept, meta)).error).toMatch(/no longer available/);
   });
 
@@ -366,7 +366,7 @@ describe("FileDocumentStore on a volume", () => {
     const directory = await folder();
     const store = new FileDocumentStore(directory);
     const text = Array.from({ length: 2_000 }, () => `${"a".repeat(28)}!`).join("\n");
-    const meta = await createLargeFiles({ store }).ingest({ name: "trap.txt", bytes: bytes(text) });
+    const meta = await createLargeFiles({ requireOwner: false, store }).ingest({ name: "trap.txt", bytes: bytes(text) });
     const document = (await openRangedDocument(store, meta, { chunkBytes: 2_000, limiter: new Limiter(4) })) as RangedDocument;
     const started = performance.now();
     const result = await grepSource(document, "(a|a)+$", { regex: true, maxResults: 5, contextLines: 0, timeLimitMs: 150 });
@@ -381,7 +381,7 @@ describe("sweep on a shared volume", () => {
     const start = Date.parse("2026-06-01T00:00:00Z");
     let clock = new Date(start);
     const store = new FileDocumentStore(directory, { now: () => clock, orphanAgeMs: 60_000 });
-    const files = createLargeFiles({ store, now: () => clock, ttlMs: 10 * 60_000 });
+    const files = createLargeFiles({ requireOwner: false, store, now: () => clock, ttlMs: 10 * 60_000 });
     const dying = await files.ingest({ name: "dying.log", bytes: bytes(TEXTS.log!) });
     clock = new Date(start + 5 * 60_000);
     const live = await files.ingest({ name: "live.log", bytes: bytes(TEXTS.log!) });
@@ -421,7 +421,7 @@ describe("sweep on a shared volume", () => {
 
   it("leaves no temporary file behind after an ingest", async () => {
     const directory = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(directory), keepOriginals: ["log"] });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), keepOriginals: ["log"] });
     await Promise.all(Array.from({ length: 20 }, (_, i) => files.ingest({ name: `f${i}.log`, bytes: bytes(TEXTS.log!) })));
     expect((await readdir(directory)).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
     expect((await readdir(directory)).length).toBe(80);
@@ -436,7 +436,7 @@ describe("the modes of the files on the volume (0.9.0)", () => {
     const previous = process.umask(0o002);
     try {
       const flat = path.join(await folder(), "documents");
-      await createLargeFiles({ store: new FileDocumentStore(flat), keepOriginals: ["log"] }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
+      await createLargeFiles({ requireOwner: false, store: new FileDocumentStore(flat), keepOriginals: ["log"] }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
       expect(await mode(flat)).toBe(0o700);
       expect(await readdir(flat)).toHaveLength(4);
       for (const entry of await readdir(flat)) expect(await mode(path.join(flat, entry)), entry).toBe(0o600);
@@ -444,17 +444,17 @@ describe("the modes of the files on the volume (0.9.0)", () => {
       // The folders of a scope it makes, and its own folder in one the application made.
       const scoped = await folder();
       const made = new FileDocumentStore(scoped, { scopes: { depth: 2, createScopeFolders: true } });
-      await createLargeFiles({ store: made }).ingest({ name: "a.txt", bytes: bytes("alpha\n"), scope: ["u1", "s1"] });
+      await createLargeFiles({ requireOwner: false, store: made }).ingest({ name: "a.txt", bytes: bytes("alpha\n"), scope: ["u1", "s1"] });
       for (const part of ["u1", "u1/s1", "u1/s1/.llm-large-files"]) expect(await mode(path.join(scoped, part)), part).toBe(0o700);
       await mkdir(path.join(scoped, "u2", "s1"), { recursive: true, mode: 0o775 });
-      await createLargeFiles({ store: new FileDocumentStore(scoped, { scopes: { depth: 2 } }) }).ingest({ name: "a.txt", bytes: bytes("alpha\n"), scope: ["u2", "s1"] });
+      await createLargeFiles({ requireOwner: false, store: new FileDocumentStore(scoped, { scopes: { depth: 2 } }) }).ingest({ name: "a.txt", bytes: bytes("alpha\n"), scope: ["u2", "s1"] });
       expect(await mode(path.join(scoped, "u2", "s1"))).toBe(0o775);
       expect(await mode(path.join(scoped, "u2", "s1", ".llm-large-files"))).toBe(0o700);
 
       // For pods of another user in one group (fsGroup), or a backup job.
       const shared = path.join(await folder(), "documents");
       const store = new FileDocumentStore(shared, { fileMode: 0o640, directoryMode: 0o750 });
-      await createLargeFiles({ store, keepOriginals: ["log"] }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
+      await createLargeFiles({ requireOwner: false, store, keepOriginals: ["log"] }).ingest({ name: "app.log", bytes: bytes(TEXTS.log!) });
       expect(await mode(shared)).toBe(0o750);
       for (const entry of await readdir(shared)) expect(await mode(path.join(shared, entry)), entry).toBe(0o640);
     } finally {

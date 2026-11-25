@@ -14,7 +14,7 @@ const base = { tokens: 0, bytes: 0 };
 
 /** A context over one document, whose store calls note the caller they are made for. */
 async function planning(callerOf: PrepareContext["callerOf"]) {
-  const meta: DocumentMeta = await createLargeFiles({ store: new MemoryDocumentStore() }).ingest({ name: "notes.txt", bytes: utf8(TEXT) });
+  const meta: DocumentMeta = await createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }).ingest({ name: "notes.txt", bytes: utf8(TEXT) });
   const callers: Array<[string, Caller]> = [];
   const context: PrepareContext = {
     callerOf,

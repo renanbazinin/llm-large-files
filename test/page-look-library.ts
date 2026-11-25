@@ -13,8 +13,8 @@ export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve
  */
 export async function library(options: Partial<LargeFilesOptions> = {}, loadMs: (load: number) => number | Promise<unknown> = () => 20) {
   const store = new MemoryDocumentStore();
-  const meta = await createLargeFiles({ store, keepOriginals: ["pdf"] }).ingest({ name: "report.pdf", bytes: numberedPdf(3) });
-  const files = createLargeFiles({ store, keepOriginals: ["pdf"], ...options });
+  const meta = await createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"] }).ingest({ name: "report.pdf", bytes: numberedPdf(3) });
+  const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], ...options });
   const loads = { started: 0, now: 0, most: 0 };
   const getOriginal = store.getOriginal.bind(store);
   store.getOriginal = async (id, context) => {

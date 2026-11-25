@@ -1,0 +1,63 @@
+[
+  {
+    "role": "tools",
+    "calls": [
+      {
+        "id": "c1",
+        "name": "search_document",
+        "args": {
+          "document_id": "doc_fb7a4a60294043ae973bbc566322b0f6",
+          "query": "ERROR",
+          "mode": "exact",
+          "max_results": 3
+        },
+        "result": {
+          "document": "app.log",
+          "mode": "exact",
+          "total_matching_lines": 4,
+          "matches": [
+            {
+              "line": 7,
+              "text": "2026-11-19 12:00:07 ERROR payment worker failed for order 1007"
+            },
+            {
+              "line": 17,
+              "text": "2026-11-19 12:00:17 ERROR payment worker failed for order 1017"
+            },
+            {
+              "line": 27,
+              "text": "2026-11-19 12:00:27 ERROR payment worker failed for order 1027"
+            },
+            {
+              "line": 37,
+              "text": "2026-11-19 12:00:37 ERROR payment worker failed for order 1037"
+            }
+          ],
+          "tool_turns_left": 10
+        }
+      }
+    ]
+  },
+  {
+    "role": "tools",
+    "calls": [
+      {
+        "id": "c2",
+        "name": "read_document",
+        "args": {
+          "document_id": "doc_fb7a4a60294043ae973bbc566322b0f6",
+          "start_line": 7,
+          "end_line": 8
+        },
+        "result": {
+          "document": "app.log",
+          "lines": "7-8",
+          "total_lines": 40,
+          "text": "7| 2026-11-19 12:00:07 ERROR payment worker failed for order 1007\n8| 2026-11-19 12:00:08 INFO request 8 ok",
+          "next_start_line": 9,
+          "tool_turns_left": 9
+        }
+      }
+    ]
+  }
+]

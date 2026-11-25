@@ -161,7 +161,8 @@ sweep to servers of two versions during an upgrade, is in [Deployment](./deploym
 ### How ownership works
 
 Pass `owner` when you ingest a file, and the same owner on every later call. The library records it
-in `meta.owner` and compares it, before every use, with the owner of the call:
+in `meta.owner` and compares it, before every use, with the owner of the call. Since 0.99.9 every
+call must name one ([below](#requiring-an-owner-and-a-scope)):
 
 ```ts
 // `files` is your library, as in the sample above.
@@ -170,7 +171,7 @@ const meta = await files.ingest({ name: "contract.txt", bytes, owner: "user-42" 
 
 await files.getMeta(meta.id, { owner: "user-42" }); // the metadata
 await files.getMeta(meta.id, { owner: "user-7" });  // undefined: as if it did not exist
-await files.getMeta(meta.id);                        // undefined
+// files.getMeta(meta.id), without an owner, throws a TypeError: owner checks are on by default.
 await files.delete(meta.id, { owner: "user-7" });    // false: nothing is removed
 await files.delete(meta.id, { owner: "user-42" });   // true
 ```
@@ -181,10 +182,16 @@ await files.delete(meta.id, { owner: "user-42" });   // true
 | `files.getMeta(id, access)` | `access.owner`, `access.scope` | `undefined` |
 | `files.getOriginal(id, access)` | `access.owner`, `access.scope` | `undefined` |
 | `files.delete(id, access)` | `access.owner`, `access.scope` | `false`, and nothing is removed |
+| `files.list(access)` | `access.owner`, `access.scope` | Not listed: only documents of exactly that owner and scope are |
+| `files.touch(id, access)`, `files.update(id, changes, access)` | `access.owner`, `access.scope` | `undefined`, and nothing is changed |
 | `files.prepare(ids, base, options)` | `options.owner`, `options.scope` | Listed in `missing`, and never read |
 | `files.tools(documents, options)` | `options.access` (new in 0.9.0); without it, the `owner` and `scope` of each `DocumentMeta` in `documents` (and in `viewPages`) | Each call that reads it answers `doc_… is no longer available on the server. Ask the user to attach the file again.` |
 | `askWithFiles(options)`, `askStream(options)`, `askGemini(options)` | `options.owner`, `options.scope` | `DocumentsNotFoundError`, before any model request |
-| `createDocumentHandlers(files, options)` | `options.getOwner(request)` | 404 "This file is no longer available." on GET; `{ "deleted": false }` on DELETE |
+| `files.toolsFor(ids, options)` | `options.access` | Listed in `missing` |
+| `createDocumentHandlers(files, options)` | `options.getOwner(request)` | 404 "This file is no longer available." on GET; `{ "deleted": false }` on DELETE; not in `handlers.list` |
+
+Under `requireOwner`, the default since 0.99.9, a document stored without an owner is treated the
+same way: as one of another owner, for every caller.
 
 - An owner is a string that is not empty or only spaces. `ingest` throws a `TypeError` for `""`,
   for spaces only and for `null`, which would make one owner shared by every caller without a
@@ -193,30 +200,31 @@ await files.delete(meta.id, { owner: "user-42" });   // true
   `owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.`
   It throws the same for an owner from JavaScript that is neither a string nor a finite number,
   such as the user object in place of its ID. A number is accepted, as before. Reads with
-  `owner: ""` work as before, so documents that 0.5.0 stored with that owner stay readable until
-  they expire (not under `requireOwner`, which refuses `""` on every call).
+  `owner: ""` work as before under `requireOwner: false`, so documents that 0.5.0 stored with that
+  owner stay readable there until they expire. `requireOwner`, the default, refuses `""` on every
+  call.
 - In `createDocumentHandlers`, a `getOwner` that returns such an owner is the server's mistake: the
   upload is answered 500 `{ "error": "Upload failed (empty owner)." }` for `""`, spaces only or
   `null`, and `{ "error": "Upload failed (owner is not a string)." }` for an object, a boolean,
-  `NaN` or an array, before its body is read. Nothing is logged. Where every upload needs a
-  signed-in user, throw an error with `status: 401` from `getOwner`; return `undefined` only where
-  anonymous uploads are meant (`user?.id || undefined`); and return the user's ID, not the user.
-  Under `requireOwner`, `undefined` and `null` are a request that is not signed in: `401`
-  `{ "error": "Sign in first." }` on every route, and `""` or spaces only a `500` "(empty owner)" on
-  every route (new in 0.9.0).
+  `NaN` or an array, before its body is read. Nothing is logged. Return the user's ID, not the user.
+  Under `requireOwner`, the default since 0.99.9, `undefined` and `null` are a request that is not
+  signed in: `401` `{ "error": "Sign in first." }` on every route, and `""` or spaces only a `500`
+  "(empty owner)" on every route. Under `requireOwner: false`, return `undefined` only where
+  anonymous uploads are meant (`user?.id || undefined`), and throw an error with `status: 401` from
+  `getOwner` where every upload needs a signed-in user.
 - A document of another owner looks exactly like one that does not exist, so a caller cannot learn
   that an ID is in use. There is one exception: `ingest` with an
   [application's ID](#application-ids) answers 409 when the ID is taken, whoever has it.
 - The comparison is exact (`===`): `"alice"` does not reach a document of `"Alice"` or of
   `"alice/chat-1"`. There is no hierarchy and no wildcard.
-- A document ingested without an owner can be used by anyone who has its ID, whether they pass an
-  owner or not. With signed-in users, always pass one, and turn on
-  [`requireOwner`](#requiring-an-owner-and-a-scope). In `createDocumentHandlers`, a `getOwner` that
-  returns undefined makes an anonymous upload. To refuse a request without a user, throw from it with
-  a status ([Web app](./web-app.md)).
+- Under `requireOwner: false`, a document ingested without an owner can be used by anyone who has
+  its ID, whether they pass an owner or not, and a `getOwner` that returns undefined makes an
+  anonymous upload. With signed-in users, always pass one, and leave
+  [`requireOwner`](#requiring-an-owner-and-a-scope) on, as it is by default since 0.99.9.
 - An owner of `null` from your store (a MongoDB driver writes a field that was left out as `null`)
-  counts as no owner, new in 0.9.0. Before, `getMeta` read such a document as missing for every
-  owner, and the tools as open to all.
+  counts as no owner, new in 0.9.0: missing under `requireOwner`, open to all with
+  `requireOwner: false`. Before 0.9.0, `getMeta` read such a document as missing for every owner,
+  and the tools as open to all.
 - The owner cannot be changed after ingest. Use a stable, opaque ID, not an email address that may
   change.
 - `files.tools(documents, { access })` asks the store for each document with the owner and scope of
@@ -266,22 +274,33 @@ chats cannot use each other's files, and a store can lay the files of each chat 
 
 ### Requiring an owner and a scope
 
-New in 0.9.0. On a server where every document belongs to a signed-in user, turn both on:
+Owners are checked by default since 0.99.9 (`requireOwner`, new in 0.9.0, was off by default until
+0.10.x). Scopes are checked when you ask for it (`requireScope`, new in 0.9.0). On a server where
+every document belongs to a signed-in user and a chat, turn scopes on too:
 
 ```ts
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 
-export const strict = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: true, requireScope: true });
+// Owner checks are on by default; requireScope adds the scope.
+export const strict = createLargeFiles({ store: new MemoryDocumentStore(), requireScope: true });
 ```
 
-- Every call must then name its owner and its scope: `ingest`, `getMeta`, `getOriginal`, `delete`,
-  `prepare`, `askWithFiles`, `askStream`, `askGemini`, and `tools`, which needs `access`. A call
-  without one throws `TypeError("owner is required: requireOwner is on")` or
-  `TypeError("scope is required: requireScope is on")`, before the store is asked anything. A
-  forgotten owner fails loudly, instead of reaching every document stored without one.
-- A document stored without an owner, or without a scope, then reads as missing, for every caller.
-- `files.sweep()` needs no scope: it is upkeep of the store, not a user's access.
+- Every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `list`, `touch`,
+  `update`, `prepare`, `toolsFor`, `askWithFiles`, `askStream`, `askGemini`, and `tools`, which
+  needs `access`. A call without one throws before the store is asked anything:
+  `TypeError("owner is required: requireOwner is on (the default). Pass the user's ID as owner, or create the library with requireOwner: false to allow calls without one.")`.
+  A forgotten owner fails loudly, instead of reaching every document stored without one. Under
+  `requireScope`, a call without a scope throws `TypeError("scope is required: requireScope is on")`.
+- A document stored without an owner (by any version), or without a scope under `requireScope`,
+  reads as missing, for every caller. Nothing is deleted: it stays in the store until it expires.
+- `files.sweep()` takes no owner and needs no scope: it is upkeep of the store, not a user's
+  access. It removes the expired documents of every owner, those without one included.
+- `requireOwner: false` turns the owner checks off, as before 0.99.9: for an application with one
+  user (a script, a command-line tool), or one that lets anyone with a document's ID use it. Only
+  `false` does: any other value leaves them on.
 - `files.access` says which are on, for code that serves the library (the upload handlers).
+- An application of 0.10 that stored documents without an owner has two paths:
+  [Upgrading to 0.99](../upgrading-0.99.md#owner-checks-are-on-by-default).
 
 ### Application IDs
 
@@ -339,8 +358,9 @@ const report = await strict.ingest({ name: "report.txt", bytes, owner: "user-42"
 
 ### Choosing the owner and the scope
 
-The owner and the scope are strings you choose. The library cannot list documents by owner or by
-scope. A good fit for a chat application:
+The owner and the scope are strings you choose. The library lists the documents of exactly one
+owner and one scope (`files.list`, since 0.10.2), never those of an owner across all its scopes. A
+good fit for a chat application:
 
 | Field | Value | What the library enforces |
 |---|---|---|
@@ -431,7 +451,7 @@ const DOCUMENTS_DIR = process.env.DOCUMENTS_DIR!;
 
 // One store and one library for the process: their limits hold for every chat at once.
 export const store = new FileDocumentStore(DOCUMENTS_DIR, { scopes: { depth: 2 } });
-export const files = createLargeFiles({ store, requireOwner: true, requireScope: true });
+export const files = createLargeFiles({ store, requireScope: true }); // owner checks are on by default
 
 /**
  * Makes the folder of a chat. Call it once, when you create the chat's record, not on each upload:
@@ -622,7 +642,7 @@ expiry already later stays. Call it for the documents of each question:
 ```ts
 const result = await askGemini({ files, endpoint, documentIds, owner: userId, scope: [userId, chatId], messages });
 // The chat used these files: they stay ttlMs from now.
-await Promise.all(documentIds.map((id) => files.touch!(id, { owner: userId, scope: [userId, chatId] })));
+await Promise.all(documentIds.map((id) => files.touch(id, { owner: userId, scope: [userId, chatId] })));
 ```
 
 ### A chat's files, its own data and the same file twice
@@ -631,8 +651,8 @@ New in 0.10.2. Three calls for a chat that keeps its files in the library, with 
 them in your database:
 
 - **`files.list({ owner, scope })`** gives the documents stored with exactly that owner and scope,
-  the oldest first, for the chat's file panel (a document without an owner is listed only to a
-  caller without one: its ID alone opens it). It needs a store with `list`; the built-in stores read the
+  the oldest first, for the chat's file panel (under `requireOwner: false`, a document without an
+  owner is listed only to a caller without one: its ID alone opens it). It needs a store with `list`; the built-in stores read the
   chat's folder (a `FileDocumentStore` without `scopes` reads its whole directory: give it `scopes`,
   or keep your own list, when it holds many files).
 - **`appData`** is your own data about a document, kept with its metadata and never sent to the
@@ -644,12 +664,14 @@ them in your database:
   hash it, not extracted; the document keeps its own name, `createdAt` and `appData`, and its expiry
   is counted again. Its `createdAt` is before the upload: if your app deletes an upload's document
   when a later step fails, do not delete this one. Dedupe looks at what is stored: two uploads of
-  the same file at the same moment may both be stored. The upload handlers of `llm-large-files/node`
-  do not pass `dedupe` or `appData`.
+  the same file at the same moment may both be stored. Since 0.99.9 the upload handlers of
+  `llm-large-files/node` pass `dedupe` and `appData` when `prepareUpload` returns them, and list a
+  chat's files at a `GET` route (`handlers.list`):
+  [Web app](./web-app.md#the-files-of-a-chat-list).
 
 ```ts
 const meta = await files.ingest({ name, bytes, owner: userId, scope: [userId, chatId], dedupe: true, appData: { uploadedBy: userId } });
-const panel = (await files.list!({ owner: userId, scope: [userId, chatId] })).map((doc) => ({ ...toDocumentSummary(doc), by: doc.appData?.uploadedBy }));
+const panel = (await files.list({ owner: userId, scope: [userId, chatId] })).map((doc) => ({ ...toDocumentSummary(doc), by: doc.appData?.uploadedBy }));
 ```
 
 ## Keeping the uploaded files
@@ -734,8 +756,7 @@ export const files = createLargeFiles({
   store: new FileDocumentStore(VOLUME, { scopes: { depth: 2 } }),
   keepOriginals: ["pdf"],
   originals: fileOriginals(VOLUME),
-  requireOwner: true,
-  requireScope: true,
+  requireScope: true, // and owner checks, on by default
 });
 
 /** Ingests an upload your route saved at <VOLUME>/<user>/<chat>/uploads/<uploadId>. */

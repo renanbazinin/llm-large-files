@@ -18,7 +18,7 @@ npm run test:watch   # the tests again on every save
 
 | Script | What it does |
 | --- | --- |
-| `npm run typecheck` | `tsc --noEmit` over `src/`, `test/`, `examples/` and `evals/`, in strict mode with `noUncheckedIndexedAccess` and no unused locals or parameters. The examples must compile too. |
+| `npm run typecheck` | `tsc --noEmit` over `src/`, `test/`, `examples/`, `evals/` and `scripts/`, in strict mode with `noUncheckedIndexedAccess` and no unused locals or parameters. The examples must compile too. |
 | `npm test` | `vitest run`: every test in `test/`, in two Vitest projects: `unit`, files in parallel, then `timing`, the files of `test/timing/` one at a time ([Tests](#tests)). No test calls a real model or needs a key. |
 | `npm run build` | Deletes `dist/` and compiles `src/` into it, with declarations and source maps (tsconfig.build.json). |
 
@@ -36,6 +36,14 @@ installs it ([publishing](docs/publishing.md#what-the-release-workflow-does)); i
 `npm run eval:replay` replays the eval cases from their recordings, without the network or a key
 ([The evals](#the-evals)).
 
+`npm run perf` builds the package, then runs the performance budgets (`scripts/perf.ts`): 100
+uploads ingested at once, and a log of 100 MB ingested and searched, each against a bar of time or
+memory ([Performance budgets](docs/measurements.md#performance-budgets-0999)). It takes one to three
+minutes and about 0.7 GB of the temporary folder. It needs Node 22.18 or later (Node runs the
+script's TypeScript), and checks memory only on Linux. It is not part of `npm test` or
+`npm run check`: other work on the machine slows it. Change a bar only with a new record in
+docs/measurements.md.
+
 The examples and most tests import the package by its names (`llm-large-files`,
 `llm-large-files/gemini` and the others), which tsconfig.json and vitest.config.ts map to `src/`.
 Tests of internals import from `src/` directly. So the typecheck and the tests need no build. When
@@ -43,17 +51,25 @@ you run the examples, they load `dist/`: run `npm run build` first. They need No
 22.18 or a later 22.x, or Node 23.6 or later (Node runs their TypeScript directly), and a key, because they call a real model.
 
 The dev dependencies include the optional peers `jszip`, `unpdf` and `@cantoo/pdf-lib`, so the
-DOCX, PPTX and PDF tests run.
+DOCX, PPTX and PDF tests run. The fourth peer, `@napi-rs/canvas` (pages drawn as images, with
+unpdf 2 on Node 24), is not a dev dependency: a native binary of about 35 MB on every install, of no
+use with unpdf 1.4.0. The tests that draw real pages (`test/page-images-render.test.ts`,
+`test/timing/page-images.timing.test.ts`) are skipped without it. To run them, on Node 24:
+`npm install --save-dev --save-exact unpdf@2.1.0 @napi-rs/canvas@1.1.0`, then put package.json and
+package-lock.json back (`git checkout package.json package-lock.json && npm ci`): `npm install
+--no-save` does not install a package the root lists only as an optional peer.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: Node 22, 24
 and 26, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
 the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`); and on Ubuntu, Node
 22.12.0 (the floor of `engines`) and 22.13.0. Each job runs `npm ci`, the typecheck, the tests, the
-build and `npm pack --dry-run`. Four more jobs run on Ubuntu: `unpdf-versions` runs the tests with
-other versions of the optional peer `unpdf`, `package` (Node 22.12.0, the newest 22, and 26) runs
+build and `npm pack --dry-run`. Five more jobs run on Ubuntu: `unpdf-versions` runs the tests with
+other versions of the optional peer `unpdf` (its rows of unpdf 2 with `@napi-rs/canvas` 1.1.0, so
+that real pages are drawn), `package` (Node 22.12.0, the newest 22, and 26) runs
 `scripts/check-tarball.mjs` on the packed tarball, `coverage` (Node 24) runs `npm run coverage`,
-which fails the job when a test fails or a total is under its threshold, and `evals-replay` (Node
-24) runs `npm run eval:replay`. Files use LF line endings (`.gitattributes`).
+which fails the job when a test fails or a total is under its threshold, `evals-replay` (Node 24)
+runs `npm run eval:replay`, and `perf` (Node 22) runs `npm run perf` alone on its runner: a bar
+that no run of three met fails it. Files use LF line endings (`.gitattributes`).
 
 ## Rules the code keeps
 
@@ -64,7 +80,7 @@ which fails the job when a test fails or a total is under its threshold, and `ev
   other than:
   - a file inside `src/`;
   - a Node built-in, with the `node:` prefix: `node:fs/promises`, not `fs/promises`;
-  - the optional peers `jszip`, `unpdf` and `@cantoo/pdf-lib`.
+  - the optional peers `jszip`, `unpdf`, `@cantoo/pdf-lib` and `@napi-rs/canvas`.
 
   Load a peer with `await import(...)` where it is needed, and its types with `import type`, so
   that the package works without it. When it is missing, throw an error that names it, as
@@ -108,6 +124,16 @@ Add a test for every change in behavior. No test calls a real model:
   this import loads them while the file is collected, where no timeout applies, and not inside the
   first test's 5 s. Leave it out of a file that mocks them as not installed
   (`test/view-pages-library.test.ts`).
+- **Stored shapes** (`DocumentMeta`, `ToolTurn`, H7). `test/stored-shapes.test.ts` reads what
+  earlier versions stored (`test/fixtures/stored/<version>/`, recorded with
+  `scripts/record-stored-shapes.mjs`, never edited by hand; `.idx` files are binary in
+  `.gitattributes`). A change that removes, renames or retypes a field, gives one a new meaning, or
+  adds one an older version must not ignore raises `DOCUMENT_META_VERSION` or `TOOL_TURN_VERSION`.
+  The new version still reads the shape before it (N-1), and the same change records a fixture of
+  the last version that wrote that shape. An optional field older versions can ignore (as
+  `appData` in 0.10.2) raises nothing: name it, with its version, in `ADDED_AFTER_0_10_2` of the
+  test "stores the metadata fields 0.10.2 stored". A new shape keeps `expiresAt`, `createdAt` and
+  the `<id>.txt` name meaningful to the version before, whose `sweep` acts on them.
 - **A slow test** gets a `timeout` of its own, with a comment that says how long it takes in a
   usual run and on a busy machine. That timeout holds under `npm run coverage` too, where the test
   is several times slower: when it takes more than half of it there, raise it, and say that time
@@ -127,7 +153,11 @@ Add a test for every change in behavior. No test calls a real model:
   stays in the `unit` project. So do timers counted against a timer (heartbeats of 20 ms, at least
   4 in 260 ms), and a check that work does not hang, under a bound far above its time on a busy
   machine (a child process started within 8 s). `npx vitest run --project unit` runs the rest
-  alone.
+  alone. Bars on whole workloads (a log of 100 MB, 100 uploads at once) are not tests: they are
+  budgets in `scripts/perf.ts`, which CI runs in a job of its own (`npm run perf`).
+
+A test that is not about owners makes its library with `requireOwner: false`; a test of ownership
+uses the default, and passes an owner on every call, as a server does.
 
 A test of the loop, from start to answer:
 
@@ -142,7 +172,8 @@ describe("the tool loop", () => {
     // The log (about 440 KB, about 326,000 estimated tokens) is over the default inlineTokens of
     // 200,000, so the model gets a card and reads it through tools. A small inlineTokens keeps it
     // a card if the default changes.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    // One user: no owner checks (requireOwner is on by default).
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 }, requireOwner: false });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
     const search = { id: "c1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
     const model = fakeModel([calls([search]), says("51 errors, the first at line 97.")]);

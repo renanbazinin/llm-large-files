@@ -46,11 +46,12 @@ export function demoAddress(env: NodeJS.ProcessEnv = process.env): { host: strin
  * limit and a kill timer, so that a file built to exhaust a server is refused and the server goes
  * on. keepOriginals lets the model look at the pages of an uploaded PDF (charts, photos, scans): it
  * needs the optional dependency @cantoo/pdf-lib, and keeps each PDF in the store until it expires.
- * requireOwner: every call must name its owner, so that no document is ever anyone's.
+ * Owner checks are on by default (requireOwner): every call names its owner, so that no document is
+ * ever anyone's.
  */
 export function demoLibrary(store: DocumentStore = new FileDocumentStore(".data/large-files")): { files: LargeFiles; isolated: IsolatedExtractors } {
   const isolated = createIsolatedExtractors();
-  const files = createLargeFiles({ store, keepOriginals: ["pdf"], extractors: isolated.extractors, requireOwner: true });
+  const files = createLargeFiles({ store, keepOriginals: ["pdf"], extractors: isolated.extractors });
   return { files, isolated };
 }
 
@@ -150,6 +151,8 @@ export function createDemoServer({ files, model, explorer }: { files: LargeFiles
     const url = new URL(request.url ?? "/", "http://localhost");
     const id = /^\/api\/documents\/([^/]+)$/.exec(url.pathname)?.[1];
     if (request.method === "POST" && url.pathname === "/api/documents") return documents.upload(request, response);
+    // The browser's documents, the oldest first: those of its owner (the cookie), and only those.
+    if (request.method === "GET" && url.pathname === "/api/documents") return documents.list(request, response);
     if (id !== undefined && request.method === "GET") return documents.get(request, response, id);
     if (id !== undefined && request.method === "DELETE") return documents.remove(request, response, id);
     if (request.method === "POST" && url.pathname === "/api/chat") {

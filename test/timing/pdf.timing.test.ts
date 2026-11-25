@@ -95,7 +95,7 @@ describe("parsing a PDF with @cantoo/pdf-lib lets other work run", () => {
   });
 
   it("pauses while view_pages reads the file to cut a page out of it", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "arrays.pdf", bytes });
     const tools = files.tools([meta], { viewPages: true });
     const { beats, result } = await beatsDuring(() => tools.executeWithFiles("view_pages", { document_id: meta.id, from_page: 1 }));
@@ -153,7 +153,7 @@ describe("cutting pages out of a PDF lets other work run", () => {
 });
 
 describe("a PDF page that would hold the server is refused before pdf.js reads it", () => {
-  const files = createLargeFiles({ store: new MemoryDocumentStore() });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
   const heavy = "Page 1 of this PDF draws far more than its file holds, and reading it would hold the server for a long time.";
 
   it("refuses a page that paints forms inside forms", async () => {
@@ -209,7 +209,7 @@ describe("PDF names are decoded in time that grows with their length", () => {
     expect(performance.now() - started).toBeLessThan(500);
   });
 
-  const files = createLargeFiles({ store: new MemoryDocumentStore() });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
 
   it("ingests a PDF whose resource dictionary has a name of 400,000 characters, at once", async () => {
     const pdf = pdfWithNames({ extraKeys: [nested(200_000)] });

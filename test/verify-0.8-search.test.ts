@@ -41,9 +41,9 @@ const linesOf = (result: ToolResult) => (result.matches as Array<{ line: number 
 
 /** The same file in memory, and read by range from a folder in pieces of one passage: the results must agree. */
 async function bothWays(name: string, text: string, scanChunkBytes = 64): Promise<Array<{ files: LargeFiles; meta: DocumentMeta; how: string }>> {
-  const memory = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+  const memory = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
   directory = await mkdtemp(path.join(tmpdir(), "llf-verify-search-"));
-  const ranged = createLargeFiles({ store: new FileDocumentStore(directory), budget: { inlineTokens: 10 }, wholeDocumentBytes: 0, scanChunkBytes });
+  const ranged = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), budget: { inlineTokens: 10 }, wholeDocumentBytes: 0, scanChunkBytes });
   return [
     { files: memory, meta: await memory.ingest({ name, bytes: utf8(text) }), how: "in memory" },
     { files: ranged, meta: await ranged.ingest({ name, bytes: utf8(text) }), how: "by range" },

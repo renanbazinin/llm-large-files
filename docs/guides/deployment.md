@@ -25,6 +25,7 @@ rebuild from the store.
 | Store calls past their time limit that have not ended, and since 0.10.2 an ingest's own reads of a path upload | A count in each process (`files.stats().stuckStoreCalls`, new in 0.10.0) | No | Zero |
 | The output limit a thinking model needs for whole-file part reads | Each process, by URL and model | No | Learned again, at the cost of one request |
 | The name of the output limit an OpenAI-compatible server takes | Each `openAiCompatible()` adapter | No | Learned again, at the cost of one refused request |
+| Questions under way and answers kept for a request sent again (new in 0.99.9) | A `createQuestionRegistry()` in each process | No | Empty: a request sent again runs its question again |
 
 What follows from it:
 
@@ -199,7 +200,9 @@ Measured peaks are in [Measurements](../measurements.md#the-server): an ingest o
 over a `FileDocumentStore` takes about three and a half to five and a half times the log above the
 uploaded bytes (135 MB for a log of 25 MB, 345 MB for one of 95 MB, measured on 0.9.0 with Node 22),
 and eight searches at once take little more than one. (Before 0.6.0 an ingest took five to seven
-times the log.)
+times the log.) Since 0.99.9, CI checks on every pull request that an ingest of a 100 MB log stays
+within 5.5 times the log, with the other bars of
+[Performance budgets](../measurements.md#performance-budgets-0999).
 
 Other formats were not measured for memory. PDF text is extracted by pdf.js, which reads the whole
 file, and with `@cantoo/pdf-lib` installed the file is parsed a second time, before pdf.js reads a
@@ -689,6 +692,15 @@ you fork, with its own heap and memory limits. What the model is told when pages
 and the rest of `view_pages`, are in [PDFs and other formats](./pdfs.md); without `keepOriginals`
 nothing is kept and nothing is cut.
 
+Pages drawn as images, for a model without PDF input (0.99.9), also run on the chat server, in the
+same turns: pdf.js reads the original, and each page is drawn on a canvas of `@napi-rs/canvas`,
+0.1 to 0.5 s a page on Node 24, with timers and other requests run between two pages. The first
+look of a process also loads pdf.js and the canvas, about 0.6 s. Drawing decodes the images of a
+page, about 12 bytes a pixel: some 480 MB for an image of 40 million pixels, and more for a page
+of several images or an image with a large mask, which no limit bounds. Size the memory of a
+server that draws pages of untrusted files for that, or keep `view_pages` off for them
+([Security](../security.md#pages-drawn-as-images), [measured](../measurements.md#pages-drawn-as-images-0999)).
+
 ## Sweeping expired documents
 
 A document expires `ttlMs` after its upload (72 hours by default; `Infinity` never). The library
@@ -801,6 +813,14 @@ in [Gemini API and Vertex AI](./vertex-and-gemini.md) and
 When the stream is cut anyway (a proxy, a dropped connection), there is no resume: your server sees
 the response close, the question's `signal` should abort it so that it stops costing, and the user
 asks again.
+
+New in 0.99.9: with a question ID and a question registry, the request sent again joins the
+question that is still running, or gets its answer, instead of paying for it twice
+([Web app](./web-app.md#when-the-stream-breaks-a-question-id)). The registry is in memory, one per
+process: it joins only the requests that reach the process running the question. Route a user's
+requests to the same process (sticky sessions by user, at the load balancer), or accept that a
+request sent again that lands on another server runs the question again. A restart loses the
+questions under way and the kept answers.
 
 ## Restarts and rolling upgrades
 
@@ -917,6 +937,11 @@ same conversations.
   server at once, or keep each chat on servers of one version until the rollout ends. Files that
   0.9.0 writes are `0600`: servers of 0.8 that run as another user cannot read them either.
   [Upgrading to 0.9](../upgrading-0.9.md#several-servers-and-rolling-deploys) has the steps.
+- **Owner checks of 0.99.9.** A server of 0.99.9 checks owners by default; one of 0.10 does not.
+  While both share a store, a document a 0.10 server stores without an owner is missing on the
+  0.99.9 servers. If your application ever ingests without an owner, set `requireOwner` explicitly
+  on both versions during the rollout
+  ([Upgrading to 0.99](../upgrading-0.99.md#rolling-deploys)).
 - **A document keeps what the version that ingested it extracted**: its text, outline and log
   profile. A better extractor applies to files uploaded after the upgrade. A text file in an older
   encoding that 0.5.0 stored holds U+FFFD where 0.6.0 reads its letters, and text that 0.5.0
@@ -929,6 +954,15 @@ same conversations.
   round whose `version` is above 1, made by a later version, with a `TypeError`. 0.6.0 sends the
   rounds of an earlier question without their `tool_turns_left`
   ([Conversations](./conversations.md#what-toolturns-holds)).
+- **Stored shapes, from 0.99.9 on.** `DocumentMeta.metaVersion` and `ToolTurn.version` are 1 from
+  0.9.0 to 0.99.9. 0.99.9 reads every shape stored since 0.2; from 0.99.9 on, each version reads at
+  least the shape of the version before it. A later version that changes either shape raises its
+  number and still reads the shape before it, so servers of two neighboring versions share a store
+  and conversations. The older server refuses what the newer one wrote in the new shape: a document
+  with a `DocumentStoreError` of code `"NEWER_VERSION"` (503: let the call be retried on a newer
+  server; it is never taken for missing, nor replaced), a stored round with a `TypeError` that
+  names its version (leave the round out, or ask on a newer server). Every build of the library
+  reads, in its tests, the documents and rounds that 0.8.2, 0.9.0 and 0.10.2 stored.
 - **Provider caches.** The tool guide in the system instruction, the descriptions of
   `analyze_whole_document` and `search_document`, and the frame lines of a file sent whole changed
   in 0.6.0. They come at the start of a request, so a request
@@ -991,8 +1025,8 @@ same conversations.
 
 ## Optional dependencies in production images
 
-Three formats and features need packages that npm does not install with this one: they are
-optional peer dependencies. Add the ones you need to the `dependencies` of your application, not
+Three formats and features need packages that npm does not install with this one, and pages drawn
+as images a fourth (0.99.9): they are optional peer dependencies. Add the ones you need to the `dependencies` of your application, not
 `devDependencies`, which `npm ci --omit=dev` leaves out of a production image.
 
 | Package | Version | Needed for | Without it |
@@ -1000,12 +1034,18 @@ optional peer dependencies. Add the ones you need to the `dependencies` of your 
 | `unpdf` | `^1.4.0 \|\| ^2.0.0`, in a version that runs on your Node: a 1.x from 1.6.1 on Node 22, any on Node 24 and later ([PDFs](./pdfs.md#formats)) | The text of PDFs | The upload is refused: `Reading PDF files needs the optional dependency "unpdf".` (422 from `createDocumentHandlers`). A version that would stop the server on your Node is refused too, with a message that says what to install: `The unpdf installed would stop the whole server at the first PDF file on Node 22, so PDF files are not read. Install unpdf 1.6.1 or later, or run Node 24 or later.` |
 | `jszip` | `^3.10.0` | DOCX, PPTX and XLSX | The upload is refused: `Reading DOCX, PPTX and XLSX files needs the optional dependency "jszip".` |
 | `@cantoo/pdf-lib` | `^2.11.1` | `view_pages`, the check of PDF pages that would hold the server, and the marks on PDF pages that show a picture | `view_pages` answers the model `report.pdf: Showing PDF pages needs the optional dependency "@cantoo/pdf-lib".` (with the file's name), and PDFs are ingested without the check and without the marks, with no error |
+| `@napi-rs/canvas` | `^0.1.69 \|\| ^1.0.0`, with `unpdf` 2 on Node 24 or later | `view_pages` for a model that takes images and no PDF (`imageInput`, [Pages as images](./pdfs.md#pages-as-images)) | Each such look answers the model `report.pdf: Showing pages as images needs the optional dependency "@napi-rs/canvas".`, and the model answers from the text |
 
-The last one fails quietly at ingest, so an image without it ingests PDFs differently from your
-machine, and lets through the pages the check would refuse. On Node 24 and later,
-`npm install unpdf` installs unpdf 2, which asks for Node 24: for an image on Node 22, name the
-version in your `dependencies`. Check at startup that the image has what your application
-uses:
+`@cantoo/pdf-lib` fails quietly at ingest, so an image without it ingests PDFs differently from
+your machine, and lets through the pages the check would refuse. `@napi-rs/canvas` is a native
+binary: npm installs the package of the platform it runs on (`@napi-rs/canvas-linux-x64-gnu`, or
+`-musl` on Alpine), about 35 MB. Install it in the image on the platform the image runs on, not on
+your machine, and do not copy a `node_modules` from another platform: a binary of another platform
+answers `The optional dependency "@napi-rs/canvas" is installed but could not be loaded (…).`
+
+On Node 24 and later, `npm install unpdf` installs unpdf 2, which asks for Node 24: for an image on
+Node 22, name the version in your `dependencies`. Pages drawn as images need unpdf 2, so Node 24.
+Check at startup that the image has what your application uses:
 
 ```ts
 // check-dependencies.ts: run at startup, before the server listens.

@@ -92,7 +92,7 @@ describe("FileDocumentStore writing a large text", () => {
 
   it("is read by range, through an ingest, as it was written", async () => {
     const directory = await folder();
-    const files = createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: 0 });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), wholeDocumentBytes: 0 });
     const lines = Array.from({ length: 60_000 }, (_, i) => `${i + 1}: שורה ${i + 1} 😀 ${"z".repeat(i % 40)}`);
     const meta = await files.ingest({ name: "long.txt", bytes: utf8(lines.join("\n")) });
     expect(meta.characters).toBeGreaterThan(WRITE_SLICE_CHARACTERS);

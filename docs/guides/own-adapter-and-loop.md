@@ -31,7 +31,6 @@ An adapter is one object. The loop uses these members:
 | `send(request, hooks?)` | Yes | Every chat request: each tool turn, and the answer. |
 | `generateText` | No | The part reads of `analyze_whole_document`. Without it on the model that explores, that tool is not offered. |
 | `requestBytes(request)` | No | The size of a request body, so that the pages of `view_pages` get exactly the room that is left. Without it, the loop estimates. |
-| `estimateTokens(text)` | No | Deprecated, and never called. Set `capabilities.tokenScale` instead: see [`requestBytes` and `estimateTokens`](#requestbytes-and-estimatetokens). |
 
 One adapter object serves every question at once, so keep nothing of one request on it. The loop
 tells models apart by object, not by `id`: `explorer` set to the same object as `model` is one
@@ -49,6 +48,15 @@ defaults and what each changes are there. For an adapter of your own:
   and any `pageTokens` will do. With `"inside"` or `"beside"`, the pages reach `send` in
   `answers[].files`, and your `send` puts them where the provider reads them: the loop only tells
   `"none"` from the other two.
+- `toolFileTypes` (0.99.9) lists the kinds of tool file your `send` places: left out, a PDF only.
+  List `"image/jpeg"` and `"image/png"` for a model that reads images and no PDF: `view_pages` then
+  sends each page as an image, which your `send` places as the provider takes an image. Put
+  `"application/pdf"` first when it reads PDF too: a PDF is then used whenever every model of the
+  question takes one.
+- `documents` (0.99.9) says which uploaded files the model reads as they are, in a user turn:
+  `{ formats: ["pdf"] }`. Declare it only once your `send` places `ModelTextMessage.files` (below):
+  until then the loop sends your adapter no file of its own. An adapter of your own compiles as it
+  is.
 - Set `appendOnly` only when the provider ties reasoning to earlier turns, as Claude ties its
   thinking blocks. It costs room: in a question the model takes part in, old tool results are
   never shortened to make room.
@@ -64,17 +72,22 @@ defaults and what each changes are there. For an adapter of your own:
 - `system`: your system prompt, then the guide to the document tools. On an explorer's requests,
   `EXPLORER_INSTRUCTION` follows. It may be empty: leave it out of the body then.
 - `messages`: the conversation, oldest first. Each message is one of two kinds.
-  - `{ role: "user" | "assistant", parts }`: a turn of text. A part is `{ text }`, or `{ native }`:
-    something in the provider's own form that your application put in `messages` (an image, say),
-    to pass through untouched. A native part may also carry `text`, which only sizes it. The text
-    and cards of the documents are one `{ text }` part at the start of the first user turn, or at
-    the end of the last with `documentPlacement: "last"`.
+  - `{ role: "user" | "assistant", parts, files? }`: a turn of text. A part is `{ text }`, or
+    `{ native }`: something in the provider's own form that your application put in `messages` (an
+    image, say), to pass through untouched. A native part may also carry `text`, which only sizes
+    it. The text and cards of the documents are one `{ text }` part at the start of the first user
+    turn, or at the end of the last with `documentPlacement: "last"`. `files` (0.99.9) are uploaded
+    files to send as they are, first in the turn, before its parts: those your application put in
+    `messages`, and, when your adapter declares `documents`, the small visual files sent whole
+    (`attached-1.pdf`, with a part before the documents' text that names them). Send each in the
+    provider's form, and throw a `TypeError` for a type it cannot take, as the built-in adapters do.
   - `{ role: "tools", calls, answers, raw? }`: one round of tool use. `calls` are the model's calls
     in order, and `answers` holds one `{ call, result, files? }` for each, in the same order. Send
     each `result` as JSON text: it is a plain object, and the loop adds `tool_turns_left` to it.
     The results of a round stored from an earlier question come without `tool_turns_left`.
-    `files` are the pages of a `view_pages` call, one PDF (`application/pdf`), and come only when
-    `toolFiles` is not `"none"`.
+    `files` are the pages of a `view_pages` call, one PDF (`application/pdf`), or, for a model that
+    lists only images in `toolFileTypes`, one JPEG or PNG for each page (`result.images` names
+    them; 0.99.9). They come only when `toolFiles` is not `"none"`.
 - `raw` on a round is the model's turn as your `send` returned it: send it back unchanged. The loop
   sets it only on rounds this adapter object produced in this question. A round stored from an
   earlier question (`toolTurns`) or made by another model has none: build the model's turn from
@@ -223,7 +236,7 @@ returns the text of the reply.
   exported by `llm-large-files/gemini`). For a model of yours that thinks, send at least that.
 - Set a timeout of your own. The adapters of the package give a part read 180 seconds.
 
-### `requestBytes` and `estimateTokens`
+### `requestBytes`
 
 `requestBytes(request)` returns the size in bytes of the body `send` would post for `request`. The
 loop calls it on the model that explores, in a turn that looks at pages, with the model's turn
@@ -232,10 +245,9 @@ left of `maxRequestBytes` after that request and a margin of a tenth of it (at l
 times 3/4 for base64. Without `requestBytes`, the loop uses its estimate of the request. The size
 of the body without streaming is close enough.
 
-`estimateTokens(text)` is deprecated: the loop never calls it, and a later version may remove it.
-Every size is the library's estimate (`estimateTokens` from `llm-large-files`) scaled by
-`capabilities.tokenScale`: set that for a tokenizer that counts differently, and leave the
-`estimateTokens` member out of your adapter. An adapter that still declares it compiles as before.
+Every size the loop counts is the library's estimate (`estimateTokens` from `llm-large-files`)
+scaled by `capabilities.tokenScale`: set that for a tokenizer that counts differently.
+`ModelAdapter.estimateTokens`, deprecated in 0.6.0 and never called, was removed in 0.99.9.
 
 ## A complete adapter
 
@@ -461,7 +473,7 @@ import { readFile } from "node:fs/promises";
 import { askWithFiles, createLargeFiles, FileDocumentStore } from "llm-large-files";
 import { exampleAi } from "./example-ai.js";
 
-const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
+const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files"), requireOwner: false }); // one user: no owner checks
 const model = exampleAi({
   baseUrl: process.env.EXAMPLE_AI_URL!,
   apiKey: process.env.EXAMPLE_AI_KEY!,
@@ -722,6 +734,14 @@ refusing a whole-file read that would pass a ceiling of the question before it s
      (`keepOriginals`). Empty unless you pass `viewPages: true` and the store keeps originals.
    - New in 0.10.0: `toolable`, with `inlineTables: "tools"`. `instruction` and the blocks stay
      those of 0.9 unless you ask for `numberInline` or `inlineTables`.
+   - New in 0.99.9: `native`, with `nativeDocuments: { formats, maxFileBytes, maxPages, pageTokens }`
+     (what your model reads as it is, and what a page costs in the library's tokens). It lists the
+     small visual files sent whole to send as the files themselves too, and leaves them out of
+     `viewable`. Read each with `files.getOriginal(meta.id, { owner, scope })`, and send it first
+     in the turn that holds the blocks, with a line before the blocks that names it; one whose
+     original is gone is sent as text only. Count its pages times `pageTokens`, and its bytes as
+     base64, in the room of the request
+     ([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)).
 
    Two options of 0.10.0 change the text, and are off unless you ask for them:
    - `numberInline: true` numbers the lines of each file sent whole as the tools number them
@@ -744,7 +764,8 @@ refusing a whole-file read that would pass a ceiling of the question before it s
 3. **Tools.** `files.tools(prepared.plan.searchable, options)` gives a `ToolSet`. The options that
    matter here: `access` (the owner and scope of step 1), `generate` (a `GenerateText`, which turns on `analyze_whole_document`; without it,
    plan with `wholeDocumentAnalysis: false` in step 1), `viewPages` (pass `prepared.viewable`, and
-   only when your loop sends files to the model), `signal`, `onProgress` (progress of whole-file
+   only when your loop sends files to the model), `pageImages` (0.99.9: `{ format: "jpeg" }` for a
+   model that reads images and no PDF, [Pages as images](./pdfs.md#pages-as-images)), `signal`, `onProgress` (progress of whole-file
    reads, for every call; per call, see [`ToolCallHooks`](#progress-of-each-call-toolcallhooks)),
    `maxWholeDocumentReads` (1 by default), `regexBudgetMs` (6,000), `retry` and `budget`.
    Make one tool set for each question: the count of whole-file reads and the time for regex
@@ -754,8 +775,8 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    Pass `access: { owner, scope }`, new in 0.9.0: each call then asks the store for the document
    with that owner and scope, and checks the ones the store holds against them, whatever the
    metadata handed in says. A document of another owner or scope reads nothing: each call answers
-   `doc_… is no longer available on the server. …`. Under `requireOwner` or `requireScope`, `tools()`
-   throws without it. Without `access`, as before 0.9.0, each call compares the owner and scope
+   `doc_… is no longer available on the server. …`. Under `requireOwner` (the default since
+   0.99.9) or `requireScope`, `tools()` throws without it. Without `access`, as before 0.9.0, each call compares the owner and scope
    stored with the document with those of the metadata it was handed, so pass `tools()` only
    metadata that came back for this user: `prepared.plan.searchable` and `prepared.viewable` from
    `prepare(ids, base, { owner, scope })`, or `getMeta(id, { owner, scope })`.
@@ -768,8 +789,9 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    arguments, a document outside this tool set, a store that failed, or a whole-file read that
    failed all come back as `{ error }`, for the model to read. It throws only when your `signal`
    aborted. `files` is empty for every tool but `view_pages`, whose pages come as one PDF
-   (`{ name, mimeType: "application/pdf", bytes }`): send it with the result, in your provider's
-   form. `tools.execute(name, args)` is the same without files and without limits, and answers
+   (`{ name, mimeType: "application/pdf", bytes }`), or with `pageImages` as one image a page
+   (`{ name: "page-2.jpg", mimeType: "image/jpeg", bytes }`): send them with the result, in your
+   provider's form. `tools.execute(name, args)` is the same without files and without limits, and answers
    `view_pages` with an error, because it has nowhere to put the pages. An unknown tool is
    answered `Unknown tool “do_magic”.`, its name quoted and cut at 64 characters. A whole-file read
    whose model requests failed tells the model why by the kind and status of the error, never by

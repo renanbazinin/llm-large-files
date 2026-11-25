@@ -34,7 +34,7 @@ const quick = (): RetryOptions => ({ random: () => 1, sleep: async () => undefin
 const roundsOf = (messages: ModelMessage[]) => messages.filter((message): message is ModelToolRound => message.role === "tools");
 
 async function largeLog(lines = 5_000, budget: Record<string, number> = {}) {
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, ...budget } });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(lines)) });
   return { files, meta };
 }
@@ -69,7 +69,7 @@ describe("LLF-040: what a refusal showed lasts for the rest of the question", ()
 describe("LLF-041: a model's pageTokens that is missing or not a number", () => {
   it("counts a page as 1,000 tokens, so the question keeps its limit of pages", async () => {
     // Half of 6,000 reserved tokens, at 1,000 a page: three pages for the question.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { reservedTokens: 6_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"], budget: { reservedTokens: 6_000 } });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(8) });
     for (const pageTokens of [undefined, Number.NaN]) {
       const model = fakeModel([
@@ -85,7 +85,7 @@ describe("LLF-041: a model's pageTokens that is missing or not a number", () => 
   });
 
   it("does not offer view_pages to a model whose toolFiles is missing", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["pdf"] });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(3) });
     const model = fakeModel([says("From the text.")], { toolFiles: undefined as unknown as "none" });
     await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?") });
@@ -100,19 +100,19 @@ describe("LLF-007: the number options of createLargeFiles", () => {
 
   it("refuses NaN, which hung every scan of a document read by range or failed every upload", () => {
     for (const name of ["ttlMs", "maxUploadBytes", "cacheBytes", "cacheSize", "wholeDocumentBytes", "scanChunkBytes", "maxConcurrentScans", "scannedPdfPages"] as const) {
-      expect(() => createLargeFiles({ store: store(), [name]: unset }), name).toThrow(RangeError);
-      expect(() => createLargeFiles({ store: store(), [name]: unset }), name).toThrow(`${name} must be a`);
+      expect(() => createLargeFiles({ requireOwner: false, store: store(), [name]: unset }), name).toThrow(RangeError);
+      expect(() => createLargeFiles({ requireOwner: false, store: store(), [name]: unset }), name).toThrow(`${name} must be a`);
     }
   });
 
   it("refuses a value that is not a number, and an endless scanChunkBytes", () => {
-    expect(() => createLargeFiles({ store: store(), maxConcurrentScans: "4" as unknown as number })).toThrow(new TypeError('maxConcurrentScans must be a number, and is "4".'));
-    expect(() => createLargeFiles({ store: store(), scanChunkBytes: Number.POSITIVE_INFINITY })).toThrow(RangeError);
+    expect(() => createLargeFiles({ requireOwner: false, store: store(), maxConcurrentScans: "4" as unknown as number })).toThrow(new TypeError('maxConcurrentScans must be a number, and is "4".'));
+    expect(() => createLargeFiles({ requireOwner: false, store: store(), scanChunkBytes: Number.POSITIVE_INFINITY })).toThrow(RangeError);
   });
 
   it("still takes what it took before: Infinity where it means no limit, and values it raises to the least", () => {
-    expect(() => createLargeFiles({ store: store(), ttlMs: Number.POSITIVE_INFINITY, wholeDocumentBytes: Number.POSITIVE_INFINITY, cacheBytes: Number.POSITIVE_INFINITY, maxConcurrentScans: Number.POSITIVE_INFINITY })).not.toThrow();
-    expect(() => createLargeFiles({ store: store(), maxConcurrentScans: 0, scanChunkBytes: 0, cacheBytes: -1 })).not.toThrow();
+    expect(() => createLargeFiles({ requireOwner: false, store: store(), ttlMs: Number.POSITIVE_INFINITY, wholeDocumentBytes: Number.POSITIVE_INFINITY, cacheBytes: Number.POSITIVE_INFINITY, maxConcurrentScans: Number.POSITIVE_INFINITY })).not.toThrow();
+    expect(() => createLargeFiles({ requireOwner: false, store: store(), maxConcurrentScans: 0, scanChunkBytes: 0, cacheBytes: -1 })).not.toThrow();
   });
 
   it("gives a Limiter of NaN or 0 one slot, rather than none", async () => {
@@ -216,7 +216,7 @@ describe("LLF-013: a U+FEFF that starts a range of a document read by range", ()
   it("is kept, so the search of the document works and a read gives the line as it is", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "large-files-bom-"));
     try {
-      const files = createLargeFiles({ store: new FileDocumentStore(directory), wholeDocumentBytes: 0, scanChunkBytes: 1 });
+      const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), wholeDocumentBytes: 0, scanChunkBytes: 1 });
       // Ingest drops a U+FEFF inside the text since 0.6.0. A document stored before it kept one: "€",
       // three bytes and one character like U+FEFF, holds its place and is swapped in the stored text.
       const lines = Array.from({ length: 40 }, (_, n) => `first file line ${n + 1}`);

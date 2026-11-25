@@ -22,7 +22,7 @@ describe("two ingests of one application's ID at once, in one library", () => {
   for (const { kind, store: make, alice, bob } of cases) {
     it(`refuses the second with a 409 whatever ifExists says, and each file stays its owner's (${kind})`, async () => {
       const store = make();
-      const files = createLargeFiles({ store, keepOriginals: ["text"], maxConcurrentIngests: 2 });
+      const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["text"], maxConcurrentIngests: 2 });
       // Alice's document is written up to its metadata, which the store has not taken yet.
       const held = store.holds.hold("put", "alice");
       const first = files.ingest({ name: "alice.txt", bytes: utf8("alice's file\n"), id: "shared", ...alice });
@@ -50,7 +50,7 @@ describe("two ingests of one application's ID at once, in one library", () => {
   }
 
   it("frees the ID when an ingest fails, and when it is refused before it is read", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     await expect(files.ingest({ name: "blank.txt", bytes: utf8(" \n"), id: "upload-1" })).rejects.toMatchObject({ code: "no_text" });
     await files.ingest({ name: "a.txt", bytes: utf8("first\n"), id: "upload-1" });
     await expect(files.ingest({ name: "b.txt", bytes: utf8("second\n"), id: "upload-1" })).rejects.toMatchObject({ code: "exists" });
@@ -70,8 +70,8 @@ describe("the clean-up after a write that failed", () => {
 
   it("leaves the document another server stored under the ID meanwhile, and answers 409", async () => {
     const store = new UniqueIds();
-    const one = createLargeFiles({ store });
-    const two = createLargeFiles({ store });
+    const one = createLargeFiles({ requireOwner: false, store });
+    const two = createLargeFiles({ requireOwner: false, store });
     const alice = { owner: "alice", scope: ["a"] };
     // Bob's ingest has found the ID free, and waits to write its metadata.
     const held = store.holds.hold("put", "bob");
@@ -100,7 +100,7 @@ describe("the clean-up after a write that failed", () => {
     const ticking = () => new Date(Date.UTC(2026, 0, 1) + tick++ * 1_000);
     // Alice replaces her own document.
     const store = new FailingDelete({ now: () => new Date(Date.UTC(2026, 0, 1)) });
-    const files = createLargeFiles({ store, now: ticking });
+    const files = createLargeFiles({ requireOwner: false, store, now: ticking });
     await files.ingest({ name: "a.txt", bytes: utf8("the first file\n"), id: "upload-1", owner: "alice" });
     store.failNext = true;
     await expect(files.ingest({ name: "b.txt", bytes: utf8("the second file\n"), id: "upload-1", owner: "alice", ifExists: "replace" }))
@@ -109,7 +109,7 @@ describe("the clean-up after a write that failed", () => {
     // Bob writes over alice's document once it has expired.
     let clock = Date.UTC(2026, 0, 1);
     const expired = new FailingDelete({ now: () => new Date(Date.UTC(2026, 0, 1)) });
-    const later = createLargeFiles({ store: expired, ttlMs: 1_000, now: () => new Date(clock) });
+    const later = createLargeFiles({ requireOwner: false, store: expired, ttlMs: 1_000, now: () => new Date(clock) });
     await later.ingest({ name: "a.txt", bytes: utf8("the first file\n"), id: "upload-1", owner: "alice" });
     clock += 5_000;
     expired.failNext = true;
@@ -126,7 +126,7 @@ describe("the clean-up after a write that failed", () => {
       }
     }
     const store = new Failing();
-    const files = createLargeFiles({ store, keepOriginals: ["text"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["text"] });
     await expect(files.ingest({ name: "a.txt", bytes: utf8("a\n"), id: "upload-1", owner: "alice" })).rejects.toMatchObject({ name: "DocumentStoreError", operation: "write" });
     expect(store.documents.size).toBe(0);
     expect(store.originals.size).toBe(0);
@@ -134,7 +134,7 @@ describe("the clean-up after a write that failed", () => {
 
   it("after a listener that throws on ingest.finish, removes the document only while it is the ingest's own", async () => {
     const store = new StoreOf08();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const thrown = new Error("The listener failed.");
     // Its own: removed, as before.
     await expect(files.ingest({ name: "a.txt", bytes: utf8("a\n"), id: "upload-1", owner: "bob", onEvent: (event) => {
@@ -142,7 +142,7 @@ describe("the clean-up after a write that failed", () => {
     } })).rejects.toBe(thrown);
     expect(store.documents.size).toBe(0);
     // Another's by then (written by another server): left where it is.
-    await createLargeFiles({ store }).ingest({ name: "alice.txt", bytes: utf8("alice's\n"), id: "elsewhere", owner: "alice" });
+    await createLargeFiles({ requireOwner: false, store }).ingest({ name: "alice.txt", bytes: utf8("alice's\n"), id: "elsewhere", owner: "alice" });
     const theirs = structuredClone(store.documents.get("elsewhere")!);
     theirs.meta.id = "upload-1";
     await expect(files.ingest({ name: "b.txt", bytes: utf8("bob's\n"), id: "upload-1", owner: "bob", onEvent: (event) => {
@@ -158,7 +158,7 @@ describe("the clean-up after a write that failed", () => {
 describe("writes that do not end in time", () => {
   it("keep the ID held in the library until they and the removal of what they wrote have ended", async () => {
     const store = new StoreOf08();
-    const files = createLargeFiles({ store, keepOriginals: ["text"], ingestTimeoutMs: 100 });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["text"], ingestTimeoutMs: 100 });
     const alice = { owner: "alice", scope: ["a"] };
     const bob = { owner: "bob", scope: ["b"] };
     // Alice's metadata is not written within the 100 ms the writes are given.
@@ -191,7 +191,7 @@ describe('ifExists: "replace" over a document of another owner or scope', () => 
         return document && utf8(document.text).subarray(start, end);
       }
     }
-    const files = createLargeFiles({ store: new DropsContext() });
+    const files = createLargeFiles({ requireOwner: false, store: new DropsContext() });
     const scope = ["org"];
     await files.ingest({ name: "x.txt", bytes: utf8("x's report\n"), id: "report", owner: "x", scope });
     await expect(files.ingest({ name: "y.txt", bytes: utf8("y's report\n"), id: "report", owner: "y", scope, ifExists: "replace" }))
@@ -201,7 +201,7 @@ describe('ifExists: "replace" over a document of another owner or scope', () => 
 
   it("writes over it once it has expired", async () => {
     let clock = new Date("2026-01-01T00:00:00Z");
-    const files = createLargeFiles({ store: new StoreOf08(), ttlMs: 60_000, now: () => clock });
+    const files = createLargeFiles({ requireOwner: false, store: new StoreOf08(), ttlMs: 60_000, now: () => clock });
     await files.ingest({ name: "x.txt", bytes: utf8("x's\n"), id: "report", owner: "x" });
     clock = new Date("2026-01-01T00:02:00Z");
     await files.ingest({ name: "y.txt", bytes: utf8("y's\n"), id: "report", owner: "y", ifExists: "replace" });
@@ -221,7 +221,7 @@ describe("the first look at an application's ID, before the file is read", () =>
 
   it("gives a caller that gives up its own reason", async () => {
     const store = new Silent();
-    const files = createLargeFiles({ store });
+    const files = createLargeFiles({ requireOwner: false, store });
     const controller = new AbortController();
     const reason = new Error("The uploader went away.");
     store.asked = () => controller.abort(reason);
@@ -239,7 +239,7 @@ describe("the first look at an application's ID, before the file is read", () =>
       controller.abort(reason);
       // An ID that is taken, a store that fails, and a store that does not answer within 30 ms.
       const taken = new MemoryDocumentStore();
-      await createLargeFiles({ store: taken }).ingest({ name: "a.txt", bytes: utf8("a\n"), id: "upload-1", owner: "alice" });
+      await createLargeFiles({ requireOwner: false, store: taken }).ingest({ name: "a.txt", bytes: utf8("a\n"), id: "upload-1", owner: "alice" });
       const failing = new MemoryDocumentStore();
       failing.getMeta = async () => {
         throw new Error("ECONNREFUSED");
@@ -250,7 +250,7 @@ describe("the first look at an application's ID, before the file is read", () =>
         { kind: "silent", store: new Silent(), ingestTimeoutMs: 30 },
       ];
       for (const { kind, store, ingestTimeoutMs } of cases) {
-        const files = createLargeFiles({ store, ...(ingestTimeoutMs ? { ingestTimeoutMs } : {}) });
+        const files = createLargeFiles({ requireOwner: false, store, ...(ingestTimeoutMs ? { ingestTimeoutMs } : {}) });
         const asked = vi.spyOn(store, "getMeta");
         await expect(files.ingest({ name: "b.txt", bytes: utf8("b\n"), id: "upload-1", owner: "bob", signal: controller.signal }), kind).rejects.toBe(reason);
         expect(asked, kind).not.toHaveBeenCalled();
@@ -264,7 +264,7 @@ describe("the first look at an application's ID, before the file is read", () =>
   });
 
   it("gives up on a store that does not answer within the time the writes are given", async () => {
-    const files = createLargeFiles({ store: new Silent(), ingestTimeoutMs: 100 });
+    const files = createLargeFiles({ requireOwner: false, store: new Silent(), ingestTimeoutMs: 100 });
     const thrown = await files.ingest({ name: "a.txt", bytes: utf8("a\n"), id: "upload-1" }).catch((error: unknown) => error);
     expect(thrown).toMatchObject({ name: "DocumentStoreError", operation: "read", code: "ETIMEDOUT" });
     expect(((thrown as Error).cause as Error).message).toBe("The store did not answer about a.txt within 100 ms.");

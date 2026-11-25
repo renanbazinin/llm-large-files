@@ -58,7 +58,7 @@ async function runScript(name: string, code: string, onOutput?: (stdout: string,
 
 /** The library of the compiled build, with the isolated extractors. */
 function createFromIsolated(isolated: ReturnType<NodeModule["createIsolatedExtractors"]>) {
-  return library.createLargeFiles({ store: new library.MemoryDocumentStore(), extractors: isolated.extractors });
+  return library.createLargeFiles({ requireOwner: false, store: new library.MemoryDocumentStore(), extractors: isolated.extractors });
 }
 
 const S = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
@@ -339,7 +339,7 @@ describe("detectFormat and names of Object.prototype (finding 44)", () => {
   });
 
   it("ingests such a file as text", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     for (const name of names) {
       const meta = await files.ingest({ name: `notes.${name}`, bytes: utf8("one\ntwo\n"), mimeType: name });
       expect(meta.format).toBe("text");
@@ -365,7 +365,7 @@ describe("the shutdown of the docs (findings 30, 40)", () => {
       import { createLargeFiles, MemoryDocumentStore } from "../index.js";
       import { createDocumentHandlers, createIsolatedExtractors } from "../node/index.js";
       const isolated = createIsolatedExtractors({ formats: ["text"] });
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: isolated.extractors });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: isolated.extractors });
       const documents = createDocumentHandlers(files);
       const server = createServer((request, response) => void documents.upload(request, response)).listen(0, "127.0.0.1");
       process.once("SIGTERM", () => {

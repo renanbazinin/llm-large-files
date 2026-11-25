@@ -11,7 +11,8 @@ and 1M tokens of context. This package bridges the gap:
 - **Files that don't** become a short summary card, and the model gets tools to **search**,
   **read line ranges**, or **read the whole file in parts** (map-reduce). Answers cite line numbers.
 - **Pictures in a PDF** are not in its text. The model can **look at the real pages** when it
-  needs to: a chart, a photo, a scan.
+  needs to: a chart, a photo, a scan. A model without PDF input sees them as images, and a small
+  PDF or deck with pictures can go to the model as the file itself (both opt-in).
 
 It's a small library, not a framework: no model SDK, no server, and no UI are required. One tool
 loop, `askWithFiles`, works with any model through an adapter. Adapters for **Gemini and Vertex
@@ -33,9 +34,10 @@ import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 import { askGemini, vertexAi } from "llm-large-files/gemini";
 
 const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
+const userId = "user-42"; // the signed-in user: every call names its owner
 
 // When a user uploads a file:
-const doc = await files.ingest({ name: "app.log", bytes: await readFile("./app.log") });
+const doc = await files.ingest({ name: "app.log", bytes: await readFile("./app.log"), owner: userId });
 
 // When they ask about it:
 const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
@@ -47,6 +49,7 @@ const endpoint = vertexAi({
 const result = await askGemini({
   files,
   endpoint,
+  owner: userId,
   documentIds: [doc.id],
   messages: [{ role: "user", text: "What caused the outage, and when? Cite lines." }],
   onText: (delta) => process.stdout.write(delta), // optional: the answer as it streams
@@ -88,7 +91,8 @@ const deepseek = openAiCompatible({ baseUrl: "https://api.deepseek.com/v1", apiK
 const claude = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claude-opus-5-5", fallbacks: "default" });
 
 const withClaude = await askWithFiles({
-  files,               // `files` and `doc` are those of the quickstart
+  files,               // `files`, `doc` and `userId` are those of the quickstart
+  owner: userId,
   model: claude,       // writes the answer
   explorer: deepseek,  // optional: a second model, of any provider, that searches and reads
   documentIds: [doc.id],
@@ -138,6 +142,7 @@ const documents = createDocumentHandlers(files, {
   getOwner: (req) => (req as typeof req & { user?: { id: string } }).user?.id,
 });
 app.post("/api/documents", documents.upload); // mount before express.json(): the body is the raw file
+app.get("/api/documents", documents.list); // the user's documents, the oldest first (new in 0.99.9)
 app.get("/api/documents/:id", (req, res) => documents.get(req, res, req.params.id));
 app.delete("/api/documents/:id", (req, res) => documents.remove(req, res, req.params.id));
 ```
@@ -174,9 +179,11 @@ app.post("/api/chat", express.json(), async (req, res) => {
 ```
 
 Pass the upload's `id` in `documentIds` and the same user as `owner`: a document
-that has an owner is missing for anyone else. This `getOwner` returns `undefined` for an anonymous
-upload. Never return an empty string: it would be one owner shared by every caller without a user,
-and the upload is answered 500. Reading the events in the browser, the upload's own progress, and
+that has an owner is missing for anyone else. Owner checks are on by default (since 0.99.9): a
+request whose `getOwner` returns `undefined` is answered 401 "Sign in first.", and a call without an
+owner throws. A library made with `requireOwner: false` takes anonymous uploads. Never return an
+empty string: it would be one owner shared by every caller without a user, and the upload is
+answered 500. Reading the events in the browser, the upload's own progress, and
 cancelling are in the [web app guide](docs/guides/web-app.md); every event is in
 [Events](docs/reference/events.md). There's also a
 [one-file demo server](https://github.com/renanbazinin/llm-large-files/blob/main/examples/server.ts) and a [command-line script](https://github.com/renanbazinin/llm-large-files/blob/main/examples/ask-cli.ts): from a
@@ -221,9 +228,13 @@ setInterval(() => files.sweep().catch(console.error), 60 * 60 * 1000).unref(); /
 ```
 
 `unpdf` reads the text of a PDF, and `@cantoo/pdf-lib` cuts its pages. With `askWithFiles`,
-`view_pages` is offered only when every model of the question can be sent a file: `gemini()` and
-`anthropic()` can by default, `openAiCompatible()` only with `pdfInput: true`. So the question
-above, with DeepSeek exploring, is not offered `view_pages` at all.
+`view_pages` is offered only when every model of the question can be sent the same kind of file:
+`gemini()` and `anthropic()` take PDF by default, `openAiCompatible()` only with `pdfInput: true`.
+So the question above, with DeepSeek exploring, is not offered `view_pages` at all. When every
+model of the question reads images and no PDF, each page goes as an image with
+`openAiCompatible({ imageInput: true })`, on Node 24 with `unpdf` 2 and `@napi-rs/canvas`
+([Pages as images](docs/guides/pdfs.md#pages-as-images)). Next to `gemini()` or `anthropic()`,
+which take PDF, no kind of file is shared, and `view_pages` is still not offered.
 
 Asked which bar of a chart is tallest, `gemini-3.5-flash-lite` said from the text that it could
 not see the chart; with `view_pages` it looked at the page and answered correctly. It did not look
@@ -266,7 +277,7 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 | **Reliability** | Retries, waits on a silent model, recovery from a request too large, error kinds, answers that say when a filter or the output limit stopped them, and a time limit on every store call, so a network volume that hangs does not hold a server: see [Errors and reliability](docs/guides/errors-and-reliability.md) |
 | **Models** | Gemini and Vertex AI, any OpenAI-compatible endpoint, Claude, or an adapter of your own. Two models of different providers can share a question |
 | **Cost** | Usage summed over every request of a question, for each model, with ceilings on whole-file reads, requests and input tokens; since 0.10.0 every question has a ceiling on input tokens by default |
-| **Privacy** | Documents can belong to an `owner`; other users can't plan, read, or delete them |
+| **Privacy** | Documents belong to an `owner`, checked on every call by default; other users can't plan, read, or delete them |
 | **Hostile uploads** | Limits on the text, pages and time of one file; zip bombs and PDFs built to exhaust a server are refused when the checks recognize them, with a code (`"hostile"`); ingest pauses for other requests between pages and slices. Not every hostile file is refused, and some steps hold the server for a while: read untrusted uploads in child processes with `createIsolatedExtractors`, which refuses a file that runs out of memory or time while the server goes on ([Security](docs/security.md#uploads)) |
 | **Storage** | In memory, on disk with expiry, or your own store (Redis, S3, a database) |
 
@@ -308,13 +319,14 @@ Reference, one page per module:
 - [`llm-large-files`: the tools](docs/reference/tools.md): every tool the model sees, its arguments, results and limits.
 - [`llm-large-files`: events](docs/reference/events.md): `askStream`, the events of a question and of an ingest, `eventStream`.
 - [`llm-large-files/gemini`](docs/reference/gemini.md): `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()`.
-- [`llm-large-files/openai`](docs/reference/openai.md): `openAiCompatible()` and its options.
+- [`llm-large-files/openai`](docs/reference/openai.md): `openAiCompatible()`, `openAiResponses()` (new in 0.99.9) and their options.
 - [`llm-large-files/anthropic`](docs/reference/anthropic.md): `anthropic()` and its options.
 - [`llm-large-files/node`](docs/reference/node.md): `createDocumentHandlers`, its routes and responses, `createIsolatedExtractors`.
 - [`llm-large-files/testing`](docs/reference/testing.md): `fakeModel` and `fakeFetch`, for your tests (new in 0.9.0).
 
 [Changelog](CHANGELOG.md): what each version changed, and what to change in your code when you upgrade.
-[Upgrading to 0.10](docs/upgrading-0.10.md) takes an application from 0.9.0 step by step.
+[Upgrading to 0.99](docs/upgrading-0.99.md) takes an application from 0.10.x step by step, and
+[Upgrading to 0.10](docs/upgrading-0.10.md) from 0.9.0.
 
 Also: [How it works](docs/how-it-works.md), [Security](docs/security.md),
 [Troubleshooting](docs/troubleshooting.md) and [Measurements](docs/measurements.md). For
@@ -334,7 +346,9 @@ npm install jszip unpdf@1 @cantoo/pdf-lib      # Node 22
 
 On Node 24 and later, `npm install unpdf` installs unpdf 2, which asks for Node 24. On Node 22, the
 pdf.js of unpdf 1.5.0 to 1.6.0 would stop the whole process. Such an unpdf is refused at the first
-PDF, with a message that says what to install.
+PDF, with a message that says what to install. To show pages as images to a model without PDF
+input, install `unpdf` 2 and `@napi-rs/canvas` too, on Node 24 or later (`npm install unpdf@2
+@napi-rs/canvas`): the canvas is optional as well.
 
 ## License
 

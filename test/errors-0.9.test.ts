@@ -88,7 +88,7 @@ describe("DocumentsNotFoundError and IngestError", () => {
     expect(eventErrorOf(new IngestError("unreadable", "a.txt could not be read."))).toEqual({ message: "a.txt could not be read.", name: "IngestError", code: "unreadable" });
 
     const events: AskEvent[] = [];
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const asking = askWithFiles({
       files,
       model: fakeModel([says("never")]),

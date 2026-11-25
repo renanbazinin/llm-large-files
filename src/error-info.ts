@@ -1,6 +1,6 @@
 // What an error means for an application: one record to choose a status, a retry and words of
 // your own by, in any language. New in 0.9.0.
-import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, QuestionConflictError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import { eventErrorOf, isPlainData } from "./events.js";
 import { modelFailureReason } from "./map-reduce.js";
 import { classifyModelError, DocumentsNotFoundError, isModelStatus, ModelRequestError, type ModelErrorKind } from "./model.js";
@@ -15,7 +15,8 @@ import { classifyModelError, DocumentsNotFoundError, isModelStatus, ModelRequest
  * - "aborted": stopped by a signal (an `AbortError`, or a `TimeoutError` of `AbortSignal.timeout`);
  * - "input": a mistake in the call (a `TypeError` or `RangeError`, or a `DocumentScopeError`
  *   "scope_invalid" or "scope_required", and the `EventError` of each): a bug of the server, not
- *   of the user;
+ *   of the user. Since 0.99.9 also a `QuestionConflictError` (code "question_conflict", 409): a
+ *   question ID used again for another question;
  * - "unknown": anything else.
  *
  * A switch over every category must handle the categories added in a later version.
@@ -210,6 +211,8 @@ function infoOf(error: unknown): ErrorInfo {
     return { category: "missing", code: "documents_missing", status: 404, retryable: false, message: eventErrorOf(error).message };
   }
   if (DocumentScopeError.is(error)) return scopeInfo(error.code);
+  // A question ID used again for another question (0.99.9): the client's mistake, told in the library's words.
+  if (QuestionConflictError.is(error)) return { category: "input", code: "question_conflict", status: 409, retryable: false, message: error.message };
   if (typeof error !== "object" || error === null) return { category: "unknown", status: 500, retryable: false, message: SOMETHING_WENT_WRONG };
   const { name, retryAfterMs } = error as { name?: unknown; retryAfterMs?: unknown };
   if (name === "AbortError") return { category: "aborted", code: "aborted", status: 503, retryable: true, message: "It was stopped before it finished." };

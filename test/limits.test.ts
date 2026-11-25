@@ -27,7 +27,7 @@ describe("a regex that cannot get past a line", () => {
 
 describe("the time for regex searches of one tool set", () => {
   it("is counted over all of them, and other searches go on when it is used up", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(trapped(300)) });
     const tools = files.tools([meta], { regexBudgetMs: 120 });
     const first = await tools.execute("search_document", { document_id: meta.id, query: SLOW, mode: "regex" });
@@ -44,7 +44,7 @@ describe("the time for regex searches of one tool set", () => {
 
 describe("regex search and Unicode", () => {
   it("knows letters of any script and characters outside the basic plane, and still takes patterns of the old kind", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 5 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 5 } });
     const meta = await files.ingest({ name: "notes.txt", bytes: bytes("שלום עולם\nhello world\nprix: 12 €\nÉcole normale 😀😀\nab@example.com\n") });
     const tools = files.tools([meta]);
     const count = async (query: string) => {
@@ -66,7 +66,7 @@ describe("askGemini and a turn with many tool calls", () => {
   const says = (text: string) => ({ candidates: [{ finishReason: "STOP", content: { role: "model", parts: [{ text }] } }] });
 
   async function ask(calls: number, options: { maxToolCallsPerTurn?: number } = {}) {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: bytes(Array.from({ length: 5_000 }, (_, i) => line(i)).join("\n")) });
     const bodies: Array<Record<string, any>> = [];
     const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {

@@ -6,8 +6,8 @@ loop of your own, show `steps` to users, keep `toolTurns`, or want to know exact
 was told and what it read.
 
 ```ts
-import { declarationsFor, MAX_VIEW_PAGES, MAX_WHOLE_DOCUMENT_READS, REGEX_BUDGET_MS, TOOL_NAMES, toolResultSummary } from "llm-large-files";
-import type { JsonSchema, ToolCallLimits, ToolDeclaration, ToolFile, ToolFileLimits, ToolOutput, ToolResult, ToolSet } from "llm-large-files";
+import { declarationsFor, MAX_VIEW_PAGES, MAX_WHOLE_DOCUMENT_READS, PAGE_IMAGE_SIDE, REGEX_BUDGET_MS, TOOL_NAMES, toolResultSummary } from "llm-large-files";
+import type { JsonSchema, PageImageOptions, ToolCallLimits, ToolDeclaration, ToolFile, ToolFileLimits, ToolOutput, ToolResult, ToolSet } from "llm-large-files";
 ```
 
 Contents:
@@ -20,6 +20,7 @@ Contents:
 - [The tool guide](#the-tool-guide)
 - [What `askWithFiles` adds to results](#what-askwithfiles-adds-to-results)
 - Exports: [`TOOL_NAMES`](#tool_names), [declarationsFor(names)](#declarationsfornames), [`MAX_VIEW_PAGES`](#max_view_pages),
+  [`PAGE_IMAGE_SIDE`](#page_image_side), [`PageImageOptions`](#pageimageoptions),
   [`MAX_WHOLE_DOCUMENT_READS`](#max_whole_document_reads), [`REGEX_BUDGET_MS`](#regex_budget_ms),
   [toolResultSummary(label, result)](#toolresultsummarylabel-result), [`ToolSet`](#toolset),
   [`ToolCallLimits`](#toolcalllimits), [`ToolFileLimits`](#toolfilelimits),
@@ -66,10 +67,12 @@ In [askWithFiles(options)](./ask.md#askwithfilesoptions) (and `askGemini`, which
   `maxMapChunks` parts (5% leeway).
 - `view_pages` is offered for each PDF whose uploaded file is kept (`keepOriginals` includes
   `"pdf"` and the store keeps originals), when `viewPages` is not `false` and every model of the
-  question can be sent a file (`capabilities.toolFiles` is not `"none"`). An OpenAI-compatible
-  model needs `pdfInput: true`; Claude with `toolFilePlacement: "none"` turns it off. It is also
-  offered for a PDF whose text is in the prompt; when no document is searchable, it is the only
-  tool. See [PDFs](../guides/pdfs.md).
+  question can be sent a file (`capabilities.toolFiles` is not `"none"`) of one kind they all take
+  (`capabilities.toolFileTypes`: a PDF, or since 0.99.9 an image of each page). An
+  OpenAI-compatible model needs `pdfInput: true` or `imageInput: true`; Claude with
+  `toolFilePlacement: "none"` turns it off. It is also offered for a PDF whose text is in the
+  prompt, but not for one sent to the model as the file itself (`documents`, 0.99.9); when no
+  document is searchable, it is the only tool. See [PDFs](../guides/pdfs.md).
 
 With an [explorer model](../guides/explorer-model.md), the explorer gets the tools and makes the
 calls; the answering model gets what they returned.
@@ -89,11 +92,12 @@ Through `files.tools(documents, options)` (a loop of your own, see [`ToolSet`](#
   it, and the cards do not offer a whole-file read.
 - `view_pages` is declared when `options.viewPages` names at least one PDF whose `originalKept` is
   true and the store has `getOriginal`: `true` means every PDF in `documents`, and a list (such as
-  `prepared.viewable`) means exactly those.
+  `prepared.viewable`) means exactly those. With `options.pageImages` (0.99.9) it returns an image
+  of each page in place of one PDF ([Pages as images](#pages-as-images)).
 - `options.declare` (new in 0.10.0) declares exactly the tools it names, in place of the rules
   above, always in the order search, read, overview, aggregate, analyze, view, whatever the order
   of the list: what [declarationsFor(names)](#declarationsfornames) gives. `askWithFiles` uses it
-  when tables are sent whole (`inlineTables`), to declare exactly the tools of the question: for
+  when tables are sent whole, to declare exactly the tools of the question: for
   those tables search, read and aggregate, not overview or a whole-file read. A list of your own may
   name a tool that has nothing to work on: each call of it then answers with the reason,
   `No attached file has a table: aggregate_table needs one.` for `aggregate_table` when no document
@@ -123,12 +127,14 @@ value that is not one of its five is refused.
 
 **Scope.** A call reaches only the documents its tool set was made for. A `document_id` outside
 them is refused with the IDs the model may use, so that the next call is right (`view_pages`
-refuses it with the reason instead, see [its errors](#view_pages)). The tool set does not know who
-asks: it compares the owner stored with each document with the `owner` of the metadata it was
-given, and answers a document whose stored owner is set and differs as one that is gone. A
-document stored without an owner is read whatever the metadata holds: as everywhere, it is open to
-anyone who has its ID. Make it from documents you looked up with the user's `owner`, as `prepare`
-and `askWithFiles` do (see [Security](../security.md#tool-scoping)).
+refuses it with the reason instead, see [its errors](#view_pages)). With `access` (required under
+`requireOwner`, the default since 0.99.9), each call reads the document for that owner and scope,
+as `getMeta` does. Without it (under `requireOwner: false`), the tool set does not know who asks:
+it compares the owner stored with each document with the `owner` of the metadata it was given, and
+answers a document whose stored owner is set and differs as one that is gone, and a document stored
+without an owner is read whatever the metadata holds: it is open to anyone who has its ID. Make it
+from documents you looked up with the user's `owner`, as `prepare` and `askWithFiles` do (see
+[Security](../security.md#tool-scoping)).
 
 **Errors.** A call that fails returns `{ "error": "..." }` for the model to read, and the loop goes
 on. It never names a server path: a Node system error becomes "The file could not be read from
@@ -890,6 +896,8 @@ is in [PDFs](../guides/pdfs.md).
 
 When fewer pages were shown than asked, the note is one of:
 
+- "Showing S of the W pages asked for: the others took too long to draw. Call view_pages from page N
+  if you need them." (with `next_page`; pages as images only, since 0.99.9)
 - "Showing S of the W pages asked for: the others did not fit in this request. Call view_pages from
   page N if you need them." (with `next_page`)
 - "Showing S of the W pages asked for: one call shows at most 5. Call view_pages from page N if you
@@ -922,6 +930,42 @@ Errors, besides those of [every tool](#rules-for-every-tool):
 | `NAME: Page F is 2.1 MB as a file, more than the 1.5 MB that fit in this request.` | The first page alone does not fit `maxFileBytes`. |
 | `NAME: ` and the reason | The file cannot be cut: it needs a password, is damaged, declares too many objects to cut in memory, has another page count than its text, has no page `from_page` (when its page count was not recorded), or `@cantoo/pdf-lib` is not installed. |
 | `The pages could not be shown: this application does not pass files from tools to the model. Answer from the text.` | The call was run with `execute`, which has no place for a file. |
+
+### Pages as images
+
+With [`ToolOptions.pageImages`](./library.md#tooloptions) (new in 0.99.9), `view_pages` draws each
+page as an image, for a model that takes images and no PDF. `askWithFiles` sets it when the models
+of a question share no PDF but share an image type
+([Pages as images](../guides/pdfs.md#pages-as-images)). The arguments, the turns, the pages a call
+may show and its bytes are those above. The result names the images in `images`, in place of
+`file`:
+
+```json
+{ "document": "report.pdf", "pages": "2-3", "total_pages": 6, "images": ["page-2.jpg", "page-3.jpg"] }
+```
+
+Each page is one [`ToolFile`](#toolfile): `{ name: "page-2.jpg", mimeType: "image/jpeg", bytes }`,
+or `page-2.png` and `"image/png"` with `format: "png"`. Each is drawn at
+[`PAGE_IMAGE_SIDE`](#page_image_side) (1,568) pixels on its longest side. A call starts no page once
+the time so far and its slowest page would pass 5 seconds: the note then says the others took too
+long to draw. Drawing needs the optional dependencies `unpdf` 2 or later (Node 24 or later) and
+`@napi-rs/canvas`, loaded on the first look. The errors besides those above, each after `NAME: `:
+
+| Error | When |
+|---|---|
+| `Showing pages as images needs the optional dependency "unpdf".` | unpdf is not installed. |
+| `Showing pages as images needs unpdf 2 or later, which runs on Node 24 or later.` | The unpdf installed has no `inspectPages`: version 1. |
+| `Showing pages as images needs the optional dependency "@napi-rs/canvas".` | The canvas is not installed. |
+| `The optional dependency "@napi-rs/canvas" is installed but could not be loaded (…). Reinstall it, or install a version this Node can run.` | It failed to load: a binary of another platform, or a broken install. |
+| `This PDF could not be read to draw its pages. It may be damaged.` | pdf.js cannot open it, or finds no page. |
+| `This PDF needs a password to open, so its pages cannot be shown.` | |
+| `This PDF has N objects, too many to draw its pages in memory.` | As for a cut: before pdf.js reads it. |
+| `The pages of this PDF could not be matched to its text (P pages against T), so they cannot be shown.` | |
+| `Page F could not be drawn. It may be damaged.` | A page of the call failed: no page of the call is shown. |
+| `Page F is 3 MB as an image, more than the 2 MB that fit in this request.` | The first page alone does not fit `maxFileBytes`. |
+
+A call stopped by its signal (the question's, or `ToolCallHooks.signal`) between two pages throws
+the signal's reason, as the other tools do, and returns no file.
 
 ## The tool guide
 
@@ -1096,6 +1140,22 @@ const bytes = Buffer.byteLength(JSON.stringify(declared));
 `5`. The most pages one `view_pages` call shows. [`ToolCallLimits.maxPages`](#toolcalllimits)
 can only lower it. See [PDFs](../guides/pdfs.md).
 
+### `PAGE_IMAGE_SIDE`
+
+`1568`. The longest side, in pixels, of a page that `view_pages` draws as an image
+([Pages as images](#pages-as-images)): Claude's standard size, which the other providers take too.
+A fixed value in 0.99.9. New in 0.99.9.
+
+### `PageImageOptions`
+
+```ts
+type PageImageOptions = { format: "png" | "jpeg" };
+```
+
+How [`ToolOptions.pageImages`](./library.md#tooloptions) asks for pages as images: `"jpeg"`
+(quality 0.85) or `"png"`. Another `format` is a `TypeError` when the tools are made:
+`pageImages.format must be "png" or "jpeg", and is "webp".` New in 0.99.9.
+
 ### `MAX_WHOLE_DOCUMENT_READS`
 
 `1`. How many times one tool set reads each document whole, unless `maxWholeDocumentReads` in
@@ -1194,7 +1254,7 @@ const prepared = await files.prepare(documentIds, base, {
 });
 // A document that is gone (expired, or another owner's) is left out of the plan: say so, as askWithFiles does.
 if (prepared.missing.length > 0) throw new DocumentsNotFoundError(prepared.missing);
-const tools = files.tools(prepared.plan.searchable, { viewPages: prepared.viewable });
+const tools = files.tools(prepared.plan.searchable, { viewPages: prepared.viewable, access: { owner: "user-42" } });
 // Send prepared.instruction with your system prompt, and tools.declarations as the tools.
 
 async function runCalls(calls: ToolCall[], roomCharacters: number, roomBytes: number): Promise<ToolAnswer[]> {
@@ -1292,8 +1352,8 @@ type ToolFile = {
 
 | Field | Type | Meaning |
 |---|---|---|
-| `name` | string | A short ASCII name, unique among the files of one result: `"pages-12-14.pdf"`. The result's `file` field names it. |
-| `mimeType` | string | `"application/pdf"` for `view_pages`. |
+| `name` | string | A short ASCII name, unique among the files of one result: `"pages-12-14.pdf"`. The result's `file` field names it, or its `images` list for pages drawn as images (`"page-2.jpg"`). |
+| `mimeType` | string | `"application/pdf"` for the pages of `view_pages` as a PDF; `"image/jpeg"` or `"image/png"` for a page drawn as an image (0.99.9). For a file of [`ModelTextMessage.files`](./ask.md#modeltextmessage), the format's type. |
 | `bytes` | `Uint8Array` | The file. Send it to the model in your provider's form; it is not kept in `toolTurns`. |
 
 See [PDFs](../guides/pdfs.md).

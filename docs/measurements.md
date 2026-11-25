@@ -7,9 +7,9 @@ has not.
 
 Each result is a measurement at one point in time, with the models named. It is not a guarantee.
 Another model, a later version of the same model, another provider or other files can give other
-results. Nothing was run again for this page but two records, which say so: each result is given
-as it was recorded, with the release it was recorded for. Before you rely on a number, check it on your own files
-([Measuring your own setup](#measuring-your-own-setup)).
+results. Nothing was run again for this page but two records and the performance budgets, which
+say so: each result is given as it was recorded, with the release it was recorded for. Before you
+rely on a number, check it on your own files ([Measuring your own setup](#measuring-your-own-setup)).
 
 ## How to read this page
 
@@ -33,15 +33,19 @@ as it was recorded, with the release it was recorded for. Before you rely on a n
   0.1.0 to 0.5.0.
 - **Before** in a table of 0.6.0 is the code of 0.6.0 before the change measured, which was never
   released. A column named 5157e7f or 0.5.0 is that code.
+- **Budget** is a bar that CI holds the library to on every pull request
+  ([Performance budgets](#performance-budgets-0999)): a number the library must stay under, not a
+  measurement.
 
 ## What has been run live
 
 | Provider | Live runs on record | Not run live |
 |---|---|---|
-| Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions. 0.10.0: the eval's cases at pass^3, and two probes: the prompt cache, and thought signatures sent back with earlier questions, which 0.10.0 does not send ([below](#0100-live-on-the-gemini-api)) | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API |
+| Gemini API: `askGemini`, `gemini()`, `geminiApi()` | From 0.1.0 to 0.5.0: large files, pages of PDFs, explorer pairs, follow-up questions. 0.10.0: the eval's cases at pass^3, and two probes: the prompt cache, and thought signatures sent back with earlier questions, which 0.10.0 does not send ([below](#0100-live-on-the-gemini-api)) | Gemini 2.5 with pages (`toolFilePlacement`) and in explorer pairs: it is closed to new users on the Gemini API. `documents` (0.99.9): not run live when it was built |
 | Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. Main (see above): a count, a repeated search, the error of a request too large, and in the 0.6 review a production log of 3 MB | Everything of 0.10.0, among it Model Armor, `LANGUAGE` and labels |
-| OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only. 0.10.0: a streamed tool call on Gemini's OpenAI layer | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested |
-| Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation |
+| OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only. 0.10.0: a streamed tool call on Gemini's OpenAI layer | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested. `imageInput` and `documents` (0.99.9): not run live when they were built; they follow the documented `image_url` and `file` parts |
+| Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation, the `image` blocks and `documents` of 0.99.9 included |
+| OpenAI Responses API: `openAiResponses()` | None | The whole adapter (new in 0.99.9), against OpenAI and Azure OpenAI: no key was at hand. It is tested against fake servers that replay the shapes of OpenAI's API reference and guides, Azure OpenAI's Responses page and the types of the `openai` SDK 7.64.0 |
 
 Also live on Gemini, with the record not saying whether on the Gemini API or on Vertex AI: Gemini
 ignoring `mode: "NONE"` (0.1.0), counting and listing (0.2.0), PDF tables (0.2.0), the prompt cache
@@ -288,6 +292,42 @@ from those tools. Encrypted PDFs were tested with files encrypted by the library
 confirmed as encrypted by pdf.js.
 
 The [PDFs guide](./guides/pdfs.md) covers the marks, `view_pages` and its limits.
+
+## Pages drawn as images (0.99.9)
+
+`view_pages` draws each page as an image for a model without PDF input
+([Pages as images](./guides/pdfs.md#pages-as-images)). Measured on 2026-11-25 on Node 24.22.3,
+Linux x64, 8 CPUs shared with other builds (load average about 3), with unpdf 2.1.0 and
+@napi-rs/canvas 1.1.0, as the library draws: 1,568 pixels on the longest side, `maxImageSize` of
+40 million pixels. Each file in a process of its own. "Draw" is the time of one page, "stall" the
+longest time the event loop went without a turn meanwhile (a 1 ms timer).
+
+| File | Pages | Draw, page 1 | Stall, page 1 | Later pages | JPEG (q 0.85), page 1 | PNG, page 1 |
+|---|---|---|---|---|---|---|
+| chrome-hebrew-statement.pdf | 1 | 248 ms | 66 ms | | 44 KB | 51 KB |
+| chrome-justified.pdf | 1 | 337 ms | 126 ms | | 117 KB | 179 KB |
+| chrome-pictures.pdf | 4 | 242 ms | 76 ms | 86 to 146 ms, stall up to 72 ms | 50 KB | 64 KB |
+| chrome-two-column.pdf | 1 | 338 ms | 145 ms | | 228 KB | 342 KB |
+| powerpoint-pictures.pdf | 3 | 212 ms | 55 ms | 98 to 132 ms, stall up to 64 ms | 32 KB | 29 KB |
+| word-dense.pdf | 2 | 473 ms | 370 ms | 86 ms, stall 32 ms | 191 KB | 233 KB |
+| word-grouped.pdf | 1 | 249 ms | 151 ms | | 74 KB | 82 KB |
+| word-hebrew.pdf | 1 | 309 ms | 108 ms | | 39 KB | 44 KB |
+| word-pictures.pdf | 3 | 298 ms | 69 ms | 108 to 161 ms, stall up to 69 ms | 53 KB | 70 KB |
+| word-sideways.pdf | 1 | 221 ms | 127 ms | | 60 KB | 66 KB |
+| word-simple.pdf | 1 | 259 ms | 158 ms | | 107 KB | 122 KB |
+| word-wrapped.pdf | 1 | 254 ms | 158 ms | | 101 KB | 108 KB |
+
+- **Loading.** Before the first page of a process, loading pdf.js and the canvas took 536 to 614
+  ms. The library does it on the first look, not when the server starts.
+- **A second run** of four of the files gave the same within 10% (word-pictures 321, 177, 116 ms;
+  word-dense 441 and 95 ms).
+- **Sizes.** Later pages are 33 to 84 KB as JPEG. JPEG is smaller than PNG on every file but one
+  slide of few colours (29 KB as PNG, 32 KB as JPEG). Five pages of a call fit in well under 1 MB.
+- **Node 22.23.5**, which unpdf 2 does not support, drew the same pages with the same sizes, 5 to
+  30% slower (word-pictures 353, 216, 123 ms).
+- **Between pages** a 1 ms timer ran on every 3-page draw of `test/timing/page-images.timing.test.ts`.
+  With the fair pause alone between pages, which runs at the end of the turn it is asked in, it did
+  not run between the first two pages: the library waits for a timer first.
 
 ## PDF tables (0.2.0)
 
@@ -842,6 +882,69 @@ as one string. Two runs each.
 
 [Security](./security.md) explains the limits that came of these measurements.
 
+## Performance budgets (0.99.9)
+
+Since 0.99.9, CI holds the library to bars of time and memory taken from the records of
+[The server](#the-server), on every pull request and every push to `main`: the job `perf` of
+`.github/workflows/ci.yml`, on Ubuntu with Node 22, apart from the tests. It runs `npm run perf`,
+which builds the package and runs `scripts/perf.ts`. You can run it too, with Node 22.18 or later:
+on Linux it checks every bar, elsewhere all but the four of memory, which it reads from `/proc`. A
+budget is a bar the library must stay under, not a measurement: what each run measured is in the
+summary of the job, and in its artifact `perf`.
+
+**The work.** Two inputs are made on the runner, never committed, and checked by their SHA-256, so
+that every run measures the same bytes: a log of 104,625,979 bytes and 1,180,000 lines,
+`serviceLog(1_180_000)` of `llm-large-files/testing`, just under the default `maxUploadBytes` of
+100 MB; and 100 logs of 1,999,969 bytes (190.7 MB in all), every tenth line in Hebrew, as in the
+record of 0.8.2. Four measures run one after the other, each in a fresh process
+(`node --expose-gc --max-old-space-size=2048`, the heap limit Node gave the laptop of the records),
+with the library's defaults, every call naming its owner:
+
+- **uploads**: the 100 logs, read into memory as the upload handler holds a body, all sent to
+  `files.ingest` at once, over a `FileDocumentStore` in a temporary folder;
+- **ingest**: the log of 100 MB, read into memory and sent to `files.ingest` over a
+  `FileDocumentStore`;
+- **search**: in a new process, one exact search of the stored log for "ERROR" (12,164 lines)
+  through `search_document`, read by range; it also loads the line index;
+- **searches**: in a new process, eight exact searches of it at once, for eight different texts.
+
+**How it is measured.** Memory is the kernel's high-water mark of the resident set while the work
+runs (`VmHWM`, reset through `/proc/self/clear_refs` as it starts), less the resident set as it
+starts, once full collections free nothing more: the inputs are not in it. The heap after is
+`heapUsed` once full collections free nothing more, with the uploads let go. A stall is the longest
+gap between two beats of a 5 ms timer. Times are by `performance.now()`.
+
+**How the bars were chosen.** Each bar is three times the slowest time, or twice the most memory,
+recorded above for the same work, scaled to the size of the log where the record's was smaller (the
+0.9.0 log of 95 MB: 1.05 times), and rounded up: to a whole second under 10 s, to 5 s above, to 100
+ms for a stall, to 10 MB for memory. The records were taken on a laptop (Intel Core i5-8250U, 4
+cores, 8 GB) that ran other work too. GitHub's runners can be two to four times slower, and three
+times a busy laptop's record leaves room for that. Memory does not follow the speed of the machine,
+so it gets less room. One bar is lower: an ingest may take no more than the 5.5 times the log that
+[Deployment](./guides/deployment.md#memory-on-each-server) tells you to size for (548.8 MB, rounded
+down to 540 MB so that the bar keeps that promise).
+
+**When a bar is passed.** A measure with a value over its bar runs again, up to three runs, and
+each budget counts its best run. A bar that no run met fails the job. Change a bar only with a new
+record on this page.
+
+| Budget | Bar | Record it comes from | 0.10.2 on the laptop |
+|---|---|---|---|
+| `uploads.allSeconds`: 100 uploads at once, until the last is stored | 105 s | 27.6 to 33.4 s (many uploads at once, 0.8.2) | 25 to 41 s |
+| `uploads.firstSeconds`: until the first is stored | 3 s | 0.5 to 0.7 s (0.8.2) | 0.47 to 1.7 s |
+| `uploads.peakMB`: memory above the uploads | 200 MB | 329 to 356 MB in all, with 191 MB of uploads in a process of about 70 MB (0.8.2) | 80 to 114 MB |
+| `uploads.heapAfterMB`: heap in use after | 20 MB | about 10 MB (0.8.2) | 7 to 8 MB |
+| `ingest.seconds`: the log of 100 MB | 50 s | 11.6 to 14.9 s for 95 MB (0.9.0) | 8.9 to 11.3 s |
+| `ingest.peakMB`: memory above the log | 540 MB | 342 to 347 MB for 95 MB (0.9.0) | 272 to 288 MB |
+| `ingest.stallMs`: longest stall | 1,200 ms | 233 to 360 ms for 95 MB (0.9.0) | 123 to 205 ms |
+| `search.seconds`: one search | 6 s | 1.8 s (0.8.2) | 0.6 to 1.1 s |
+| `search.peakMB`: its memory | 100 MB | 49 MB above the process (0.8.2) | 64 to 72 MB |
+| `searches.seconds`: eight at once | 30 s | up to 9 s (0.8.2) | 1.0 to 1.8 s |
+| `searches.peakMB`: their memory | 200 MB | 115 to 159 MB in a process of 59 MB (0.8.2) | 85 to 90 MB |
+
+The laptop's numbers: 2026-11-25, 0.10.2 (e4f9377), Node 22.23.5, 5 to 7 runs each, on the laptop
+of the records, with a load average of 2 to 13.
+
 ## 0.10.0, live on the Gemini API
 
 Released on 2026-11-25. Everything here ran on 2026-11-24 on the Gemini API (`geminiApi()`), with
@@ -1069,7 +1172,7 @@ import { readFile } from "node:fs/promises";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { askGemini, vertexAi } from "llm-large-files/gemini";
 
-const files = createLargeFiles({ store: new MemoryDocumentStore() });
+const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false }); // one user: no owner checks
 const meta = await files.ingest({ name: "app.log", bytes: await readFile("./app.log") });
 
 const started = Date.now();

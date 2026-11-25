@@ -6,7 +6,7 @@ import { serviceLog, utf8 } from "llm-large-files/testing";
 
 describe("files.toolsFor", () => {
   it("makes the tools for the caller's documents, and reports another owner's ID as missing", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     const mine = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(300)), owner: "alice" });
     const theirs = await files.ingest({ name: "secret.log", bytes: utf8(serviceLog(300)), owner: "bob" });
     const { tools, missing } = await files.toolsFor([mine.id, theirs.id, "doc_00000000000000000000000000000000", mine.id], { access: { owner: "alice" } });
@@ -18,7 +18,7 @@ describe("files.toolsFor", () => {
 
   it("reads with the caller's owner and scope on every call, as tools with access do", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(300)), owner: "alice", scope: ["u1", "c1"] });
     expect((await files.toolsFor([meta.id], { access: { owner: "alice", scope: ["u1", "c2"] } })).missing).toEqual([meta.id]);
     const { tools, missing } = await files.toolsFor([meta.id], { access: { owner: "alice", scope: ["u1", "c1"] } });
@@ -29,7 +29,7 @@ describe("files.toolsFor", () => {
   });
 
   it("needs access, and its owner under requireOwner", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     await expect(files.toolsFor(["doc_1"], undefined as never)).rejects.toBeInstanceOf(TypeError);
     await expect(files.toolsFor("doc_1" as never, { access: {} })).rejects.toBeInstanceOf(TypeError);
     const strict = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: true });
@@ -40,7 +40,7 @@ describe("files.toolsFor", () => {
   });
 
   it("takes the tool set's signal as it is, as before 0.10.0: one made like an AbortSignal reads, with access or without", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("one\ntwo\nthree\n") });
     // A polyfill, or a signal of another realm: not an instance of this realm's AbortSignal.
     const real = new AbortController().signal;
@@ -67,7 +67,7 @@ describe("files.toolsFor", () => {
 
   it("stops waiting for the store when the caller's signal aborts", async () => {
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, storeTimeoutMs: 0 });
+    const files = createLargeFiles({ requireOwner: false, store, storeTimeoutMs: 0 });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha\n") });
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));

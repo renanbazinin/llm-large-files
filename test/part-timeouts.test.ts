@@ -32,7 +32,7 @@ const PROVIDERS: Provider[] = ["gemini", "openai", "anthropic"];
 describe("the time limit of a part read since 0.10.0", () => {
   for (const provider of PROVIDERS) {
     it(`reports a part read past timeoutMs as too slow, and sends it again once (${provider})`, async () => {
-      const files = createLargeFiles({ store: new MemoryDocumentStore() });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
       const meta = await files.ingest({ name: "short.log", bytes: utf8(serviceLog(200)) });
       const api = slow(provider, 1_500);
       const model = adapterOf(provider, api, `${provider}-too-slow`, 50);

@@ -51,7 +51,7 @@ describe("createIsolatedExtractors", () => {
       const bytes = await workbook(50);
       const inChild = createFromIsolated(isolated);
       const meta = await inChild.ingest({ name: "data.xlsx", bytes });
-      const local = createFromSource({ store: new SourceStore() });
+      const local = createFromSource({ requireOwner: false, store: new SourceStore() });
       const expected = await local.ingest({ name: "data.xlsx", bytes });
       expect(meta.lines).toBe(expected.lines);
       expect(meta.textBytes).toBe(expected.textBytes);
@@ -98,7 +98,7 @@ describe("createIsolatedExtractors", () => {
     try {
       // Since 0.8.2 a library lets two ingests work at once and queues the others itself, so the
       // readers' own queue fills only with more (several libraries over one set of readers, or Infinity).
-      const files = library.createLargeFiles({ store: new library.MemoryDocumentStore(), extractors: isolated.extractors, maxConcurrentIngests: Number.POSITIVE_INFINITY });
+      const files = library.createLargeFiles({ requireOwner: false, store: new library.MemoryDocumentStore(), extractors: isolated.extractors, maxConcurrentIngests: Number.POSITIVE_INFINITY });
       const big = await workbook(60_000);
       const first = files.ingest({ name: "first.xlsx", bytes: big });
       const cancel = new AbortController();
@@ -159,7 +159,7 @@ describe("createIsolatedExtractors", () => {
 
 /** The library of the compiled build, with the isolated extractors. */
 function createFromIsolated(isolated: ReturnType<NodeModule["createIsolatedExtractors"]>) {
-  return library.createLargeFiles({ store: new library.MemoryDocumentStore(), extractors: isolated.extractors });
+  return library.createLargeFiles({ requireOwner: false, store: new library.MemoryDocumentStore(), extractors: isolated.extractors });
 }
 
 describe("the upload handler and a busy reader", () => {
@@ -167,7 +167,7 @@ describe("the upload handler and a busy reader", () => {
   afterAll(() => server?.close());
 
   it("answers 503 with Retry-After, and the refusal's code in the events", async () => {
-    const files = createFromSource({ store: new SourceStore(), extractors: { docx: async () => { throw new SourceIngestError("busy", "The server is reading other files right now. Try again in a moment.", { retryAfterMs: 2_500 }); } } });
+    const files = createFromSource({ requireOwner: false, store: new SourceStore(), extractors: { docx: async () => { throw new SourceIngestError("busy", "The server is reading other files right now. Try again in a moment.", { retryAfterMs: 2_500 }); } } });
     const handlers = handlersFromSource(files);
     server = createServer((request, response) => void handlers.upload(request, response));
     await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));

@@ -36,6 +36,176 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.99.9 — not released yet
+
+The candidate for 1.0, without a promise yet that the API stays as it is: versions 0.99.x keep the
+rules of 0.x versions. Every call names its owner by default, the options 0.10.0 kept for one
+version are removed, and the stored shapes are tested across versions. New and optional: the OpenAI
+Responses API, page images for models without PDF input, small visual files sent as themselves,
+and question IDs for requests sent again.
+[Upgrading to 0.99](docs/upgrading-0.99.md) takes an application from 0.10.x step by step.
+
+### Upgrading: what you need to change
+
+Most code compiles as it is, and a question asked without the new options sends what 0.10.2 sent,
+byte for byte. Three changes reach applications: every call names its owner unless the library is
+created with `requireOwner: false`, the two options 0.10.0 kept for one version are removed, and a
+mock of the library or of the upload handlers needs the members that are now required.
+[Does my code compile?](docs/upgrading-0.99.md#does-my-code-compile) lists what does not compile.
+
+- **Owner checks are on by default.** `requireOwner` defaults to `true`. Every call (`ingest`,
+  `getMeta`, `getOriginal`, `delete`, `list`, `touch`, `update`, `prepare`, `tools`, `toolsFor`,
+  `askWithFiles`, `askStream`, `askGemini`) must name its owner. A call without one throws a
+  `TypeError` that says how to turn the checks off. Documents stored without an owner, by any
+  earlier version, read as missing until you pass `requireOwner: false` or store them again with an
+  owner. Nothing is deleted. `sweep` takes no owner. Only `false` turns the checks off: any other
+  value leaves them on. Both paths are in
+  [Upgrading to 0.99](docs/upgrading-0.99.md#owner-checks-are-on-by-default).
+- `createDocumentHandlers` needs `getOwner` unless the library has `requireOwner: false`. A request
+  without an owner is answered `401` "Sign in first.". A `LargeFiles` of your own without `access`
+  counts as requiring an owner.
+- `CreatedLargeFiles` has `list`, `touch` and `update` as required members, and `DocumentHandlers`
+  a required `list`. A mock of either type needs them (TS2739, TS2741). Type a mock of the library
+  as `LargeFiles`.
+- **`inlineTables` and `numberInline` are removed** from `askWithFiles` and `askGemini`, with
+  `inlineTables: "text"` and `numberInline: false`, the ways back to 0.9's text that 0.10.0 kept
+  for one version. Tables sent whole always get the tools, and files sent whole are always
+  numbered. Any value but `"tools"` and `true` is a `TypeError` before any request. Questions asked
+  without them send what 0.10.2 sent, byte for byte.
+  **What to do:** delete both options
+  ([Upgrading to 0.99](docs/upgrading-0.99.md#the-way-back-to-09s-text)). `files.prepare()` keeps
+  them, off by default, for loops of your own.
+- **`ModelAdapter.estimateTokens` is removed.** It was deprecated in 0.6.0 and never called. An
+  adapter object typed `ModelAdapter` that declares it no longer compiles (TS2353); a class that
+  implements `ModelAdapter` with the method still does.
+  **What to do:** delete it, and set `capabilities.tokenScale` for a model that counts tokens
+  differently.
+- **`geminiToolTurns`, `openAiToolTurns`, `anthropicToolTurns` and `compactToolTurns` refuse a
+  stored round of a newer version**, or one whose `version` is not a number (NaN, or a string such
+  as `"1"`), with the `TypeError` of `askWithFiles`. They converted it as a round of version 1.
+  **What to do:** store `version` as the number the round had. Unless servers of two versions
+  answer one chat, nothing else: there, leave such rounds out, as with `askWithFiles`.
+
+### New: what you can add
+
+- **`handlers.list(request, response)`**: a `GET` route for `files.list`. It answers
+  `{ "documents": [summary, …] }` for the request's owner and scope, the oldest first. A request
+  with neither an owner nor a scope is answered `401`
+  ([`list`](docs/reference/node.md#listrequest-response)).
+- **`prepareUpload` can return `dedupe` and `appData`**, passed to `ingest`. A file uploaded again
+  gives back the document stored before (`UploadedContext.reused`), and the file saved for that
+  upload is removed. The application's data comes from the server, never from the client as sent,
+  and is checked before the body is read. The `onUploaded` of a reused upload never deletes the
+  document. An upload given a document whose own `onUploaded` is still running waits for it (at
+  most 30 seconds), and is answered `409` when that hook failed or the document is gone
+  ([Web app](docs/guides/web-app.md#the-same-file-twice-and-your-own-data-dedupe-and-appdata)).
+- **`openAiResponses()`** in `llm-large-files/openai` (A1): a model behind OpenAI's Responses API,
+  for OpenAI's reasoning models with tools, which reason while they call the document tools.
+  Through Chat Completions, newer OpenAI models refuse function tools unless the effort is
+  `"none"`, and some refuse them altogether. Each request sends `store: false` and the whole
+  conversation, and gives each reasoning item back, with its encrypted content, in the later
+  requests of the same question. Azure OpenAI works with
+  `baseUrl: "https://{resource}.openai.azure.com/openai/v1"`. It was built from OpenAI's and Azure's
+  documentation and tested against fake servers: it has not been run against either
+  ([OpenAI's Responses API](docs/guides/openai-compatible.md#openais-responses-api)).
+
+  ```ts
+  import { openAiResponses } from "llm-large-files/openai";
+
+  const model = openAiResponses({
+    apiKey: process.env.OPENAI_API_KEY!,
+    model: "gpt-5.5",
+    contextTokens: 1_050_000,
+    body: { reasoning: { effort: "medium" } },
+  });
+  ```
+- It can send the pages of `view_pages` inside the tool's output or after it (`toolFilePlacement`:
+  `"inside"` or `"beside"`). It sends none by default, so `view_pages` is not offered.
+- **A question ID that survives a retry (H14).** `AskOptions.questionId` names one question of a
+  chat, as the client made it (a UUID). Every event of the question and its result carry it; the
+  model never sees it, and the requests are the same with and without it
+  ([`AskOptions`](docs/reference/ask.md#askoptions)).
+- **`createQuestionRegistry()`** runs questions by owner, scope and question ID. A request sent
+  again after its stream broke joins the question still running, or gets its answer for 10 minutes
+  after it ended, instead of asking the model again. A question nobody waits for goes on for 30
+  seconds, then stops. Another question under the same ID is a `QuestionConflictError` (409). In
+  memory, one registry per process ([Question IDs](docs/reference/ask.md#question-ids),
+  [When the stream breaks](docs/guides/web-app.md#when-the-stream-breaks-a-question-id)).
+- **Page images for models that take no PDF** (G-13): `openAiCompatible({ imageInput: true })`, for
+  vLLM, DeepSeek and other servers that read images. `view_pages` then sends each page as a JPEG
+  of 1,568 pixels on its longest side (`PAGE_IMAGE_SIDE`), drawn with unpdf 2 and the optional
+  `@napi-rs/canvas`, which need Node 24. A look draws at most 5 pages, within the bytes left and 5
+  seconds (a page under way is not cut short), and timers and other requests run between two pages.
+  Nothing bounds the memory of one page: keep `view_pages` off for files you do not trust. An adapter of your own says what
+  it takes with `capabilities.toolFileTypes`: the loop sends a PDF when every model takes one,
+  else a JPEG, else a PNG. `openAiResponses()` with a `toolFilePlacement` takes both
+  ([Pages as images](docs/guides/pdfs.md#pages-as-images)).
+- **The `documents` capability**: with `gemini(endpoint, { documents: { formats: ["pdf"] } })`, or
+  the same option of `openAiCompatible()`, `openAiResponses()`, `anthropic()` and `askGemini`, a
+  small visual file sent whole also goes to the model as the file itself, before its text. That is
+  a PDF with a picture or a scanned page, or a slide deck (PPTX, Gemini API only), of at most 10
+  pages and 4 MiB, whose original is kept. A log, a table to count, a DOCX and a searched file never
+  go. The text still goes, so citations and counts work as before, and such a PDF gets no
+  `view_pages`. Off unless the adapters declare it; `nativeDocuments: false` turns it off for one
+  question ([The file itself](docs/guides/pdfs.md#the-file-itself-for-small-visual-files)).
+- `ModelTextMessage.files`, `PrepareOptions.nativeDocuments`, `PreparedContext.native`,
+  `ToolOptions.pageImages`, `PAGE_IMAGE_SIDE`, `DEFAULT_NATIVE_FILE_BYTES` and
+  `DEFAULT_NATIVE_PAGES`, for loops and adapters of your own. Evidence has an entry with
+  `tool: "original"` for a file sent as it is. Files an application puts in `ModelTextMessage.files`
+  go first in their turn: each built-in adapter sends a PDF or an image, and throws a `TypeError`
+  for a type it cannot send (`gemini()` sends any type as `inlineData`). Files belong in a turn of
+  the user: `openAiCompatible()`, `openAiResponses()` and `anthropic()` throw a `TypeError` for
+  files in a turn of the assistant.
+- `@napi-rs/canvas` (`^0.1.69 || ^1.0.0`) is a new optional peer dependency, needed only for page
+  images.
+
+### Changed: what works differently
+
+- The `TypeError` of a call without an owner reads "owner is required: requireOwner is on (the
+  default). Pass the user's ID as owner, or create the library with requireOwner: false to allow
+  calls without one.". It starts as before, for code that looks for that start.
+- `files.list(…)`, `files.touch(…)` and `files.update(…)` need no `!` on what `createLargeFiles`
+  returns.
+- **What earlier versions stored is read in CI (H7).** The files that `FileDocumentStore` of 0.8.2,
+  0.9.0 and 0.10.2 wrote, and the `toolTurns` they returned, are kept as fixtures and read by every
+  build, on Ubuntu and Windows. Metadata with `metaVersion` 2 and a round with `version` 2 are
+  refused. `metaVersion` and `ToolTurn.version` stay 1. 0.99.9 reads every shape stored since 0.2;
+  from 0.99.9 on, each version reads at least the shape of the version before it
+  ([Stored documents and rounds](docs/upgrading-0.99.md#stored-documents-and-rounds)).
+- `openAiCompatible()` sends what 0.10.2 sent, byte for byte: the Responses API is a separate
+  adapter, `openAiResponses()`.
+- `errorInfoOf` reads `QuestionConflictError`: category `"input"`, code `"question_conflict"`,
+  status 409.
+- `sseMessageOf` and `writeSseEvents` keep `questionId` in `run.finish` and `run.error`, and in the
+  result of `run.finish`, for a question that has one.
+- `anthropic()` sends a file that a tool returns as an `image` block when it is an image; it sent
+  every file as a `document` block. `openAiCompatible()` with `pdfInput` sends one as an
+  `image_url` part. Only a tool set of your own returned images before 0.99.9.
+
+**Release**
+
+- CI checks performance budgets in a job of its own (`perf`, Node 22 on Ubuntu): the time and
+  memory of 100 uploads of 2 MB ingested at once, the time, memory and longest stall of a 100 MB log
+  ingested, and the time and memory of one search of it and of eight at once. Each bar is three
+  times the slowest time, or twice the most memory, recorded for the same work, and an ingest may
+  take at most 5.5 times the log, as Deployment says to size for
+  ([Performance budgets](docs/measurements.md#performance-budgets-0999)). `npm run perf` runs them
+  on your machine.
+
+### Fixed
+
+- **Two sweeps at once on Windows** could count one document twice (26 for 25). When the losing
+  call could not remove its own claim for another reason than "not found", `FileDocumentStore`
+  counted the removal. It now counts it only when the claim's name is still there. No document was
+  lost.
+- `files.list` listed metadata whose `metaVersion` is NaN, which `getMeta` refuses. It leaves it out
+  now, as `ingest`'s `dedupe` does.
+- **Docs:** the OpenAI recipe of `openAiCompatible()` said that `reasoning_effort: "none"` is the
+  default of GPT-5.4 and later, so it could be left out of `body`. GPT-5.5 defaults to `"medium"`
+  (OpenAI's model page): set `"none"` for tool calls through Chat Completions, or use
+  `openAiResponses()` to reason with tools
+  ([OpenAI](docs/guides/openai-compatible.md#openai)).
+
 ## 0.10.2 — 2026-11-25
 
 Storage for a chatbot that keeps its files in the library: the files of a chat in one call, an

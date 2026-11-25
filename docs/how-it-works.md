@@ -29,7 +29,8 @@ question ─► plan the documents for the room left in the request, smallest fi
 
 `files.ingest({ name, bytes, mimeType?, owner?, signal? })` does five things, in order.
 
-1. **Check.** An owner that is empty, spaces only or `null` is refused
+1. **Check.** A call without an owner is refused unless the library has `requireOwner: false`
+   (since 0.99.9), and an owner that is empty, spaces only or `null` is refused
    ([Security](./security.md#ownership)). The name is cleaned to one printable line: the last path
    segment, without control characters, line breaks, text-direction controls or most other
    characters that show nothing (variation selectors, joiners and Hangul fillers are kept), 255
@@ -257,10 +258,9 @@ valid UTF-8 adds a note after the line count ([Text encodings](#text-encodings))
 
 Since 0.10.0 `askWithFiles` numbers the lines between the frame lines as `read_document` numbers
 them, from `1| `, so that an answer can cite a file sent whole as it cites a searched one
-([below](#numbered-lines-and-tables-sent-whole)). With `numberInline: false`, and in
-`files.prepare()` unless it is asked for, the text goes as it is, as in 0.9. The frame lines are the
-same either way, but for a table that the tools count (`inlineTables: "tools"`): its first frame
-line gives its document_id, `(csv, 3,001 lines; document_id doc_…; it ends only at the line with
+([below](#numbered-lines-and-tables-sent-whole)). In `files.prepare()`, unless it is asked for,
+the text goes as it is, as in 0.9. The frame lines are the same either way, but for a table that
+the tools count: its first frame line gives its document_id, `(csv, 3,001 lines; document_id doc_…; it ends only at the line with
 mark …)`, since the tools take it and a file sent whole has no card.
 
 A file too large to send whole is replaced by its card, a few kilobytes. This is the card of a
@@ -365,7 +365,7 @@ size and 200 more. Otherwise it becomes searchable. The 256 KB are kept for the 
 declarations and the JSON around them.
 
 - An ID given twice counts once. A document that was never there, was deleted, has expired or
-  belongs to another owner is in `missing`, and `askWithFiles` throws `DocumentsNotFoundError` for
+  belongs to another owner (or to none, under `requireOwner`, the default) is in `missing`, and `askWithFiles` throws `DocumentsNotFoundError` for
   it. One that disappears while its text or card is read is moved to `missing`, and the plan is
   made again.
 - With `viewPages`, `viewable` lists the PDFs whose original is kept (and a store that can give it
@@ -391,7 +391,7 @@ To see a plan and a budget without asking a model:
 import { readFile } from "node:fs/promises";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 
-const files = createLargeFiles({ store: new MemoryDocumentStore() });
+const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false }); // one user: no owner checks
 const meta = await files.ingest({ name: "app.log", bytes: await readFile("app.log") });
 
 // The budget of a question on a model with a window of 128,000 tokens:
@@ -411,8 +411,8 @@ console.log(prepared.instruction); // the tool guide, or ""
 New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do, and that
 `files.prepare()` does only when asked (`PrepareOptions.numberInline`, `inlineTables`):
 
-- **Numbered lines** (`numberInline`, true by default). Every line of a file sent whole carries its
-  number, `12| `, as the tools show lines. The model can then cite it, "(report.docx L12)", and
+- **Numbered lines** (always in `askWithFiles` since 0.99.9; `numberInline: true` in `prepare`).
+  Every line of a file sent whole carries its number, `12| `, as the tools show lines. The model can then cite it, "(report.docx L12)", and
   `result.citations` checks the citation against the file's lines. The plan counts each such file
   at its numbered size, about 1.2 tokens a digit of the numbers and 1.5 a line more: 8% to 16% more
   tokens (15.5% for a CSV of 3,000 short rows, 9.4% for a service log, 8.4% for Hebrew prose). It
@@ -421,7 +421,8 @@ New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do,
   searched, no tool guide asks for citations, so the system text gets one fixed line:
   `Cite line numbers like (report.docx L12).` Its file name is an example, the same in every
   question, so the line does not change the start of the requests from one question to the next.
-- **Tables that the tools still count** (`inlineTables: "tools"`, the default). A file sent whole
+- **Tables that the tools still count** (always in `askWithFiles` since 0.99.9;
+  `inlineTables: "tools"` in `prepare`). A file sent whole
   whose rows `aggregate_table` reads gets the tools: a CSV or an XLSX workbook always, and a DOCX,
   PPTX, PDF, HTML or Markdown file when its text has a table of at least 3 `| cell |` rows (a run
   of lines that start and end with `|`, as `aggregate_table` reads a table, a `| --- |` separator
@@ -444,8 +445,8 @@ New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do,
 
 When no file is searched, the answering model runs that loop itself, even when the question has an
 explorer ([An explorer model](#an-explorer-model)). The [evidence](#usage-and-evidence) lists each
-file sent whole first. `inlineTables: "text"` with `numberInline: false` sends what 0.9 sent, byte
-for byte.
+file sent whole first. Before 0.99.9, `inlineTables: "text"` with `numberInline: false` sent what
+0.9 sent, byte for byte; 0.99.9 removed both.
 
 ## Token estimates
 
@@ -561,12 +562,16 @@ Text cannot show a chart. `view_pages(document_id, from_page, to_page)` gives th
 themselves: up to five a call (`MAX_VIEW_PAGES`), cut out of the kept original into one PDF of their
 own. The adapter hands that PDF to the model: inside the function response for Gemini, as a
 document block for Claude, as a `file` part after the tool results for an OpenAI-compatible model
-with `pdfInput: true` ([the table below](#what-differs-between-providers)).
+with `pdfInput: true` ([the table below](#what-differs-between-providers)). For a model that takes
+images and no PDF (`imageInput: true`, 0.99.9), the pages are drawn as images instead, one JPEG a
+page ([Pages as images](./guides/pdfs.md#pages-as-images)).
 
 It is offered for a PDF whose original is kept (`keepOriginals: ["pdf"]`, and a store with
 `putOriginal` and `getOriginal`), unless `viewPages` is `false`, and only when every model of the
-question can be sent a file. An OpenAI-compatible model without `pdfInput`, or Claude with
-`toolFilePlacement: "none"`, rules it out. A PDF whose text fits in the prompt gets `view_pages`
+question can be sent a file of one kind they all take. An OpenAI-compatible model without
+`pdfInput` or `imageInput`, or Claude with `toolFilePlacement: "none"`, rules it out. So does a
+small visual PDF sent to the model as the file itself (`documents`, 0.99.9), whose pages the model
+already has ([The file itself](./guides/pdfs.md#the-file-itself-for-small-visual-files)). A PDF whose text fits in the prompt gets `view_pages`
 too, and only that: such a file is often a slide deck, with little text and a picture on every
 page. Page numbers are the N of the `--- Page N ---` lines.
 
@@ -1122,7 +1127,8 @@ What differs is in the adapters:
 |---|---|---|---|
 | The model's turn goes back | unchanged: thought signatures | unchanged (`reasoning_content`, OpenRouter's `reasoning_details`), but arguments that are not a JSON object, or are empty, go back as JSON (`"{}"`) | unchanged (thinking blocks), but an empty text block after the last thinking block is left out |
 | The request for the answer | no tools declared | `tool_choice: "none"`, tools kept; `answerWithoutTools: "omit"` leaves them out | `tool_choice: { type: "none" }`, tools kept |
-| Pages of `view_pages` | inside the function response, or in a user turn of their own with `toolFilePlacement: "beside"` | a `file` part in a user message after the results, only with `pdfInput: true`; otherwise not offered | a document block in the tool result; after the results with `toolFilePlacement: "beside"`; not offered with `"none"` |
+| Pages of `view_pages` | inside the function response, or in a user turn of their own with `toolFilePlacement: "beside"` | a `file` part in a user message after the results, only with `pdfInput: true`; a JPEG `image_url` part a page with `imageInput: true` (0.99.9); otherwise not offered | a document block in the tool result; after the results with `toolFilePlacement: "beside"`; not offered with `"none"` |
+| Small visual files as they are (`documents`, 0.99.9) | `inlineData` before the text: PDF, and PPTX on the Gemini API | a `file` part before the text: PDF | a `document` block before the text: PDF |
 | A page costs (`pageTokens`) | 530 by default | 1,000 by default | 3,500 by default |
 | `tokenScale` | 1 | 1 by default (`tokenScale`) | 1.35 by default (`tokenScale`) |
 | Kept free in the window for the reply | nothing | nothing | `maxTokens`, 64,000 by default |

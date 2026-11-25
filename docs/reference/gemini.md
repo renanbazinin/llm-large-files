@@ -351,6 +351,7 @@ Fields `askGemini` adds, its own (`GeminiOwnOptions`):
 | `generationConfig` | `Record<string, unknown>` | none | Sent as `generationConfig` with every chat request of the answering model, and of the explorer unless `explorerGenerationConfig` is set: `temperature`, `maxOutputTokens`, `thinkingConfig` and so on. Not used for part reads. |
 | `explorerGenerationConfig` | `Record<string, unknown>` | `generationConfig` | The same, for the explorer's chat requests, when the two models do not take the same settings. Not used without an explorer. |
 | `toolFilePlacement` | [`GeminiToolFilePlacement`](#geminitoolfileplacement) | `"inside"` | Where the pages of `view_pages` go, for both models. `"beside"` for Gemini 2.5. |
+| `documents` | [`DocumentsCapability`](./ask.md#toolfiletype-documentscapability-and-nativedocumentformat) | none | The files the model reads natively, for the model and its explorer: a small visual file sent whole goes as `inlineData` before its text ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). `"pdf"` anywhere; `"pptx"` on the Gemini API only. See [`GeminiModelOptions`](#geminimodeloptions). New in 0.99.9. |
 | `analysisConfig` | `(maxOutputTokens: number) => Record<string, unknown>` | `{ maxOutputTokens }` | The `generationConfig` of the part reads of a whole-file read, for both models. The explorer reads the parts when there is one, so write it for that model. Put the limit it is given in `maxOutputTokens`: a second try raises it to [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens). The default sends no temperature since 0.6.0 (it was `temperature: 0.2`): Gemini 3.6 and later ignore it, and Google says later models will refuse it. For an older model that should keep it: `(maxOutputTokens) => ({ maxOutputTokens, temperature: 0.2 })`. |
 | `firstByteTimeoutMs` | `number` | `600_000` | The longest wait for the first piece of a chat reply, for both models. See [`GeminiModelOptions`](#geminimodeloptions). 0 waits without end. |
 | `idleTimeoutMs` | `number` | `300_000` | The longest wait between two pieces of a chat reply, for both models. 0 waits without end. |
@@ -369,8 +370,8 @@ Fields `askGemini` adds, its own (`GeminiOwnOptions`):
 The options of `askGemini` that are not `askWithFiles`'s: `endpoint`, `messages` (optional here),
 `contents`, `generationConfig`, `explorerGenerationConfig`, `body`, `explorerBody`, `analysisBody`,
 `functionCallingMode`, `answerWithoutTools`, `timeoutMs`, `maxToolTurns`, `maxToolCallsPerTurn`,
-`toolFilePlacement`, `analysisConfig`, `firstByteTimeoutMs`, `idleTimeoutMs` and `fetch`, as
-described above. New as a type of its own in 0.10.0.
+`toolFilePlacement`, `documents` (new in 0.99.9), `analysisConfig`, `firstByteTimeoutMs`,
+`idleTimeoutMs` and `fetch`, as described above. New as a type of its own in 0.10.0.
 
 `askGemini` has no stream form of its own. To read its events with `for await`, as
 [`askStream`](./ask.md#askstreamoptions) gives them for `askWithFiles`, wrap it in
@@ -442,7 +443,7 @@ The adapter it returns:
 | Member | Value |
 |---|---|
 | `id` | `options.id`. Without it, the model name in the URL (`/models/{name}`, decoded); for a URL without one, its host; else `"gemini"`. |
-| `capabilities` | `toolFiles` from `toolFilePlacement` (`"inside"`), `pageTokens` (530), and `contextTokens` and `maxRequestBytes` when they are set. No `tokenScale` (so 1), no `outputTokens`, not `appendOnly`. |
+| `capabilities` | `toolFiles` from `toolFilePlacement` (`"inside"`), `pageTokens` (530), and `contextTokens` and `maxRequestBytes` when they are set; `documents`, with its defaults filled in, when you pass it (0.99.9). No `toolFileTypes` (so PDF only), no `tokenScale` (so 1), no `outputTokens`, not `appendOnly`. |
 | `send(request, hooks?)` | One chat request: to `streamUrl` when `hooks.onText` is given and the endpoint has one, otherwise to `url`. |
 | `requestBytes(request)` | The size in bytes of the JSON body that `send` would post. |
 | `generateText` | The part reader of whole-file reads: [`createGeminiGenerateText()`](#creategeminigeneratetextoptions) on `endpoint.url`, with `analysisConfig`, `analysisBody`, `timeoutMs`, `fetch` and the endpoint's `refreshable`. `askWithFiles` uses it when this model is the one that explores. Each of its requests may take `timeoutMs` (180 s); before 0.10.0, `gemini()` had no option to change that. |
@@ -450,6 +451,11 @@ The adapter it returns:
 What `send` does:
 
 - It asks for the headers before every request.
+- A turn with files (`ModelTextMessage.files`, 0.99.9) has them first, each as
+  `{ inlineData: { mimeType, data } }` of its own type, then its parts; a turn with files and no
+  text is kept. Gemini says which types it reads: on Vertex AI, send PDF only.
+- A tool file that is an image (a page drawn as an image) goes as `inlineData` of its type, as a
+  PDF does.
 - The body holds `contents`; `systemInstruction` when the system instruction is not empty;
   `generationConfig` when it is set; when tools are offered, `tools: [{ functionDeclarations }]`
   with `toolConfig: { functionCallingConfig: { mode } }`, the mode being `functionCallingMode`
@@ -509,7 +515,7 @@ by its first entry, its message and `details` included (since 0.10.0).
 import { askWithFiles } from "llm-large-files";
 import { gemini, geminiApi } from "llm-large-files/gemini";
 
-// files, documentIds and messages come from your application.
+// files, documentIds, messages and userId (their owner) come from your application.
 const apiKey = process.env.GEMINI_API_KEY!;
 
 const model = gemini(geminiApi({ apiKey, model: "gemini-3.8-flash" }), {
@@ -518,7 +524,7 @@ const model = gemini(geminiApi({ apiKey, model: "gemini-3.8-flash" }), {
 });
 const explorer = gemini(geminiApi({ apiKey, model: "gemini-3.5-flash-lite" }), { id: "explorer" });
 
-const result = await askWithFiles({ files, model, explorer, documentIds, messages });
+const result = await askWithFiles({ files, model, explorer, documentIds, messages, owner: userId });
 console.log(result.usage.byModel); // keyed "gemini-3.8-flash" and, when the explorer ran, "explorer"
 ```
 
@@ -536,7 +542,8 @@ The options of `gemini()`.
 | `analysisConfig` | `((maxOutputTokens: number) => Record<string, unknown>) \| undefined` | `{ maxOutputTokens }` | The `generationConfig` of the part reads of a whole-file read. Put the limit it is given in `maxOutputTokens`: a second try raises it to [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens). No temperature by default since 0.6.0 (see `analysisConfig` of [`AskGeminiOptions`](#askgeminioptions)). |
 | `contextTokens` | `number \| undefined` | none | The model's context window in tokens. Set as `capabilities.contextTokens`, it keeps the budget of a question within it. Without it the library's budget holds: 1,000,000 tokens unless you set another. |
 | `maxRequestBytes` | `number \| undefined` | none | The largest request body the model or your gateway takes, in bytes. Set as `capabilities.maxRequestBytes`, it keeps the budget within it. |
-| `pageTokens` | `number \| undefined` | `530` ([`GEMINI_PAGE_TOKENS`](#gemini_page_tokens)) | Tokens billed for one PDF page shown by `view_pages`. |
+| `pageTokens` | `number \| undefined` | `530` ([`GEMINI_PAGE_TOKENS`](#gemini_page_tokens)) | Tokens billed for one PDF page shown by `view_pages`, or sent as part of a file as it is (`documents`). |
+| `documents` | [`DocumentsCapability`](./ask.md#toolfiletype-documentscapability-and-nativedocumentformat) `\| undefined` | none | The files this model reads natively: small visual files sent whole go to it as `inlineData` before their text ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). `"pdf"` anywhere; `"pptx"` on the Gemini API. Vertex AI refused Office files on Gemini 3 models (HTTP 400): list `"pdf"` only there. A value that is not valid is a `TypeError` (a `RangeError` for a limit out of range) when the adapter is made. It is also `capabilities.documents`. New in 0.99.9. |
 | `id` | `string \| undefined` | the model name in the URL | The name of the model in `usage.byModel` and in messages. See `id` under [`gemini()`](#geminiendpoint-options). |
 | `firstByteTimeoutMs` | `number \| undefined` | `600_000` | The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count: a model that thinks sends nothing until it has thought, and a reply that is not streamed comes whole at the end. A request that gets nothing for that long is aborted with a `GeminiRequestError` (`status` 0, `kind` `"timeout"`), which `askWithFiles` sends again once. 0, a negative or a non-finite number waits without end. Not used for part reads. |
 | `idleTimeoutMs` | `number \| undefined` | `300_000` | The longest wait, in milliseconds, between two pieces of a chat reply once it has started to arrive. Any bytes count, keep-alives included. The same error; `askWithFiles` sends the request again once, unless text of it was shown. 0 waits without end. |
@@ -666,17 +673,19 @@ model sees in a later question what its tools returned in this one. The results 
 stored rounds (since 0.6.0): a history kept as `contents` gives the same request as one kept as
 `toolTurns`. Contents that 0.5.0 converted keep the field. Since 0.9.0 `fromGeminiContents` turns
 these turns back into stored rounds, so the loop treats them alike too, and the rounds of 0.5.0
-are then sent without the field (above).
+are then sent without the field (above). A round of a newer version (`version` above
+`TOOL_TURN_VERSION`), or whose `version` is not a number, is the `TypeError` of `askWithFiles`
+(since 0.99.9).
 
 ```ts
 import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
 
-// files, endpoint and documentId as above. history is what your application keeps for the chat.
+// files, endpoint, userId and documentId as above. history is what your application keeps for the chat.
 const history: GeminiContent[] = [];
 
 async function ask(question: string): Promise<string> {
   const turn: GeminiContent = { role: "user", parts: [{ text: question }] };
-  const result = await askGemini({ files, endpoint, documentIds: [documentId], contents: [...history, turn] });
+  const result = await askGemini({ files, endpoint, owner: userId, documentIds: [documentId], contents: [...history, turn] });
   history.push(turn, ...geminiToolTurns(result.toolTurns));
   if (result.answered) history.push({ role: "model", parts: [{ text: result.text }] });
   return result.text;
@@ -959,10 +968,10 @@ passed in as `code` and `details` to tell the `kind`, and are not kept on the er
 ```ts
 import { askGemini, DocumentsNotFoundError, GeminiRequestError, partialResultOf } from "llm-large-files/gemini";
 
-// files and endpoint as above; documentIds: string[];
+// files, endpoint and userId as above; documentIds: string[];
 // messages: ChatMessage[] (plain turns and stored toolTurns).
 try {
-  const result = await askGemini({ files, endpoint, documentIds, messages });
+  const result = await askGemini({ files, endpoint, owner: userId, documentIds, messages });
   console.log(result.text);
 } catch (error) {
   if (error instanceof DocumentsNotFoundError) {

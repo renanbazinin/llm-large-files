@@ -102,15 +102,20 @@
     "eval:record": "node evals/cli.mjs record",
     "eval:live": "node evals/cli.mjs live",
     "eval:recheck": "node evals/cli.mjs recheck",
+    "perf": "npm run build && node scripts/perf.ts",
     "prepublishOnly": "npm run check"
   },
   "peerDependencies": {
     "@cantoo/pdf-lib": "^2.11.1",
+    "@napi-rs/canvas": "^0.1.69 || ^1.0.0",
     "jszip": "^3.10.0",
     "unpdf": "^1.4.0 || ^2.0.0"
   },
   "peerDependenciesMeta": {
     "@cantoo/pdf-lib": {
+      "optional": true
+    },
+    "@napi-rs/canvas": {
       "optional": true
     },
     "jszip": {

@@ -14,7 +14,7 @@ const callAll = (calls: Array<{ name: string; args: Record<string, unknown> }>) 
 const answered = (sent: Sent) => (sent.body.contents as GeminiContent[]).at(-1)!.parts.some((part) => part.functionResponse !== undefined);
 
 async function setUp() {
-  const files = createLargeFiles({ store: new MemoryDocumentStore() });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
   const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(20_000)) });
   const search = { name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact" } };
   const read = { name: "read_document", args: { document_id: meta.id, start_line: 1, end_line: 400 } };
@@ -69,7 +69,7 @@ describe("contents that end with the responses of the library's tools", () => {
   it("are answered, as in 0.8.2: an application that ran the tools in its own loop hands them over", async () => {
     // 0.9.0 before its checks lifted the last round too, and the question failed with "The last
     // message must be the user's."
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(2_000)) });
     const args = { document_id: meta.id, query: "ERROR", mode: "exact" };
     const turns: ToolTurn[] = [{ role: "tools", calls: [{ name: "search_document", args, result: await files.tools([meta]).execute("search_document", args) }] }];

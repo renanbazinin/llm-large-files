@@ -41,7 +41,7 @@ describe("the size of a text in a JSON request", () => {
     const rows = 20_000;
     const text = "a\tb\tc\n".repeat(rows); // 6 bytes a row as text, 9 in JSON
     // Room for 8 bytes a row: enough by the old rule of 8% over the text, not enough in fact.
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { maxRequestBytes: REQUEST_BYTES_MARGIN + 8 * rows } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { maxRequestBytes: REQUEST_BYTES_MARGIN + 8 * rows } });
     const meta = await files.ingest({ name: "export.tsv", bytes: bytes(text) });
     expect(meta.textBytes).toBe(6 * rows);
     expect(meta.jsonBytes).toBe(Buffer.byteLength(JSON.stringify(text.endsWith("\n") ? text : `${text}\n`)));
@@ -51,7 +51,7 @@ describe("the size of a text in a JSON request", () => {
   });
 
   it("bounds a read_document result as it is sent, not as it was read", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });
     // Every character of these lines takes two in JSON: read as text, 205 lines fit the limit; sent, they are twice it.
     const row = (i: number) => `${"\\\"".repeat(49)} ${i}`;
     const meta = await files.ingest({ name: "export.txt", bytes: bytes(Array.from({ length: 2_000 }, (_, i) => row(i)).join("\n")) });
@@ -83,7 +83,7 @@ describe("wrapping long lines", () => {
 
   it("stores such a line without replacement characters", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-wrap-"));
-    const files = createLargeFiles({ store: new FileDocumentStore(directory), budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new FileDocumentStore(directory), budget: { inlineTokens: 10 } });
     const meta = await files.ingest({ name: "chat.txt", bytes: bytes(`x${"😀".repeat(1_500)}\nsecond line\n`) });
     const result = await files.tools([meta]).execute("read_document", { document_id: meta.id, start_line: 1, end_line: 3 });
     expect(String(result.text)).not.toContain("\ufffd");
@@ -131,7 +131,7 @@ describe("cacheSize", () => {
         return super.getIndex(id);
       }
     }
-    const files = createLargeFiles({ store: new Counting(directory), cacheSize: 2, wholeDocumentBytes: 0, scanChunkBytes: 2_048, budget: { inlineTokens: 10 } });
+    const files = createLargeFiles({ requireOwner: false, store: new Counting(directory), cacheSize: 2, wholeDocumentBytes: 0, scanChunkBytes: 2_048, budget: { inlineTokens: 10 } });
     const text = Array.from({ length: 2_000 }, (_, i) => `2026-01-01T00:00:00Z INFO worker-${i % 8} request ${i}`).join("\n");
     const meta = await files.ingest({ name: "app.log", bytes: bytes(text) });
     const tools = files.tools([meta]);

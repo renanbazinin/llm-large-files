@@ -83,7 +83,7 @@ const fakeTimers = () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout
 /** A library over a `Holding` store, with two documents; then the timers are fake, unless `fake` is false. */
 async function setUp(options: Parameters<typeof createLargeFiles>[0] extends infer O ? Partial<O> : never = {}, fake = true) {
   const store = new Holding();
-  const files = createLargeFiles({ store, keepOriginals: ["pdf"], ...options });
+  const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], ...options });
   const a = await files.ingest({ name: "a.txt", bytes: utf8("alpha\n") });
   const b = await files.ingest({ name: "b.txt", bytes: utf8("beta\n") });
   store.calls.length = 0;
@@ -129,7 +129,7 @@ describe("calls past the time limit", () => {
     const limitWith = (size: string | undefined, given?: number) => {
       if (size === undefined) delete process.env[POOL];
       else process.env[POOL] = size;
-      return createLargeFiles({ store: new MemoryDocumentStore(), ...(given !== undefined ? { maxStuckStoreCalls: given } : {}) }).stats().maxStuckStoreCalls;
+      return createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ...(given !== undefined ? { maxStuckStoreCalls: given } : {}) }).stats().maxStuckStoreCalls;
     };
     expect(limitWith(undefined)).toBe(2);
     expect(limitWith("32")).toBe(16);
@@ -150,7 +150,7 @@ describe("calls past the time limit", () => {
     expect(() => limitWith(undefined, Number.NaN)).toThrow(RangeError);
     // Read when the library is made: a later change of the variable changes nothing.
     process.env[POOL] = "32";
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     process.env[POOL] = "2";
     expect(files.stats().maxStuckStoreCalls).toBe(16);
   });
@@ -225,7 +225,7 @@ describe("calls past the time limit", () => {
     await sweeping;
     expect(swept).toBe(0);
 
-    const limited = createLargeFiles({ store, sweepTimeoutMs: 1_000 });
+    const limited = createLargeFiles({ requireOwner: false, store, sweepTimeoutMs: 1_000 });
     const failed = limited.sweep().catch((error: unknown) => error);
     await vi.advanceTimersByTimeAsync(1_000);
     expect(await failed).toMatchObject({ name: "DocumentStoreError", operation: "sweep", code: "ETIMEDOUT" });
@@ -235,7 +235,7 @@ describe("calls past the time limit", () => {
 
   it("counts a look at pages whose original does not answer, and gives its turn back", async () => {
     const store = new Holding();
-    const files = createLargeFiles({ store, keepOriginals: ["pdf"], maxConcurrentPageLooks: 1 });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["pdf"], maxConcurrentPageLooks: 1 });
     const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(3) });
     store.hung.add("getOriginal");
     fakeTimers();

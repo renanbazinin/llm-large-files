@@ -26,7 +26,7 @@ const textOf = (message: ModelMessage | undefined) => (message && message.role !
 /** A library with a small note and a large log, both kept, and one ID that is gone. */
 async function documents(owner?: string, scope?: string[]) {
   const store = new MemoryDocumentStore();
-  const files = createLargeFiles({ store, budget: { inlineTokens: 1_000 } });
+  const files = createLargeFiles({ requireOwner: false, store, budget: { inlineTokens: 1_000 } });
   const access = { ...(owner ? { owner } : {}), ...(scope ? { scope } : {}) };
   const note = await files.ingest({ name: "note.txt", bytes: utf8("The total is 42.\n"), id: "note-1", ...access });
   const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)), id: "log-1", ...access });

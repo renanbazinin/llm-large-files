@@ -74,13 +74,13 @@ describe("isolated readers and paths", () => {
       const pdf = numberedPdf(3);
       const at = path.join(directory, "report.pdf");
       await writeFile(at, pdf);
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: isolated.extractors, maxUploadBytes: 5_000_000 });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: isolated.extractors, maxUploadBytes: 5_000_000 });
       const meta = await files.ingest({ name: "report.pdf", source: { path: at } });
       expect(await jobs()).toEqual([{ path: at, bytes: 0, input: expect.objectContaining({ name: "report.pdf", format: "pdf", maxUploadBytes: 5_000_000 }) }]);
       expect(reads.opened).not.toContain(at);
       expect(meta).toMatchObject({ format: "pdf", pages: 3, bytes: pdf.byteLength, sha256: sha256(pdf) });
       // The text the server would have read.
-      const local = await createLargeFiles({ store: new MemoryDocumentStore() }).ingest({ name: "report.pdf", bytes: pdf });
+      const local = await createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }).ingest({ name: "report.pdf", bytes: pdf });
       expect({ ...meta, id: "", createdAt: "", expiresAt: "" }).toEqual({ ...local, id: "", createdAt: "", expiresAt: "" });
     } finally {
       await isolated.close();
@@ -93,10 +93,10 @@ describe("isolated readers and paths", () => {
       const pdf = hebrewLease();
       const at = path.join(directory, "lease.pdf");
       await writeFile(at, pdf);
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: isolated.extractors });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: isolated.extractors });
       const fromPath = await files.ingest({ name: "lease.pdf", source: { path: at } });
       const fromBytes = await files.ingest({ name: "lease.pdf", bytes: pdf });
-      const local = await createLargeFiles({ store: new MemoryDocumentStore() }).ingest({ name: "lease.pdf", bytes: pdf });
+      const local = await createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() }).ingest({ name: "lease.pdf", bytes: pdf });
       expect(local.outline).toHaveLength(8);
       expect(local.outline[0]).toEqual({ line: 3, level: 1, title: "חוזה שכירות בלתי מוגנת" });
       expect(fromPath.outline).toEqual(local.outline);
@@ -119,7 +119,7 @@ describe("isolated readers and paths", () => {
     const isolated = node.createIsolatedExtractors({ concurrency: 1, childScript: spyChild });
     try {
       process.chdir(first);
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: isolated.extractors });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: isolated.extractors });
       // The child starts here, in folder A.
       expect(await files.ingest({ name: "r.pdf", source: { path: "r.pdf" } })).toMatchObject({ pages: 1, sha256: sha256(one) });
       process.chdir(second);
@@ -150,7 +150,7 @@ describe("isolated readers and paths", () => {
       const pdf = numberedPdf(2);
       const at = path.join(directory, "report.pdf");
       await writeFile(at, pdf);
-      const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: isolated.extractors, keepOriginals: ["pdf"] });
+      const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: isolated.extractors, keepOriginals: ["pdf"] });
       const meta = await files.ingest({ name: "report.pdf", source: { path: at } });
       expect(await jobs()).toEqual([{ bytes: pdf.byteLength, input: expect.not.objectContaining({ maxUploadBytes: expect.anything() }) }]);
       expect(reads.opened.filter((file) => file === at)).toHaveLength(1);

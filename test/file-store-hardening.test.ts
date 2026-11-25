@@ -114,7 +114,7 @@ describe("APP_DOCUMENT_ID_PATTERN and the names Windows keeps for devices", () =
     ];
     for (const [name, inner] of stores) {
       const { store, calls } = watched(inner);
-      const files = createLargeFiles({ store, now });
+      const files = createLargeFiles({ requireOwner: false, store, now });
       for (const id of DEVICES) {
         const error = await files.ingest({ name: "a.txt", bytes: utf8("alpha\n"), id }).catch((thrown: unknown) => thrown);
         expect(error, `${name} ${id}`).toBeInstanceOf(TypeError);

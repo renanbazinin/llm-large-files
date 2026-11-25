@@ -94,7 +94,7 @@ function heldLibrary(options: { maxUploadBytes?: number } = {}) {
     await held;
     return { text: "# Held\n\nThe turn was held." };
   };
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), maxConcurrentIngests: 1, extractors: { markdown: waiting }, ...options });
+  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxConcurrentIngests: 1, extractors: { markdown: waiting }, ...options });
   return {
     files,
     /** Starts the ingest that holds the turn, and waits until it does: `done` is that ingest. */
@@ -126,7 +126,7 @@ describe("ingest from a path", () => {
   it("gives the document an ingest of the same bytes gives, with the file's SHA-256 (H6)", async () => {
     const text = serviceLog(400);
     const at = await file("app.log", text);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const fromPath = await files.ingest({ name: "app.log", source: { path: at } });
     const fromBytes = await files.ingest({ name: "app.log", bytes: utf8(text) });
     const { id: _a, createdAt: _b, expiresAt: _c, ...pathRest } = fromPath;
@@ -147,7 +147,7 @@ describe("ingest from a path", () => {
     for (let at = 0; at < bytes.length; at++) bytes[at] = 97 + (bytes[at]! % 26);
     for (let at = 99; at < bytes.length; at += 100) bytes[at] = 10;
     const at = await file("letters.txt", bytes);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     expect((await files.ingest({ name: "letters.txt", source: { path: at } })).sha256).toBe(sha256(bytes));
     expect((await files.ingest({ name: "letters.txt", bytes })).sha256).toBe(sha256(bytes));
   });
@@ -162,7 +162,7 @@ describe("ingest from a path", () => {
     // Whether the bytes the extractor was given are still held, after full collections, at the
     // first progress of each stage after it.
     const held: Record<string, boolean> = {};
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extractor } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: extractor } });
     const meta = await files.ingest({
       name: "big.txt",
       source: { path: at },
@@ -183,7 +183,7 @@ describe("ingest from a path", () => {
       order.push(input.name);
       return { text: "# Text" };
     };
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxConcurrentIngests: Number.POSITIVE_INFINITY, extractors: { markdown: extractor } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxConcurrentIngests: Number.POSITIVE_INFINITY, extractors: { markdown: extractor } });
     // The first is hashed in four slices, the second in one: hashed first, the second came first.
     const large = new Uint8Array(4 * 1024 * 1024).fill(35);
     const metas = await Promise.all([files.ingest({ name: "large.md", bytes: large }), files.ingest({ name: "small.md", bytes: utf8("#") })]);
@@ -194,7 +194,7 @@ describe("ingest from a path", () => {
   it("reports the size from lstat in ingest.start, before the file is read", async () => {
     const at = await file("notes.md", "# Notes\n\nOne line.");
     const events: IngestEvent[] = [];
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     await files.ingest({
       name: "notes.md",
       source: { path: at },
@@ -249,7 +249,7 @@ describe("ingest from a path", () => {
       await appendFile(at, "y".repeat(3 * 1024 * 1024));
       return { text: "x" };
     }, { readsPath: true as const });
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), maxUploadBytes: 1_000, extractors: { text: extractor } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), maxUploadBytes: 1_000, extractors: { text: extractor } });
     await expect(files.ingest({ name: "growing.txt", source: { path: at } })).rejects.toMatchObject({ code: "too_large", message: "growing.txt is larger than the 1000 B upload limit." });
     expect(bytesRead(at)).toBeLessThanOrEqual(1_001);
   });
@@ -262,7 +262,7 @@ describe("ingest from a path", () => {
     zip.file("word/media/image1.bin", new Uint8Array(randomBytes(3 * 1024 * 1024)), { compression: "STORE" });
     const bytes = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
     const at = await file("lease", bytes);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const meta = await files.ingest({ name: "lease", mimeType: "application/octet-stream", source: { path: at } });
     expect(meta.format).toBe("docx");
     // The first KB, then the first 64 KB and the last MB of the ZIP, then the whole file at its turn.
@@ -275,7 +275,7 @@ describe("ingest from a path", () => {
     const target = await file("real.log", "real\n");
     const at = path.join(directory, "linked.log");
     await symlink(target, at);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const error = await files.ingest({ name: "linked.log", source: { path: at } }).catch((caught: unknown) => caught);
     // The server's trouble, not a file the user sent: passed on as a system error, which names no path.
     expect(error).not.toBeInstanceOf(IngestError);
@@ -286,7 +286,7 @@ describe("ingest from a path", () => {
   });
 
   it("passes on a path that is not there, or a folder, as the system error it is", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const missing = await files.ingest({ name: "gone.log", source: { path: path.join(directory, "gone.log") } }).catch((error: unknown) => error);
     expect(missing).not.toBeInstanceOf(IngestError);
     expect(missing).toMatchObject({ code: "ENOENT" });
@@ -296,7 +296,7 @@ describe("ingest from a path", () => {
   it("fails in its time when the volume does not answer the read, and keeps its turn until the read ends", async () => {
     const at = await file("stuck.log", "one\ntwo\n");
     reads.stuck = at;
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 100, maxConcurrentIngests: 1 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ingestTimeoutMs: 100, maxConcurrentIngests: 1 });
     // The server's trouble, a system error ETIMEDOUT (503), since 0.10.0: not the IngestError
     // "timeout" of a file that takes too long to read (422, "split it").
     const thrown = await files.ingest({ name: "stuck.log", source: { path: at } }).catch((error: unknown) => error);
@@ -322,7 +322,7 @@ describe("ingest from a path", () => {
   it("gives up the parts read for the format, with the caller's reason, when the caller leaves", async () => {
     const at = await file("noname", "%PDF-1.4");
     reads.stuck = at;
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const controller = new AbortController();
     const ingest = files.ingest({ name: "noname", source: { path: at }, signal: controller.signal });
     while (opened(at) === 0) await settle();
@@ -333,7 +333,7 @@ describe("ingest from a path", () => {
   it("gives up a look at the file that does not answer (lstat), with the caller's reason, when the caller leaves", async () => {
     const at = await file("a.txt", "hello\n");
     reads.stuckStat = at;
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 60_000 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ingestTimeoutMs: 60_000 });
     const controller = new AbortController();
     const reason = new Error("Left.");
     const events: string[] = [];
@@ -347,7 +347,7 @@ describe("ingest from a path", () => {
   });
 
   it("fails, as the server's trouble, when a look at the file before its turn does not answer in time, with no signal", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), ingestTimeoutMs: 100 });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), ingestTimeoutMs: 100 });
     // The lstat.
     const at = await file("a.txt", "hello\n");
     reads.stuckStat = at;
@@ -402,7 +402,7 @@ describe("ingest from a path", () => {
     const at = await file("r.txt", "Still here.\n");
     const removed = path.join(directory, "removed");
     await mkdir(removed);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     try {
       process.chdir(removed);
       await rm(removed, { recursive: true });
@@ -424,7 +424,7 @@ describe("ingest from a path", () => {
       return { text: "Read in a child." };
     }, { readsPath: true as const });
     await file("r.txt", "Read in a child.");
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), extractors: { text: extractor } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), extractors: { text: extractor } });
     try {
       process.chdir(directory);
       await files.ingest({ name: "r.txt", source: { path: "r.txt" } });
@@ -442,7 +442,7 @@ describe("ingest from a path", () => {
     await writeFile(path.join(directory, "other", "r.txt"), "The file beyond the link.\n");
     // "link/.." is the folder above the link's target ("other"), not the folder that holds the link.
     await symlink(path.join(directory, "other", "deep"), path.join(directory, "link"));
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     try {
       process.chdir(directory);
       const absolute = `${process.cwd()}${path.sep}link/../r.txt`;
@@ -459,7 +459,7 @@ describe("ingest from a path", () => {
   it("reads a '/' at the end of a path as the system does, whether the path is relative or absolute", async () => {
     const before = process.cwd();
     await writeFile(path.join(directory, "r.txt"), "A file, not a folder.\n");
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     try {
       process.chdir(directory);
       const relative = await outcome(files, "r.txt/");
@@ -475,14 +475,14 @@ describe("ingest from a path", () => {
     const target = await file("a.log", "one\ntwo\n");
     const at = path.join(directory, "b.log");
     await link(target, at);
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     expect((await files.ingest({ name: "b.log", source: { path: at } })).lines).toBe(2);
   });
 
   it("never writes, moves or deletes the file", async () => {
     const at = await file("kept.md", "# Kept\n\nAs it was.");
     const before = await stat(at);
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), keepOriginals: ["markdown"] });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), keepOriginals: ["markdown"] });
     const meta = await files.ingest({ name: "kept.md", source: { path: at } });
     expect(await files.delete(meta.id)).toBe(true);
     expect(await readFile(at, "utf8")).toBe("# Kept\n\nAs it was.");
@@ -492,7 +492,7 @@ describe("ingest from a path", () => {
   it("keeps the file in the store (keepOriginals) from the bytes read at its turn", async () => {
     const at = await file("notes.md", "# Notes");
     const store = new MemoryDocumentStore();
-    const files = createLargeFiles({ store, keepOriginals: ["markdown"] });
+    const files = createLargeFiles({ requireOwner: false, store, keepOriginals: ["markdown"] });
     const meta = await files.ingest({ name: "notes.md", source: { path: at } });
     expect(meta.originalKept).toBe(true);
     expect(await files.getOriginal(meta.id)).toEqual(utf8("# Notes"));
@@ -500,7 +500,7 @@ describe("ingest from a path", () => {
   });
 
   it("refuses an input with both bytes and a source, and a source without a path", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const both = { name: "a.log", bytes: utf8("a"), source: { path: "/tmp/a.log" } } as unknown as Parameters<typeof files.ingest>[0];
     await expect(files.ingest(both)).rejects.toThrow(new TypeError("Give the file as bytes or as source, not both."));
     await expect(files.ingest({ name: "a.log", source: { path: "" } })).rejects.toThrow(new TypeError("source.path must be the path of a file: a string that is not empty."));

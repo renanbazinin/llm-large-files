@@ -122,7 +122,7 @@ describe("checkCitations", () => {
 
 describe("AskResult.citations", () => {
   it("checks the answer's citations against the evidence of the question, a file sent whole as shown", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000 } });
     const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(5_000)) });
     const note = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe nightly import runs at 02:00 UTC.\n") });
     const model = fakeModel([
@@ -138,7 +138,7 @@ describe("AskResult.citations", () => {
   });
 
   it("does not support a line past the end of a file sent whole or read whole", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 8_000 } });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 1_000, mapChunkTokens: 8_000 } });
     const log = await files.ingest({ name: "app.log", bytes: utf8(serviceLog(1_500)) });
     const note = await files.ingest({ name: "notes.md", bytes: utf8("# Notes\n\nThe nightly import runs at 02:00 UTC.\n") });
     const model = fakeModel([
@@ -157,7 +157,7 @@ describe("AskResult.citations", () => {
   });
 
   it("is absent for a question without documents", async () => {
-    const files = createLargeFiles({ store: new MemoryDocumentStore() });
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const result = await askWithFiles({ files, model: fakeModel([says("Hello (L1).")]), documentIds: [], messages: [{ role: "user", text: "Hi" }] });
     expect(result).not.toHaveProperty("citations");
   });
