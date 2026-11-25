@@ -405,16 +405,17 @@ describe("the third review of 0.10.2", () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-0102-"));
     const files = createLargeFiles({ store: new FileDocumentStore(directory), ttlMs: 60 * 60 * 1000 });
     for (let round = 0; round < 80; round++) {
-      const first = await files.ingest({ name: "a.txt", bytes: utf8(`alpha ${round}`), id: "race-1", ifExists: "replace" });
+      await files.ingest({ name: "a.txt", bytes: utf8(`alpha ${round}`), id: "race-1", ifExists: "replace" });
       await Promise.all([
         files.touch!("race-1"),
         files.update!("race-1", { appData: { round } }),
         files.ingest({ name: "b.txt", bytes: utf8(`bravo ${round}`), id: "race-1", ifExists: "replace" }),
       ]);
       const stored = await new FileDocumentStore(directory).get("race-1");
+      // The metadata and the text of one document: b's (both may share a createdAt, within one millisecond).
       expect(stored?.meta.name, `round ${round}`).toBe("b.txt");
       expect(stored?.text, `round ${round}`).toBe(`bravo ${round}`);
-      expect(stored?.meta.createdAt === first.createdAt && stored.meta.name === "b.txt", `round ${round}`).toBe(false);
+      expect(stored?.meta.textBytes, `round ${round}`).toBe(utf8(`bravo ${round}`).byteLength);
     }
   });
 
