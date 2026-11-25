@@ -136,6 +136,34 @@ export class DocumentScopeError extends TypeError {
 }
 brand(DocumentScopeError, DOCUMENT_SCOPE_ERROR);
 
+const QUESTION_CONFLICT_ERROR = Symbol.for("llm-large-files.QuestionConflictError");
+
+/**
+ * A `QuestionRegistry` was asked a question under an ID that already names another question of the
+ * same owner and scope: other messages, documents, system text or models. A request sent again
+ * asks the same question under its ID; a new question needs a new ID. It is thrown before anything
+ * is asked. `errorInfoOf` gives category "input", code "question_conflict" and status 409. It has no
+ * `status` field: the events would read one as a model's. New in 0.99.9.
+ */
+export class QuestionConflictError extends Error {
+  readonly code: "question_conflict";
+  /** The question ID that was used again. */
+  readonly questionId: string;
+
+  constructor(questionId: string) {
+    super("This questionId was already used for another question: other messages, documents or models. Use a new questionId for a new question.");
+    this.name = "QuestionConflictError";
+    this.code = "question_conflict";
+    this.questionId = questionId;
+  }
+
+  /** Whether `value` is a `QuestionConflictError`, made by this copy of the package or another one. */
+  static is(value: unknown): value is QuestionConflictError {
+    return branded(value, QUESTION_CONFLICT_ERROR);
+  }
+}
+brand(QuestionConflictError, QUESTION_CONFLICT_ERROR);
+
 /**
  * The errors a store threw while `ingest` wrote a document. `ingest` passes them on as they are,
  * and the upload handler tells them apart from a file that could not be read: their message is

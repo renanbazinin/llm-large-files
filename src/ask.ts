@@ -30,6 +30,7 @@ import {
 import { DocumentStoreError } from "./errors.js";
 import { canBeReadWhole, estimateParts, inlineInstruction, questionTools, REQUEST_BYTES_MARGIN } from "./plan.js";
 import { preparedHere } from "./prepare.js";
+import { checkQuestionId, validQuestionId } from "./question-id.js";
 import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retry.js";
 import { estimateTokens, jsonBytes, wellFormedJson } from "./text.js";
 import {
@@ -252,6 +253,15 @@ export type AskOptions = {
   /** The `runId` of the events. Defaults to one made for the question ("run_…"). */
   runId?: string;
   /**
+   * A stable ID of this question, made by the client for the turn (such as a UUID), the same when
+   * the request is sent again: 1 to 128 letters, digits, ".", "_", ":" or "-", starting with a
+   * letter or a digit (`QUESTION_ID_PATTERN`). Every event of the question and its result carry it.
+   * On its own it only labels the question; `createQuestionRegistry()` runs questions by it, so that
+   * a request sent again joins the question or gets its answer. Never sent to the model. Another
+   * value is a `TypeError` before any request. New in 0.99.9.
+   */
+  questionId?: string;
+  /**
    * Put each tool result in its `tool.end` event (`result`), and the tool rounds in the result that
    * `run.finish` and `run.error` carry (`toolTurns`). Off by default: results hold the text of the
    * documents, and events are often sent on to a browser.
@@ -326,6 +336,12 @@ export type AskResult = {
    * document sent whole counts as shown. Set when the question had documents. New in 0.10.0.
    */
   citations?: CitationCheck;
+  /**
+   * `AskOptions.questionId`, when the question had one. Also in the result of `run.finish` and the
+   * partial result of `run.error` (`EventResult`), and in what `partialResultOf` gives. New in
+   * 0.99.9.
+   */
+  questionId?: string;
 };
 
 /**
@@ -904,7 +920,9 @@ type RequestKind = { role: RequestRole; purpose: RequestPurpose };
  * an answer. With an `explorer`, that model runs the tool loop and `model` writes the answer.
  */
 export async function askWithFiles(options: AskOptions): Promise<AskResult> {
-  const events = new EventEmitter<AskEvent>(options.runId ?? newRunId(), options.onEvent);
+  // An ID that is not one stamps nothing: the question ends with its TypeError, after run.start.
+  const questionId = validQuestionId(options.questionId);
+  const events = new EventEmitter<AskEvent>(options.runId ?? newRunId(), options.onEvent, questionId);
   const state: RunState = { events, requests: 0, calls: 0, budgetSaid: false };
   try {
     if (events.active) {
@@ -919,12 +937,16 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
       });
     }
     const result = await askPlanned(options, state);
+    if (questionId !== undefined) result.questionId = questionId;
     if (events.active) events.emit({ type: "run.finish", result: eventResultOf(result, options.eventResults === true) });
     return result;
   } catch (error) {
+    // The question's own partial result, for `partialResultOf` too: never another question's.
+    const own = state.failed && state.failed.error === error ? state.failed.result : undefined;
+    if (own && questionId !== undefined) own.questionId = questionId;
     if (events.active) {
       // The question's own, also when another question threw the same error (a shared signal's reason).
-      const partial = state.failed && state.failed.error === error ? state.failed.result : partialResultOf(error);
+      const partial = own ?? partialResultOf(error);
       events.emit({ type: "run.error", error: eventErrorOf(error), ...(partial ? { partial: eventResultOf(partial, options.eventResults === true) } : {}) });
     }
     throw error;
@@ -955,7 +977,9 @@ function withoutServerFields(meta: DocumentMeta): Omit<DocumentMeta, "owner" | "
  * `askWithFiles` as a stream of its events, for a page that shows the question as it goes: see
  * `AskEvent`. Leaving the loop early (`break`) stops the question. `result` is what `askWithFiles`
  * returns. `onEvent`, when given, gets each event too, after the stream. The model is asked for
- * the answer as it is written unless `streamText` is false. New in 0.7.0.
+ * the answer as it is written unless `streamText` is false. `questionId` labels every event and
+ * the result, as in `askWithFiles`: `createQuestionRegistry().askStream` runs a stream by it.
+ * New in 0.7.0.
  */
 export function askStream(options: AskOptions): EventStream<AskEvent, AskResult> {
   return eventStream<AskEvent, AskResult>((onEvent, signal) => askWithFiles({
@@ -1007,6 +1031,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const models = given ? [model, given] : [model];
   const limits = checkedLimits(options.limits);
   checkMissingPolicy(options.onMissingDocuments);
+  checkQuestionId(options.questionId);
   checkFilteredAnswer(options.filteredAnswer);
   checkStoreRounds(options.storeRounds);
   checkInlineOptions(options.inlineTables, options.numberInline);

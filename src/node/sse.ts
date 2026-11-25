@@ -45,19 +45,23 @@ const oneLine = (value: string | number) => String(value).replace(/[\r\n]+/g, " 
  * server, with the conversation). `run.error` has its `error` and a `partial` with only the
  * `steps`, `evidence`, `usage` and `missing` of the partial result. Every other event is sent as it
  * is. `missing`, the documents a question answered without, is new in 0.9.0; `finish` and
- * `citations`, how the answer ended and what its citations came to, in 0.10.0.
+ * `citations`, how the answer ended and what its citations came to, in 0.10.0. `questionId`
+ * (`AskOptions.questionId`) is kept in `run.finish` and `run.error`, and in the result of
+ * `run.finish`, since 0.99.9.
  */
 export function sseMessageOf<E extends { type: string; seq: number }>(event: E): SseMessage {
   const ask = event as unknown as AskEvent;
+  // Left out when the question has none, as the other events leave it out.
+  const question = ask.questionId !== undefined ? { questionId: ask.questionId } : {};
   if (ask.type === "run.finish") {
     const { type, seq, runId, time } = ask;
-    const { answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing } = ask.result;
-    return { event: type, id: seq, data: { type, seq, runId, time, result: { answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing } } };
+    const { answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId } = ask.result;
+    return { event: type, id: seq, data: { type, seq, runId, ...question, time, result: { answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId } } };
   }
   if (ask.type === "run.error") {
     const { type, seq, runId, time, error } = ask;
     const partial = ask.partial && { steps: ask.partial.steps, evidence: ask.partial.evidence, usage: ask.partial.usage, missing: ask.partial.missing };
-    return { event: type, id: seq, data: { type, seq, runId, time, error, partial } };
+    return { event: type, id: seq, data: { type, seq, runId, ...question, time, error, partial } };
   }
   return { event: event.type, id: event.seq, data: event };
 }

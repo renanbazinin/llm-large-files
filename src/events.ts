@@ -13,6 +13,12 @@ export type EventBase = {
   seq: number;
   /** The run the event belongs to: the `runId` you gave, or one made for it ("run_…" for a question, "ing_…" for an ingest). */
   runId: string;
+  /**
+   * `AskOptions.questionId`, on every event of a question that has one. Never on the events of an
+   * ingest. A caller that joins a running question through `createQuestionRegistry()` gets its
+   * events from the moment it joined: no `run.start`, and a `seq` above 1. New in 0.99.9.
+   */
+  questionId?: string;
   /** When it was emitted, in milliseconds since 1970 (`Date.now()`). */
   time: number;
 };
@@ -427,9 +433,10 @@ function userMessageOf(error: unknown): string {
 }
 
 /**
- * Stamps events with `seq`, `runId` and `time`, and hands them to one listener. After a terminal
- * event (`run.finish`, `run.error`, `ingest.finish`, `ingest.error`) it drops everything: work
- * that goes on after a question stopped (a part read still running) is never reported.
+ * Stamps events with `seq`, `runId`, the question ID when there is one, and `time`, and hands them
+ * to one listener. After a terminal event (`run.finish`, `run.error`, `ingest.finish`,
+ * `ingest.error`) it drops everything: work that goes on after a question stopped (a part read
+ * still running) is never reported.
  */
 export class EventEmitter<E extends { type: string }> {
   private seq = 0;
@@ -438,6 +445,8 @@ export class EventEmitter<E extends { type: string }> {
   constructor(
     readonly runId: string,
     private readonly listener: ((event: E) => void) | undefined,
+    /** `AskOptions.questionId`, already checked: on every event when given (0.99.9). */
+    private readonly questionId?: string,
   ) {}
 
   /** False when nobody listens or the run has ended: callers may skip building an event. */
@@ -454,7 +463,8 @@ export class EventEmitter<E extends { type: string }> {
     if (this.closed) return;
     if (TERMINAL.has(event.type)) this.closed = true;
     if (!this.listener) return;
-    this.listener({ ...event, seq: ++this.seq, runId: this.runId, time: Date.now() } as unknown as E);
+    const question = this.questionId !== undefined ? { questionId: this.questionId } : {};
+    this.listener({ ...event, seq: ++this.seq, runId: this.runId, ...question, time: Date.now() } as unknown as E);
   }
 }
 
