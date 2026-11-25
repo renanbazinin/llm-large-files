@@ -447,6 +447,30 @@ describe("sseMessageOf", () => {
     expect(Object.keys(sent.result).sort()).toEqual(["answered", "citations", "evidence", "finish", "finishReason", "steps", "text", "turns", "usage"]);
   });
 
+  // 0.99.9: the question ID (AskOptions.questionId) is kept by the two events sseMessageOf picks
+  // fields of, so that a page can tie the answer to the question it sent again.
+  it("keeps the question ID in run.finish and run.error", async () => {
+    const asked = { ...result, questionId: "q-1" } as AskResult;
+    const finish = JSON.parse(JSON.stringify(sseMessageOf({ ...base, seq: 7, questionId: "q-1", type: "run.finish", result: asked } as AskEvent).data));
+    expect(finish).toMatchObject({ questionId: "q-1", result: { questionId: "q-1" } });
+    expect(Object.keys(finish).sort()).toEqual(["questionId", "result", "runId", "seq", "time", "type"]);
+    const error = { message: "The model is busy.", kind: "rate_limit" as const, status: 429 };
+    const failed = JSON.parse(JSON.stringify(sseMessageOf({ ...base, seq: 3, questionId: "q-1", type: "run.error", error, partial: asked } as AskEvent).data));
+    expect(failed).toEqual({ type: "run.error", seq: 3, ...base, questionId: "q-1", error, partial: { steps: asked.steps, evidence: asked.evidence, usage: asked.usage } });
+
+    // Through a question and writeSseEvents: on every message.
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: true });
+    const doc = await files.ingest({ name: "notes.txt", bytes: new TextEncoder().encode("The meeting is on Tuesday."), owner: "user-1" });
+    const url = await serve((_request, response) => {
+      const stream = askStream({ files, model: fakeModel([says("On Tuesday.")]), owner: "user-1", documentIds: [doc.id], messages: [{ role: "user", text: "When?" }], questionId: "q-1" });
+      void writeSseEvents(response, stream, { heartbeatMs: 0 });
+    });
+    const { messages } = parse(await (await fetch(url)).text());
+    expect(messages.length).toBeGreaterThan(2);
+    for (const message of messages) expect(message.data).toMatchObject({ questionId: "q-1" });
+    expect(messages.at(-1)).toMatchObject({ event: "run.finish", data: { result: { answered: true, questionId: "q-1" } } });
+  });
+
   it("reaches the browser from a question that dropped a missing document", async () => {
     const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
     const doc = await files.ingest({ name: "notes.txt", bytes: new TextEncoder().encode("The meeting is on Tuesday.") });

@@ -25,6 +25,7 @@ rebuild from the store.
 | Store calls past their time limit that have not ended, and since 0.10.2 an ingest's own reads of a path upload | A count in each process (`files.stats().stuckStoreCalls`, new in 0.10.0) | No | Zero |
 | The output limit a thinking model needs for whole-file part reads | Each process, by URL and model | No | Learned again, at the cost of one request |
 | The name of the output limit an OpenAI-compatible server takes | Each `openAiCompatible()` adapter | No | Learned again, at the cost of one refused request |
+| Questions under way and answers kept for a request sent again (new in 0.99.9) | A `createQuestionRegistry()` in each process | No | Empty: a request sent again runs its question again |
 
 What follows from it:
 
@@ -803,6 +804,14 @@ in [Gemini API and Vertex AI](./vertex-and-gemini.md) and
 When the stream is cut anyway (a proxy, a dropped connection), there is no resume: your server sees
 the response close, the question's `signal` should abort it so that it stops costing, and the user
 asks again.
+
+New in 0.99.9: with a question ID and a question registry, the request sent again joins the
+question that is still running, or gets its answer, instead of paying for it twice
+([Web app](./web-app.md#when-the-stream-breaks-a-question-id)). The registry is in memory, one per
+process: it joins only the requests that reach the process running the question. Route a user's
+requests to the same process (sticky sessions by user, at the load balancer), or accept that a
+request sent again that lands on another server runs the question again. A restart loses the
+questions under way and the kept answers.
 
 ## Restarts and rolling upgrades
 

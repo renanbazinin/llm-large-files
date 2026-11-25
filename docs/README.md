@@ -169,7 +169,9 @@ Each term links to the page that explains it. The defaults and limits are on tho
   saves room in the request. See [conversations](./guides/conversations.md).
 - **Question**: one call of `askGemini` or `askWithFiles`: the user's latest message and every
   model request made to answer it. Limits, usage and whole-file reads count per question. See
-  [`askWithFiles`](./reference/ask.md#askwithfilesoptions).
+  [`askWithFiles`](./reference/ask.md#askwithfilesoptions). A question ID (`questionId`, new in
+  0.99.9) names one, so that a request sent again joins it: see
+  [question IDs](./reference/ask.md#question-ids).
 - **Stand-in**: a short result put in place of an older tool result when the request runs out of
   room (`dropped: true`). It names the document and the lines or pages that were shown, so the
   model can read them again. When a model of the question may only grow its conversation
@@ -229,7 +231,7 @@ One task each, with samples:
   providers.
 - [Web app](./guides/web-app.md): uploads (`createDocumentHandlers`, its hooks, saving each upload
   in the chat's folder, spooling to disk, direct `ingest`, the browser), answers and progress
-  streamed over server-sent events, cancelling.
+  streamed over server-sent events, cancelling, a question ID for a request sent again.
 - [Conversations](./guides/conversations.md): the message format, keeping tool turns, history
   across requests and servers, staying inside the window, converters, pointers for repeated calls,
   mixing providers.

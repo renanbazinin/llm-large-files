@@ -95,7 +95,8 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
   for OpenAI's reasoning models with tools, which reason while they call the document tools.
   Through Chat Completions, newer OpenAI models refuse function tools unless the effort is
   `"none"`, and some refuse them altogether. Each request sends `store: false` and the whole
-  conversation, and gives each reasoning item back, with its encrypted content, in the later requests of the same question. Azure OpenAI works with
+  conversation, and gives each reasoning item back, with its encrypted content, in the later
+  requests of the same question. Azure OpenAI works with
   `baseUrl: "https://{resource}.openai.azure.com/openai/v1"`. It was built from OpenAI's and Azure's
   documentation and tested against fake servers: it has not been run against either
   ([OpenAI's Responses API](docs/guides/openai-compatible.md#openais-responses-api)).
@@ -112,8 +113,18 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
   ```
 - It can send the pages of `view_pages` inside the tool's output or after it (`toolFilePlacement`:
   `"inside"` or `"beside"`). It sends none by default, so `view_pages` is not offered.
+- **A question ID that survives a retry (H14).** `AskOptions.questionId` names one question of a
+  chat, as the client made it (a UUID). Every event of the question and its result carry it; the
+  model never sees it, and the requests are the same with and without it
+  ([`AskOptions`](docs/reference/ask.md#askoptions)).
+- **`createQuestionRegistry()`** runs questions by owner, scope and question ID. A request sent
+  again after its stream broke joins the question still running, or gets its answer for 10 minutes
+  after it ended, instead of asking the model again. A question nobody waits for goes on for 30
+  seconds, then stops. Another question under the same ID is a `QuestionConflictError` (409). In
+  memory, one registry per process ([Question IDs](docs/reference/ask.md#question-ids),
+  [When the stream breaks](docs/guides/web-app.md#when-the-stream-breaks-a-question-id)).
 
-<!-- visual, questions, aisdk, MCP (removable) -->
+<!-- visual, aisdk, MCP (removable) -->
 
 ### Changed: what works differently
 
@@ -130,6 +141,10 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
   ([Stored documents and rounds](docs/upgrading-0.99.md#stored-documents-and-rounds)).
 - `openAiCompatible()` sends what 0.10.2 sent, byte for byte: the Responses API is a separate
   adapter, `openAiResponses()`.
+- `errorInfoOf` reads `QuestionConflictError`: category `"input"`, code `"question_conflict"`,
+  status 409.
+- `sseMessageOf` and `writeSseEvents` keep `questionId` in `run.finish` and `run.error`, and in the
+  result of `run.finish`, for a question that has one.
 
 <!-- every package -->
 

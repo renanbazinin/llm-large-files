@@ -3,8 +3,8 @@
 This guide is for you if you add large files to a web chat: the browser uploads files, your server
 keeps them and asks the model, and the answer streams back to the page with its progress. It covers
 uploads with `createDocumentHandlers` or with a route of your own, the browser side of an upload
-with its progress, a Server-Sent Events route that streams the question's events, cancelling, and
-reading the stream in the browser. The samples use Express 5 and Gemini on Vertex AI. The approach
+with its progress, a Server-Sent Events route that streams the question's events, cancelling, a
+question ID for a request sent again after its stream broke, and reading the stream in the browser. The samples use Express 5 and Gemini on Vertex AI. The approach
 depends on neither: with Express 4, catch errors in async routes yourself, and with another model,
 call `askStream` (see the end of [the chat route](#a-server-sent-events-route)).
 
@@ -1184,6 +1184,176 @@ costs, until then. To change what is sent, use `map`, and return `undefined` fro
 event. If you do wrap the stream, stop the question yourself:
 `res.once("close", () => stream.abort())`. The
 [node reference](../reference/node.md#when-the-client-goes-away) has both.
+
+### When the stream breaks: a question ID
+
+A stream can break before its last event: a proxy cuts it, a phone changes networks, a laptop
+sleeps. The question stops with it, as above, and the page asks again, which pays for the
+question twice. New in 0.99.9: with a question ID, the request sent again joins the question, and
+the question goes on for a while when its stream breaks.
+
+- The page makes an ID for each question, `crypto.randomUUID()`, and sends it with the question.
+  When the stream breaks before `run.finish` or `run.error`, it sends the same request again, with
+  the same ID.
+- The route runs the question through a [question registry](../reference/ask.md#question-ids),
+  made once per process: `questions.askStream({ ...options, owner, questionId })`, sent with
+  `writeSseEvents` as before.
+- When the stream of the first request breaks, `writeSseEvents` stops reading, and that request
+  leaves the question. The question goes on for 30 seconds (`detachedMs`) with nobody waiting,
+  then stops. The request sent again joins it within that time, or gets its answer for 10 minutes
+  after it ended (`keepMs`), with no model request. A question that failed is not kept: the
+  request sent again asks again.
+
+```ts
+// chat-route.ts, with a question ID.
+import type { Request, Response } from "express";
+import { createQuestionRegistry, errorInfoOf, partialResultOf, QUESTION_ID_PATTERN, type AskEvent, type AskResult, type ChatTurn, type EventStream, type ToolTurn, type UsageTotals } from "llm-large-files";
+import { gemini } from "llm-large-files/gemini";
+import { writeSseEvents } from "llm-large-files/node";
+import { endpoint, files } from "./large-files.js";
+
+/** Your app's chats, as in the route above, but `save` keeps one question per questionId: a second save replaces the first. */
+export type ChatStore = {
+  load(sessionId: string, userId: string): Promise<{ documentIds: string[]; history: Array<ChatTurn | ToolTurn> } | undefined>;
+  save(sessionId: string, turn: { questionId: string; question: string; toolTurns: ToolTurn[]; answer?: string; usage: UsageTotals }): Promise<void>;
+};
+
+// Once per process, as files is: a registry made for each request would hold nothing.
+const questions = createQuestionRegistry();
+const model = gemini(endpoint);
+
+/** POST /api/chat with { sessionId, question, questionId }. */
+export function chatRoute(chats: ChatStore) {
+  return async (req: Request, res: Response): Promise<void> => {
+    const userId = currentUserId(req);
+    if (!userId) return void res.status(401).json({ error: "Sign in to ask." });
+    const { sessionId, question, questionId } = (req.body ?? {}) as { sessionId?: unknown; question?: unknown; questionId?: unknown };
+    if (typeof sessionId !== "string" || typeof question !== "string" || !question.trim()
+      || typeof questionId !== "string" || !QUESTION_ID_PATTERN.test(questionId)) {
+      return void res.status(400).json({ error: "Send a sessionId, a question and a questionId." });
+    }
+    const chat = await chats.load(sessionId, userId);
+    if (!chat) return void res.status(404).json({ error: "No such chat." });
+
+    let stream: EventStream<AskEvent, AskResult>;
+    try {
+      // Starts the question, joins it while it runs, or gives its kept answer.
+      stream = questions.askStream({
+        files,
+        model,
+        owner: userId, // part of the question's key: another user's ID is another question
+        questionId,
+        documentIds: chat.documentIds,
+        messages: [...chat.history, { role: "user", text: question }],
+      });
+    } catch (error) {
+      // Thrown at once, before any event: this questionId names another question (409).
+      const info = errorInfoOf(error);
+      return void res.status(info.status).json({ error: info.message });
+    }
+
+    await writeSseEvents(res, stream, { end: false });
+
+    let result: AskResult | undefined;
+    try {
+      result = await stream.result;
+    } catch (error) {
+      // A request whose stream broke gets its own abort here: partialResultOf gives nothing, and
+      // the request sent again keeps the question.
+      result = partialResultOf(error);
+    }
+    if (result) {
+      await chats.save(sessionId, {
+        questionId, // one question per ID: two requests can get the same result
+        question,
+        toolTurns: result.toolTurns,
+        ...(result.answered ? { answer: result.text } : {}),
+        usage: result.usage,
+      }).catch((error: unknown) => console.error("could not keep the question", error));
+    }
+    if (!res.writableEnded && !res.destroyed) res.end();
+  };
+}
+
+/** POST /api/chat/stop with { questionId }: the Stop button. Leaving the stream only leaves the question. */
+export function stopRoute() {
+  return (req: Request, res: Response): void => {
+    const userId = currentUserId(req);
+    const { questionId } = (req.body ?? {}) as { questionId?: unknown };
+    if (!userId || typeof questionId !== "string") return void res.status(400).json({ error: "Send a questionId." });
+    res.status(200).json({ stopped: questions.stop(questionId, { owner: userId }) });
+  };
+}
+```
+
+What it does, and why:
+
+- **It refuses before it streams.** `askStream` throws a `QuestionConflictError` at once when the
+  ID names another question of this user: other messages, documents or models. `errorInfoOf`
+  gives it status 409 and a message. A page that makes a new ID for each question never gets it.
+- **The owner is part of the key.** A user cannot join another user's question with its ID. Pass
+  `scope` too when your documents have one.
+- **Leaving is not stopping.** The request's signal, a deadline of yours included, only takes this
+  request off the question. The Stop button calls `questions.stop(questionId, { owner })`: every
+  request that waits for the question ends with `run.error`.
+- **The question is kept once.** Two requests can get the same result: the request sent again, and
+  the first one when the server had not yet seen its stream break. A request that left gets its
+  own abort from `stream.result`, for which `partialResultOf` gives nothing. Keep the question by
+  its `questionId`, so that a second save replaces the first.
+- **One process.** The registry is in memory. A request sent again that reaches another server
+  runs the question again ([Deployment](./deployment.md#streamed-answers-behind-proxies)).
+
+What a request sent again receives depends on what it finds:
+
+| It finds | Its events |
+|---|---|
+| The question running | The events from the moment it joined: no `run.start`, a first `seq` above 1, the text from then on, and `run.finish` or `run.error` last. |
+| The answer kept | `run.finish` alone. |
+| Neither: the question stopped, failed, or ran on another server, or its answer expired | Every event from `run.start`: the question runs again. |
+
+So the page streams the text only after a `run.start`, and shows `result.text` of `run.finish` in
+place of the text it got. Every event carries the `questionId`. `readEvents` and `ChatEvent` are in
+the next section:
+
+```ts
+// chat-retry.ts: runs in the browser. readEvents and ChatEvent are below.
+import { readEvents, type ChatEvent } from "./chat-client.js";
+
+/**
+ * Asks a question, and sends it again with the same questionId when the stream breaks before its
+ * last event. `show` gets the answer as it grows. Returns run.finish or run.error, or undefined.
+ */
+export async function askQuestion(sessionId: string, question: string, show: (text: string) => void): Promise<ChatEvent | undefined> {
+  const questionId = crypto.randomUUID(); // one for each question, the same on each retry
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
+    let streaming = false;
+    let text = "";
+    let last: ChatEvent | undefined;
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, question, questionId }),
+      });
+      if (response.status >= 400 && response.status < 500) return undefined; // refused: the same request would be too
+      if (!response.ok) continue;
+      await readEvents(response, (data) => {
+        const event = data as ChatEvent;
+        // Only a run that starts here sends the whole text: a request that joined one missed its start.
+        if (event.type === "run.start") streaming = true;
+        if (event.type === "text" && streaming) show((text += event.delta));
+        if (event.type === "run.finish") show(event.result.text);
+        if (event.type === "run.finish" || event.type === "run.error") last = event;
+      });
+    } catch (error) {
+      console.error("The stream broke", error); // sent again, with the same questionId
+    }
+    if (last) return last;
+  }
+  return undefined;
+}
+```
 
 ### Reading the events in the browser
 

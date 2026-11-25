@@ -1252,13 +1252,15 @@ It returns `{ event: <type>, id: <seq>, data }`. The `data` is the event itself,
 
 | Event | `data` |
 |---|---|
-| `run.finish` | `{ type, seq, runId, time, result }`, where `result` holds only `answered`, `text`, `finishReason`, `blockReason`, `steps`, `evidence`, `turns`, `usage` and `missing`. Not `toolTurns`, `plan`, `budget` or `lastUsage`. |
-| `run.error` | `{ type, seq, runId, time, error, partial }`, where `error` is the event's [`EventError`](./events.md#errors-eventerror) and `partial` holds only `steps`, `evidence`, `usage` and `missing` of the partial result. Without a partial result, `partial` is left out of the JSON. |
+| `run.finish` | `{ type, seq, runId, questionId, time, result }`, where `result` holds only `answered`, `text`, `finish`, `finishReason`, `blockReason`, `citations`, `steps`, `evidence`, `turns`, `usage`, `missing` and `questionId`. Not `toolTurns`, `plan`, `budget` or `lastUsage`. |
+| `run.error` | `{ type, seq, runId, questionId, time, error, partial }`, where `error` is the event's [`EventError`](./events.md#errors-eventerror) and `partial` holds only `steps`, `evidence`, `usage` and `missing` of the partial result. Without a partial result, `partial` is left out of the JSON. |
 | Any other event, ingest events included | The event as it is: a notice's `documentIds` and `ingest.finish`'s `app` included. |
 
 A field that is `undefined`, such as `finishReason`, `blockReason` or `missing`, is left out of the
 JSON. `missing` lists the documents a question answered without (`onMissingDocuments: "drop"`); it
-is sent since 0.9.0, as `AskResult.missing` is new in 0.9.0.
+is sent since 0.9.0, as `AskResult.missing` is new in 0.9.0. `questionId`
+([`AskOptions.questionId`](./ask.md#question-ids)) is kept in both events and in the result of
+`run.finish` since 0.99.9; it is there only for a question that has one.
 
 `toolTurns` are left out even when the question ran with `eventResults: true`: keep them on the
 server, from the stream's `result` or from `partialResultOf(error)`
