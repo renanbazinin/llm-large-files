@@ -1141,7 +1141,7 @@ Between events, a comment line `: keep-alive` comes every 15 seconds. The events
 | `plan` | `inline` and `searchable`: the documents sent whole and those searched, each with `id`, `name`, `format`, `estimatedTokens` and `pages` | Optional: "Searching app.log". It comes again when the question is planned again. |
 | `tool.start` | `callId`, `tool`, `args`, `label`, `documentId`, `round` | A new line in the list of tools, and the status line: `label` and "…". |
 | `tool.progress` | `callId`, `stage` (`"map"` or `"reduce"`), `done`, `total`, `message` | A whole-file read: a counter on that call's line, and the status line: `message` and "…". |
-| `tool.end` | `callId`, `outcome` (`"ok"`, `"error"`, `"refused"`, `"already_shown"`, `"not_run"`), `ms`, `step`, `evidence`, `error` | The call's line, done: `step`, with a mark for the outcome. `step` is what `onStep` gets; it is absent for `"not_run"` and for a call ended because its turn failed. |
+| `tool.end` | `callId`, `outcome` (`"ok"`, `"error"`, `"refused"`, `"already_shown"`, `"not_run"`, `"redacted"`), `ms`, `step`, `evidence`, `error` | The call's line, done: `step`, with a mark for the outcome. `step` is what `onStep` gets; it is absent for `"not_run"` and for a call ended because its turn failed. |
 | `text` | `delta`, `requestId` | The answer, growing. The deltas add up to the result's `text`. |
 | `notice` | `code`, `message`, `display`, `documentIds` | `display` `"activity"`: the status line. `"step"`: a line in the list. `"none"`: notices earlier versions did not show, such as `budget_reached` and `blocked`; show them if you like. New in 0.9.0: `documents_missing` (files left out of the question, `onMissingDocuments: "drop"`), `document_gone` and `page_looks_busy`, with the files' IDs in `documentIds`: map them to the names you show. |
 | `retry` | `requestId`, `attempt`, `delayMs`, `error`, `message` | The status line: `message` ("The model did not answer (HTTP 503). Trying again in 2 s…"). |
@@ -1442,7 +1442,7 @@ const summaryView = document.querySelector<HTMLElement>("#summary")!;
 const askButton = document.querySelector<HTMLButtonElement>("#ask")!;
 const stopButton = document.querySelector<HTMLButtonElement>("#stop")!;
 
-const MARKS: Record<ToolOutcome, string> = { ok: "✓", error: "✗", refused: "–", already_shown: "↺", not_run: "–" };
+const MARKS: Record<ToolOutcome, string> = { ok: "✓", error: "✗", refused: "–", already_shown: "↺", not_run: "–", redacted: "✂" };
 
 /** "app.log lines 120-180, 300", or the pages of a PDF. */
 const sourceOf = (evidence: Evidence) => {

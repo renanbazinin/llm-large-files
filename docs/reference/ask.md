@@ -706,7 +706,7 @@ English: [errors and reliability](../guides/errors-and-reliability.md#filtered-a
 ### Question IDs
 
 ```ts
-const QUESTION_ID_PATTERN: RegExp; // /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
+declare const QUESTION_ID_PATTERN: RegExp; // /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 
 declare function createQuestionRegistry(options?: QuestionRegistryOptions): QuestionRegistry;
 

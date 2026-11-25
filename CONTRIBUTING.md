@@ -10,15 +10,16 @@ You need Node 22.12 or later.
 
 ```bash
 npm install
-npm run check        # typecheck, tests, build: run it before every pull request
+npm run check        # typecheck, doc samples, tests, build: run it before every pull request
 npm run test:watch   # the tests again on every save
 ```
 
-`npm run check` runs three scripts, and stops at the first that fails. Each also runs alone:
+`npm run check` runs four scripts, and stops at the first that fails. Each also runs alone:
 
 | Script | What it does |
 | --- | --- |
 | `npm run typecheck` | `tsc --noEmit` over `src/`, `test/`, `examples/`, `evals/` and `scripts/`, in strict mode with `noUncheckedIndexedAccess` and no unused locals or parameters. The examples must compile too. |
+| `npm run typecheck:docs` | `scripts/check-doc-samples.mjs`: every TypeScript sample of README.md and `docs/`, compiled against `src/` ([The docs](#the-docs)). It takes about five seconds. |
 | `npm test` | `vitest run`: every test in `test/`, in two Vitest projects: `unit`, files in parallel, then `timing`, the files of `test/timing/` one at a time ([Tests](#tests)). No test calls a real model or needs a key. |
 | `npm run build` | Deletes `dist/` and compiles `src/` into it, with declarations and source maps (tsconfig.build.json). |
 
@@ -63,7 +64,8 @@ CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `ma
 and 26, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
 the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`); and on Ubuntu, Node
 22.12.0 (the floor of `engines`) and 22.13.0. Each job runs `npm ci`, the typecheck, the tests, the
-build and `npm pack --dry-run`. Five more jobs run on Ubuntu: `unpdf-versions` runs the tests with
+build and `npm pack --dry-run`. Six more jobs run on Ubuntu: `docs` (Node 24) runs
+`npm run typecheck:docs`, `unpdf-versions` runs the tests with
 other versions of the optional peer `unpdf` (its rows of unpdf 2 with `@napi-rs/canvas` 1.1.0, so
 that real pages are drawn), `package` (Node 22.12.0, the newest 22, and 26) runs
 `scripts/check-tarball.mjs` on the packed tarball, `coverage` (Node 24) runs `npm run coverage`,
@@ -273,7 +275,13 @@ owns it; [docs/README.md](docs/README.md) lists every page and what it covers.
 - A new export or option goes on the reference page of its module in `docs/reference/`, with its
   default. The guide for the task shows it where it matters.
 - Code samples in the docs and README.md are TypeScript that must compile against the current
-  types. `npm run typecheck` checks `examples/`, not the samples in Markdown: try a new or changed
-  sample in a file that imports the package.
+  types. `npm run typecheck:docs` compiles every block fenced as `ts`, each as a module of its own,
+  and names the page and the line of what does not compile. A sample may be a part of a program: a
+  name it does not declare (`files`, `session`) and what it imports from a module that is not this
+  package (`express`, `./large-files.js`) are `any`, so say in a comment where such a name comes
+  from. Everything else is checked: what it imports from the package, the options it passes, the
+  fields it reads. A block that shows a shape is written as a declaration (`declare function`,
+  `type`), or fenced as `text`. The check does not run a sample: run a new one once, in a file
+  that imports the package.
 - `docs/`, README.md and CHANGELOG.md are published to npm with the package. CONTRIBUTING.md and
   `examples/` are not.

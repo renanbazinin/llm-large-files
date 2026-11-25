@@ -1,0 +1,300 @@
+# A chatbot in one page
+
+This page is the whole integration for one kind of application, in one place: users sign in, each
+has chats, a chat has uploaded files and a history kept in a database, the answers come from Gemini
+on Vertex AI and stream to the browser, and the files of each chat live in a folder of their own.
+It is about 120 lines of code in three files. Each part links to the guide that explains it, so
+read this page first and open a guide when you need its detail.
+
+It is also the page to hand to a coding assistant, with your answers to the questions below. The
+docs come with the package, at the version you installed: `node_modules/llm-large-files/docs`.
+
+## Before you start: what to decide
+
+The library cannot know these. Each answer becomes a line of the code below.
+
+| Question | What it decides | More |
+|---|---|---|
+| Does the model also call tools of your application? | If it does, this page is not your path: `askGemini` offers the model only the library's tools. | [Tools of your own](#when-the-model-has-tools-of-your-own) |
+| Which Node runs the server? | 22.12 or later. On Node 22 install `unpdf@1`, on Node 24 and later `unpdf`. | [Getting started](../getting-started.md#install) |
+| What names a user, and a chat? | The user's ID is the `owner` of every call, and `[userId, chatId]` is its `scope`. Both name folders, so they must be lowercase letters, digits, `_` and `-`: MongoDB ObjectIds and lowercase UUIDs are. | [Owners and scopes](./storage.md#owners-and-scopes) |
+| Where do the files live, and how many servers read them? | One folder (`DOCUMENTS_DIR`), on a volume that every server mounts. One server sweeps it. | [A shared store](./deployment.md#a-shared-store) |
+| Which Vertex AI project, location and model, and how does the server get credentials? | The arguments of `vertexAi()`. A second, cheaper model can do the searching. | [Gemini and Vertex AI](./vertex-and-gemini.md#vertex-ai) |
+| Where is the history kept? | One record for each question, with its tool rounds, apart from the chat's record: the rounds of one question can be large. | [Conversations](./conversations.md#storing-a-conversation-and-asking-the-next-question) |
+| Which files do users upload? | `jszip` for DOCX, PPTX and XLSX, `unpdf` for PDF, `@cantoo/pdf-lib` and `keepOriginals: ["pdf"]` to let the model look at the pages of a PDF. | [PDFs and other formats](./pdfs.md) |
+| Do you trust the uploads? | If not, read them in child processes: `createIsolatedExtractors`. | [Security](../security.md#uploads) |
+| How long is a file kept? | 72 hours from the upload by default (`ttlMs`). With `files.touch` after each question, from its last use. | [Retention](./storage.md#retention) |
+| What may one question cost? | The limits of a question, and its usage, which you count for each user. | [Costs and limits](./costs-and-limits.md) |
+
+## 1. Install
+
+```bash
+npm install llm-large-files google-auth-library jszip unpdf @cantoo/pdf-lib   # Node 24 and later
+npm install llm-large-files google-auth-library jszip unpdf@1 @cantoo/pdf-lib # Node 22
+```
+
+The samples also use `express` and `mongodb`, as your application does already.
+
+## 2. The library and the model
+
+Made once, when the server starts, and shared by every request.
+
+```ts
+// large-files.ts
+import { GoogleAuth } from "google-auth-library";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { vertexAi } from "llm-large-files/gemini";
+
+export const DOCUMENTS_DIR = process.env.DOCUMENTS_DIR!; // a volume that every server mounts
+
+// The text of a chat's files is kept in <DOCUMENTS_DIR>/<user>/<chat>/.llm-large-files/.
+export const files = createLargeFiles({
+  store: new FileDocumentStore(DOCUMENTS_DIR, { scopes: { depth: 2 } }),
+  requireScope: true, // every call names its chat; that it names its owner is the default
+});
+
+const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
+export const endpoint = vertexAi({
+  project: process.env.GOOGLE_CLOUD_PROJECT!,
+  location: process.env.VERTEX_LOCATION ?? "global",
+  model: process.env.GEMINI_MODEL ?? "gemini-3.8-flash", // writes the answer
+  explorerModel: process.env.GEMINI_EXPLORER_MODEL,      // optional: a cheaper model that searches and reads
+  accessToken: async () => (await auth.getAccessToken())!, // asked for on each request
+});
+
+// On one server only: removes the expired documents of every chat.
+setInterval(() => files.sweep().catch((error) => console.error("sweep failed", error)), 60 * 60 * 1000).unref();
+```
+
+- With `scopes`, a document of one chat is not found from another chat, even by its ID, and
+  deleting a chat's folder deletes its files
+  ([Files in a folder per user or per chat](./storage.md#files-in-a-folder-per-user-or-per-chat)).
+- The budget assumes a window of 1,000,000 tokens and requests of 10 MB. For a smaller model, set
+  `budget.contextTokens` ([Costs and limits](./costs-and-limits.md#the-budget)).
+- Tokens, a token the server refused, and quotas on Vertex AI:
+  [Gemini and Vertex AI](./vertex-and-gemini.md#access-tokens-for-vertex-ai).
+
+## 3. Chats and their history
+
+Your database keeps the chats. The library needs two things from it: a check that a chat is the
+user's, and the earlier questions of the chat, each with its tool rounds.
+
+```ts
+// chats.ts
+import { mkdir, rm } from "node:fs/promises";
+import path from "node:path";
+import { MongoClient } from "mongodb";
+import { isSafeScopeSegment, type ChatTurn, type DocumentScope, type ToolTurn, type UsageTotals } from "llm-large-files";
+import { DOCUMENTS_DIR } from "./large-files.js";
+
+type ChatRecord = { _id: string; userId: string };
+/** One question of a chat. Kept apart from the chat: the tool rounds of one question can be megabytes. */
+type TurnRecord = { chatId: string; question: string; toolTurns: ToolTurn[]; answer?: string; usage: UsageTotals; createdAt: Date };
+
+const db = new MongoClient(process.env.MONGODB_URI!).db("chat");
+const chats = db.collection<ChatRecord>("chats");
+const turns = db.collection<TurnRecord>("turns");
+
+/** The scope of a chat. It is also its folder: <DOCUMENTS_DIR>/<userId>/<chatId>. */
+export function scopeOf(userId: string, chatId: string): DocumentScope {
+  // For IDs in mixed case or other letters, pass hashedScopeSegment(id) for each, here and nowhere else.
+  if (!isSafeScopeSegment(userId) || !isSafeScopeSegment(chatId)) throw new TypeError("The user or chat ID cannot name a folder.");
+  return [userId, chatId];
+}
+
+export async function createChat(userId: string, chatId: string): Promise<void> {
+  // The folder first: the store never makes a chat's folder, so an upload into a chat that has
+  // none fails, as it must for a chat that was deleted.
+  await mkdir(path.join(DOCUMENTS_DIR, ...scopeOf(userId, chatId)), { recursive: true, mode: 0o700 });
+  await chats.insertOne({ _id: chatId, userId });
+}
+
+export async function isChatOf(userId: string, chatId: string): Promise<boolean> {
+  return (await chats.countDocuments({ _id: chatId, userId })) === 1;
+}
+
+/** The messages of the next question: each earlier question, its tool rounds, then its answer. */
+export async function historyOf(chatId: string, question: string): Promise<Array<ChatTurn | ToolTurn>> {
+  const earlier = await turns.find({ chatId }).sort({ createdAt: 1 }).toArray();
+  return [
+    ...earlier.flatMap((turn): Array<ChatTurn | ToolTurn> => [
+      { role: "user", text: turn.question },
+      ...turn.toolTurns,
+      ...(turn.answer !== undefined ? [{ role: "assistant" as const, text: turn.answer }] : []),
+    ]),
+    { role: "user", text: question },
+  ];
+}
+
+export async function saveTurn(chatId: string, turn: Omit<TurnRecord, "chatId" | "createdAt">): Promise<void> {
+  await turns.insertOne({ ...turn, chatId, createdAt: new Date() });
+}
+
+/** Deletes a chat: its records first, then its folder, with every file in it. */
+export async function deleteChat(userId: string, chatId: string): Promise<void> {
+  if (!(await isChatOf(userId, chatId))) return;
+  await turns.deleteMany({ chatId });
+  await chats.deleteOne({ _id: chatId, userId });
+  await rm(path.join(DOCUMENTS_DIR, ...scopeOf(userId, chatId)), { recursive: true, force: true, maxRetries: 5 });
+}
+```
+
+- Keep `toolTurns` with each question and send them back in their place. A follow-up question then
+  reads what was found before, and often needs no new search
+  ([Conversations](./conversations.md)).
+- An answer that is not one (`answered: false`) is not kept as the assistant's turn: the model
+  would read your error message as its own words.
+- The files of a chat are not listed here. The library lists them by owner and scope, in step 5.
+  To keep your own list as well, record each upload with the `onUploaded` hook
+  ([Web app](./web-app.md#record-each-upload-onuploaded-and-onremoved)).
+
+## 4. Uploads
+
+The browser posts the raw file, with the chat in a header. `currentUserId` stands for your sign-in:
+it returns the user's ID, or `undefined`.
+
+```ts
+// server.ts, first half
+import express from "express";
+import { createDocumentHandlers } from "llm-large-files/node";
+import { isChatOf, scopeOf } from "./chats.js";
+import { files } from "./large-files.js";
+
+export const app = express();
+
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => currentUserId(request), // undefined is answered 401 "Sign in first."
+  getScope: async (request) => {
+    const userId = currentUserId(request)!;
+    const chatId = String(request.headers["x-chat-id"] ?? "");
+    if (!(await isChatOf(userId, chatId))) throw Object.assign(new Error("This chat no longer exists."), { status: 404 });
+    return scopeOf(userId, chatId);
+  },
+});
+
+app.post("/api/documents", documents.upload); // before any body parser: the body is the file
+app.get("/api/documents", documents.list); // the files of the chat, for its panel
+app.delete("/api/documents/:id", (req, res) => documents.remove(req, res, req.params.id));
+```
+
+```ts
+// In the browser. `file` comes from an <input type="file">.
+const response = await fetch("/api/documents", {
+  method: "POST",
+  headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name), "X-Chat-Id": chatId },
+  body: file,
+});
+const uploaded = await response.json(); // 201: { id, name, format, lines, estimatedTokens, expiresAt, … }; otherwise { error }
+```
+
+Every status, multipart forms, progress of a long upload, and saving the uploaded file itself in
+the chat's folder: [Web app](./web-app.md#uploads-with-createdocumenthandlers).
+
+## 5. Questions
+
+One route takes a question and answers with Server-Sent Events: each tool call as it runs, the text
+as it is written, then `run.finish` or `run.error`.
+
+```ts
+// server.ts, second half
+import { eventStream, partialResultOf, type AskEvent, type AskResult } from "llm-large-files";
+import { askGemini } from "llm-large-files/gemini";
+import { writeSseEvents } from "llm-large-files/node";
+import { historyOf, saveTurn } from "./chats.js";
+import { endpoint } from "./large-files.js";
+
+/** POST /api/chat with { chatId, question }. */
+app.post("/api/chat", express.json(), async (req, res) => {
+  // What can be refused is refused before the stream starts, with a status.
+  const userId = currentUserId(req);
+  if (!userId) return void res.status(401).json({ error: "Sign in first." });
+  const { chatId, question } = (req.body ?? {}) as { chatId?: unknown; question?: unknown };
+  if (typeof chatId !== "string" || typeof question !== "string" || !question.trim()) {
+    return void res.status(400).json({ error: "Send a chatId and a question." });
+  }
+  if (!(await isChatOf(userId, chatId))) return void res.status(404).json({ error: "No such chat." });
+
+  const scope = scopeOf(userId, chatId);
+  const [documentsOfChat, messages] = await Promise.all([files.list({ owner: userId, scope }), historyOf(chatId, question)]);
+
+  const stream = eventStream<AskEvent, AskResult>(
+    (onEvent, signal) => askGemini({
+      files,
+      endpoint,
+      owner: userId,
+      scope,
+      documentIds: documentsOfChat.map((document) => document.id), // every file of the chat, on every question
+      messages,
+      streamText: true,
+      onEvent,
+      signal, // aborts at the deadline, or when the browser goes away
+    }),
+    { signal: AbortSignal.timeout(15 * 60 * 1000) },
+  );
+  await writeSseEvents(res, stream, { end: false }); // the response stays open until the question is kept
+
+  // The tool rounds come from the result, never from the events. A question that failed or was
+  // stopped keeps what it read too, so that asking again need not search again.
+  const result = await stream.result.catch((error: unknown) => {
+    console.error("A question failed or was stopped", error); // the provider's own words: for your log, not for the page
+    return partialResultOf(error);
+  });
+  if (result) {
+    await saveTurn(chatId, { question, toolTurns: result.toolTurns, ...(result.answered ? { answer: result.text } : {}), usage: result.usage })
+      .catch((error: unknown) => console.error("could not keep the question", error));
+  }
+  if (!res.writableEnded) res.end();
+});
+```
+
+The page reads the events and shows them:
+
+| Event | Show |
+|---|---|
+| `tool.start`, `tool.end` | What the model is doing: `label`, then `step` ("Search app.log (exact) for “timeout” — 12 matching lines"). |
+| `text` | The answer, growing: add each `delta`. |
+| `run.finish` | The end. `result.answered` is `false` when no answer came: show your own message. |
+| `run.error` | `error.message`, which is safe to show, or your own words for `error.kind`. |
+
+- The code of a page that reads these events, a Stop button, and a question sent again after a
+  broken connection: [Web app](./web-app.md#reading-the-events-in-the-browser).
+- Show labels and steps as plain text, never as markdown or HTML: they quote the model's words,
+  which a file can steer.
+- The model answers in the language of the question. The labels, the steps and the error messages
+  are English: for a page in another language, show your own words for each event and each kind of
+  error. The messages of a chatbot for Hebrew speakers are in
+  [Errors and reliability](./errors-and-reliability.md#your-users-words-errorinfoof).
+
+## 6. Deleting and expiry
+
+- **A chat.** `deleteChat` above removes the records, then the folder. An upload that arrives after
+  that is answered `404`, and writes nothing.
+- **A file.** The `DELETE` route of step 4.
+- **Expiry.** A document is ignored once it expires, and the sweep of step 2 frees its space. A
+  chat then simply has one file fewer: tell the user when a file they ask about is gone
+  ([Documents that are gone](./conversations.md#documents-that-are-gone)).
+
+## When the model has tools of your own
+
+`askGemini` and `askWithFiles` run the whole loop, and offer the model only the library's tools.
+If your chatbot's model also calls tools of the application in the same question (a search of your
+knowledge base, a look-up in your database), keep your own loop and add the documents to it:
+`files.prepare()` gives the text and the instruction for the request, and `files.tools()` gives
+the tool declarations, next to which you declare yours, and runs the library's calls. Steps 2 to 4
+of this page stay as they are; step 5 becomes your loop
+([Your own adapter and loop](./own-adapter-and-loop.md#your-own-loop)).
+
+## Before production
+
+- **Uploads you do not trust** are read in child processes with a memory limit:
+  `createLargeFiles({ extractors: createIsolatedExtractors().extractors, … })`
+  ([Security](../security.md#uploads)).
+- **Memory.** Size the server for the files it reads at once
+  ([Deployment](./deployment.md#memory-on-each-server)).
+- **Proxies.** A proxy between the browser and the server must not buffer the stream, and must wait
+  longer than a question takes ([Deployment](./deployment.md#streamed-answers-behind-proxies)).
+- **Cost.** Every question has a ceiling on its input tokens by default. Set your own, and count
+  `result.usage` for each user ([Costs and limits](./costs-and-limits.md#the-limits-of-a-question)).
+- **Errors.** What each failure means and what to tell the user
+  ([Errors and reliability](./errors-and-reliability.md)).
+- **Tests.** The same routes with a scripted model, without a key ([Testing](./testing.md)).

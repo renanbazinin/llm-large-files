@@ -13,7 +13,14 @@ pages use, and every page in one line.
 ### A chatbot on Gemini or Vertex AI
 
 For an application where users upload files into a chat, ask about them and watch the answer
-stream in, with Gemini on Vertex AI or the Gemini API. Read in this order:
+stream in, with Gemini on Vertex AI or the Gemini API.
+
+The short way: [A chatbot in one page](./guides/chatbot.md) has the whole integration in one
+place, with the files of each chat in a folder of their own and the history in a database. It
+lists what to decide before you start, and links each part to the guide that explains it. It is
+also the page to hand to a coding assistant.
+
+The long way, in this order:
 
 1. [Getting started](./getting-started.md): install, a quickstart that runs, and the integration
    in short steps.
@@ -55,7 +62,14 @@ to another.
 |---|---|---|
 | `askGemini`, from `llm-large-files/gemini` | Your model is Gemini, on the Gemini API or Vertex AI. One endpoint (`vertexAi()`, `geminiApi()`, or your gateway's URL and headers) says where the model is and can name an explorer model, and you may pass the history as Gemini `contents`. | Keep the history and show the answer; the loop does the rest. The explorer can only be another Gemini model, called with the same headers. |
 | `askWithFiles` with an adapter, from `llm-large-files` | Any other model (`openAiCompatible()`, `anthropic()`, an adapter of your own), an explorer of another provider than the answering model, or an adapter you wrap for logging, quotas or a gateway. With `gemini()`, it also lets you declare the model's `contextTokens`, `maxRequestBytes` and `id` on the adapter. | The same as with `askGemini`. |
-| Your own loop, with `files.prepare()` and `files.tools()` | You already run a tool loop, such as an agent framework, and want only the documents in it. `prepare()` gives the plan, the text or card of each document and the system instruction; `tools()` gives the tool declarations and runs the calls. | The loop: sending requests, retries, keeping the request inside the window, limits, usage, evidence and history. `withRetry`, `parseSseJson`, `evidenceOf`, `stubResult` and `UsageMeter` help with parts of it. |
+| Your own loop, with `files.prepare()` and `files.tools()` | You already run a tool loop, such as an agent framework, and want only the documents in it, or your model must call tools of your application next to the library's. `prepare()` gives the plan, the text or card of each document and the system instruction; `tools()` gives the tool declarations and runs the calls. | The loop: sending requests, retries, keeping the request inside the window, limits, usage, evidence and history. `withRetry`, `parseSseJson`, `evidenceOf`, `stubResult` and `UsageMeter` help with parts of it. |
+
+**Tools of your own.** `askGemini` and `askWithFiles` offer the model the library's tools and no
+others: neither takes a tool of your application, such as a search of your knowledge base or a
+look-up in your database. A chatbot whose model calls such tools in the same question runs the
+third way: its loop declares them next to the library's and runs their calls itself
+([the steps of your own loop](./guides/own-adapter-and-loop.md#the-steps)). Decide this first: it
+is the one choice that changes the shape of the integration.
 
 `askGemini` is `askWithFiles` with a `gemini()` adapter for the endpoint, and a second one for its
 explorer model when the endpoint names one. Both return the same `AskResult`. Here are the three
@@ -229,6 +243,9 @@ One task each, with samples:
 - [An explorer model](./guides/explorer-model.md): a second, cheaper model that explores the
   documents while another answers: who does what, what changes for your app, cost, any pair of
   providers.
+- [A chatbot in one page](./guides/chatbot.md): the whole integration for a chatbot on Vertex AI,
+  in about 120 lines: what to decide first, the library and the model, chats and their history in
+  MongoDB, uploads into a folder per user and chat, questions streamed, deleting a chat.
 - [Web app](./guides/web-app.md): uploads (`createDocumentHandlers`, its hooks, saving each upload
   in the chat's folder, spooling to disk, direct `ingest`, the browser), answers and progress
   streamed over server-sent events, cancelling, a question ID for a request sent again.

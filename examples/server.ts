@@ -257,7 +257,7 @@ file.onchange = async () => {
   });
 };
 
-const MARKS = { ok: "✓", error: "✗", refused: "–", already_shown: "↺", not_run: "–" };
+const MARKS = { ok: "✓", error: "✗", refused: "–", already_shown: "↺", not_run: "–", redacted: "✂" };
 ask.onclick = async () => {
   tools.replaceChildren(); log.textContent = ""; activity.textContent = "";
   const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },

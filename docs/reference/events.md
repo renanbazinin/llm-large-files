@@ -777,11 +777,12 @@ createServer(async (request, response) => {
 To skip events, or to put an error in your app's own words, use `map`:
 
 ```ts
+import type { AskEvent } from "llm-large-files";
 import { sseMessageOf, writeSseEvents } from "llm-large-files/node";
 
 // Assumed: response and stream as above, and userMessage() turns an EventError into your app's own words, from its kind and name.
 await writeSseEvents(response, stream, {
-  map: (event) => {
+  map: (event: AskEvent) => {
     // The page does not show requests: skip them.
     if (event.type === "request.start" || event.type === "request.end") return undefined;
     if (event.type === "run.error") return sseMessageOf({ ...event, error: { ...event.error, message: userMessage(event.error) } });
@@ -1000,7 +1001,10 @@ whole-file reads that run at once can be told apart. `askWithFiles` uses them fo
 New in 0.7.0.
 
 ```ts
-executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallLimits, hooks?: ToolCallHooks): Promise<ToolOutput>;
+type ToolSet = {
+  // …and the other members of a tool set.
+  executeWithFiles(name: string, args: Record<string, unknown>, limits?: ToolCallLimits, hooks?: ToolCallHooks): Promise<ToolOutput>;
+};
 
 type ToolCallHooks = {
   onProgress?: ProgressListener;

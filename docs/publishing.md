@@ -107,7 +107,7 @@ Pushing the tag starts the release workflow.
 3. Run the checks, and look at what npm will publish:
 
    ```bash
-   npm run check                    # typecheck, tests, build
+   npm run check                    # typecheck, doc samples, tests, build
    npm pack --dry-run               # dist/, src/, docs/, CHANGELOG.md, README.md, LICENSE, package.json
    node scripts/check-tarball.mjs   # builds, packs, and checks the tarball as npm installs it
    ```
@@ -190,7 +190,7 @@ a job that cannot ask npm for a token. Its steps:
 | `npm ci --ignore-scripts` | package-lock.json does not match package.json. No install script runs: nothing in the tree needs one (esbuild, under Vitest, finds its binary without its `postinstall`). |
 | A dispatch that stages must run on a tag | Only in a run by hand with `dry_run` off: the run is on a branch. |
 | Check the tag matches package.json | The tag is not `v` + the `version` in package.json: for example `v0.6.0` on a commit whose package.json still says 0.5.0. Skipped on a branch (a dry run). |
-| `npm run check` | The typecheck, a test or the build fails. |
+| `npm run check` | The typecheck, a sample of the docs (`npm run typecheck:docs`), a test or the build fails. |
 | Pack | `npm pack` fails. The step prints the tarball's `npm shasum`, `npm integrity` and SHA-256: npm shows the first two for the version once it is published. |
 | Check the tarball as npm installs it | `node scripts/check-tarball.mjs` on that tarball finds a fault (below). |
 | Upload the tarball | It is kept as the artifact `package` of the run, for 7 days. |
