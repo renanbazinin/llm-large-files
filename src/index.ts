@@ -68,4 +68,6 @@ export { createPdfExtractor, defaultExtractors, detectFormat } from "./extract.j
 export type { PdfExtractorOptions } from "./extract.js";
 export { estimateTokens, utf8Bytes, jsonBytes } from "./text.js";
 export { declarationsFor, MAX_VIEW_PAGES, MAX_WHOLE_DOCUMENT_READS, REGEX_BUDGET_MS, TOOL_NAMES, toolResultSummary } from "./tools.js";
+export { PAGE_IMAGE_SIDE } from "./pdf-images.js";
+export { DEFAULT_NATIVE_FILE_BYTES, DEFAULT_NATIVE_PAGES } from "./native.js";
 export type * from "./types.js";

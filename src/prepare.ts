@@ -18,10 +18,11 @@ import {
   renderInline,
   type WholeRead,
 } from "./plan.js";
+import { visualFile } from "./native.js";
 import { DocumentGoneError } from "./ranged.js";
 import { numberLines, type DocumentSource } from "./search.js";
 import { estimateTokens, jsonBytes } from "./text.js";
-import type { Budget, DocumentMeta, PreparedContext } from "./types.js";
+import type { Budget, DocumentMeta, NativeDocumentsPlan, PreparedContext } from "./types.js";
 
 /**
  * The mark of a `PreparedContext` that this package's `prepare` made (since 0.10.0): its blocks
@@ -56,20 +57,29 @@ export type PrepareContext = {
   budgetFor(overrides?: Partial<Budget>): Budget;
   /** Whether `view_pages` can show the pages of a document: a PDF whose original is kept, and can be read. */
   viewableMeta(meta: DocumentMeta): boolean;
+  /**
+   * Whether the original of a document is kept and can be read, whatever its format: a file that may
+   * be sent as it is (`nativeDocuments`). Left out: none can. New in 0.99.9.
+   */
+  originalReadable?(meta: DocumentMeta): boolean;
   /** What the library requires of every call (`requireOwner`, `requireScope`). */
   rules: AccessRules;
 };
 
 type Size = { tokens: number; bytes: number };
 
-/** How the text of a document sent whole is given (`numberInline`, `inlineTables`). */
-type Shape = { numbered: boolean; tables: boolean };
+/**
+ * How the text of a document sent whole is given (`numberInline`, `inlineTables`), and the files
+ * that may go as they are (`nativeDocuments`, since 0.99.9).
+ */
+type Shape = { numbered: boolean; tables: boolean; native?: NativeDocumentsPlan };
 
 /**
  * The prompt text of a document, and, for one sent whole, whether the tools can count its tables,
- * and the size of its numbered text with 200 bytes for its frame (`numberInline`).
+ * the size of its numbered text with 200 bytes for its frame (`numberInline`), and, with
+ * `nativeDocuments`, whether its pages show what its text cannot and it has no table to count.
  */
-type Rendered = { text: string; toolable: boolean; size?: Size };
+type Rendered = { text: string; toolable: boolean; size?: Size; visual?: boolean };
 
 /**
  * What a document contributes to the prompt: its text, or its card. Undefined when it is gone
@@ -90,6 +100,8 @@ async function block(context: PrepareContext, id: string, meta: DocumentMeta, ca
           text: renderInline(document.meta, numbered ?? text, toolable),
           toolable,
           ...(numbered !== undefined ? { size: { tokens: estimateTokens(numbered), bytes: jsonBytes(numbered) + 200 } } : {}),
+          // Never a file with a table the tools count: it is counted from its text.
+          ...(shape.native ? { visual: visualFile(document.meta, text) && !isToolable(document.meta.format, text) } : {}),
         };
       } else {
         rendered = { text: renderCard(document.meta, numberLines(await document.readLines(1, CARD_LINES), 1), viewable, wholeRead), toolable: false };
@@ -108,13 +120,25 @@ async function block(context: PrepareContext, id: string, meta: DocumentMeta, ca
   return undefined;
 }
 
-/** The options of 0.10.0 that shape the text, checked. */
+/** `nativeDocuments` checked: undefined, or a plan of formats with numbers above 0 (0.99.9). */
+function nativePlanOf(given: unknown): NativeDocumentsPlan | undefined {
+  if (given === undefined) return undefined;
+  const { formats, maxFileBytes, maxPages, pageTokens } = (given ?? {}) as Partial<Record<keyof NativeDocumentsPlan, unknown>>;
+  const above0 = (value: unknown) => typeof value === "number" && value > 0;
+  if (!Array.isArray(formats) || !above0(maxFileBytes) || !above0(maxPages) || !above0(pageTokens)) {
+    throw new TypeError(`PrepareOptions.nativeDocuments must be { formats, maxFileBytes, maxPages, pageTokens } with numbers above 0 (got ${JSON.stringify(given) ?? typeof given}).`);
+  }
+  return given as NativeDocumentsPlan;
+}
+
+/** The options of 0.10.0 that shape the text, and `nativeDocuments` of 0.99.9, checked. */
 function shapeOf(options: PrepareOptions | undefined): Shape {
   const numbered: unknown = options?.numberInline;
   if (numbered !== undefined && typeof numbered !== "boolean") throw new TypeError(`PrepareOptions.numberInline must be true or false (got ${typeof numbered}).`);
   const tables: unknown = options?.inlineTables;
   if (tables !== undefined && tables !== "tools" && tables !== "text") throw new TypeError(`PrepareOptions.inlineTables must be "tools" or "text" (got ${JSON.stringify(tables) ?? String(tables)}).`);
-  return { numbered: numbered === true, tables: tables === "tools" };
+  const native = nativePlanOf(options?.nativeDocuments);
+  return { numbered: numbered === true, tables: tables === "tools", ...(native ? { native } : {}) };
 }
 
 const sum = (sizes: Iterable<Size>): Size => {
@@ -129,8 +153,12 @@ const sum = (sizes: Iterable<Size>): Size => {
 /** How many times planning is made again when the request it planned does not fit. */
 const MOST_EXTRA_PLANS = 6;
 
-/** A plan and what goes with it. */
-type Planned = Omit<PreparedContext, "missing">;
+/**
+ * A plan and what goes with it. With `nativeDocuments`, also what choosing the files sent as they
+ * are needs, which the result leaves out: the documents sent whole that are visual, the size of the
+ * cards, and whether the instruction names a whole-file read.
+ */
+type Planned = Omit<PreparedContext, "missing"> & { visual?: Set<string>; cards?: Size; wholeReads?: boolean };
 
 /**
  * Plans one model request (`LargeFiles.prepare`): which documents go in whole and which become
@@ -185,15 +213,44 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     const bytes = Math.max(0, whole.bytes - limit.bytes);
     return tokens / Math.max(1, budget.contextTokens) + bytes / Math.max(1, budget.maxRequestBytes);
   };
-  const finish = ({ plan, blocks, instruction, viewable, toolable }: Planned): Marked => ({
-    plan,
-    blocks,
-    instruction,
-    missing,
-    viewable,
-    ...(toolable ? { toolable } : {}),
-    [PREPARED_HERE]: true,
-  });
+  /**
+   * The files sent as they are (`nativeDocuments`): the documents sent whole that may go, in plan
+   * order, each while its pages and its bytes fit in what the plan leaves of the room. They are left
+   * out of `viewable`, and the instruction is written again without them.
+   */
+  const withNative = (planned: Planned, native: NativeDocumentsPlan): Planned & { native: DocumentMeta[] } => {
+    const cards = planned.cards ?? { tokens: 0, bytes: 0 };
+    const room = { tokens: limit.tokens - planned.plan.inlineTokens - cards.tokens, bytes: limit.bytes - planned.plan.inlineBytes - cards.bytes };
+    const taken: DocumentMeta[] = [];
+    for (const meta of planned.plan.inline) {
+      const eligible = native.formats.includes(meta.format as NativeDocumentsPlan["formats"][number]) && planned.visual?.has(meta.id) === true
+        && context.originalReadable?.(meta) === true && meta.bytes <= native.maxFileBytes
+        && typeof meta.pages === "number" && meta.pages >= 1 && meta.pages <= native.maxPages;
+      if (!eligible) continue;
+      const size = { tokens: meta.pages! * native.pageTokens, bytes: Math.ceil(meta.bytes / 3) * 4 + 512 };
+      if (size.tokens > room.tokens || size.bytes > room.bytes) continue;
+      room.tokens -= size.tokens;
+      room.bytes -= size.bytes;
+      taken.push(meta);
+    }
+    if (taken.length === 0) return { ...planned, native: taken };
+    const sent = new Set(taken.map((meta) => meta.id));
+    const viewable = planned.viewable.filter((meta) => !sent.has(meta.id));
+    return { ...planned, viewable, instruction: documentToolsInstruction(planned.plan.searchable, viewable, planned.wholeReads === true), native: taken };
+  };
+  const finish = (given: Planned): Marked => {
+    const { plan, blocks, instruction, viewable, toolable, native } = shape.native ? withNative(given, shape.native) : given;
+    return {
+      plan,
+      blocks,
+      instruction,
+      missing,
+      viewable,
+      ...(toolable ? { toolable } : {}),
+      ...(native ? { native } : {}),
+      [PREPARED_HERE]: true,
+    };
+  };
   let extraPlans = 0;
   let best: { planned: Planned; excess: number } | undefined;
   // Planning needs only the metadata. The text is read for the documents sent whole, and the
@@ -208,6 +265,8 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     const shown = new Set(viewable.map((meta) => meta.id));
     const blocks = new Map<string, string>();
     const toolableIds = new Set<string>();
+    const visual = new Set<string>();
+    const cards: Size = { tokens: 0, bytes: 0 };
     const gone: string[] = [];
     for (const meta of documents) {
       const whole = inline.has(meta.id);
@@ -219,6 +278,11 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
       blocks.set(meta.id, rendered.text);
       if (whole && rendered.toolable) toolableIds.add(meta.id);
       if (whole && rendered.size) measured.set(meta.id, rendered.size);
+      if (whole && rendered.visual) visual.add(meta.id);
+      if (!whole && shape.native) {
+        cards.tokens += estimateTokens(rendered.text);
+        cards.bytes += jsonBytes(rendered.text);
+      }
     }
     if (gone.length > 0) {
       missing.push(...gone);
@@ -238,6 +302,7 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
       instruction: documentToolsInstruction(plan.searchable, viewable, wholeReads),
       viewable,
       ...(toolable ? { toolable } : {}),
+      ...(shape.native ? { visual, cards, wholeReads } : {}),
     };
     // Without `numberInline`, the plan of 0.9: the cards are the caller's to count.
     if (!shape.numbered) return finish(planned);

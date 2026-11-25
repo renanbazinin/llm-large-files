@@ -3,11 +3,12 @@
 import { randomUUID } from "node:crypto";
 import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { checkToolTurnVersion, laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { documentsOption, messageFileKind } from "../native.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import { estimateTokens, sliceWhole } from "../text.js";
-import type { GenerateText, GenerateUsage, ToolDeclaration, ToolResult } from "../types.js";
+import type { DocumentsCapability, GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
 
 /** The API answered with an HTTP error, or could not be reached (`status` 0). `type` is the API's own word: "rate_limit_error". */
 export class AnthropicRequestError extends ModelRequestError {
@@ -71,9 +72,15 @@ export type AnthropicOptions = {
   /**
    * Where the pages of `view_pages` go: "inside" the tool result as a document block (the
    * default), "beside" it as a document block after the tool results, or "none" to not offer
-   * `view_pages`.
+   * `view_pages`. A tool file that is an image goes as an `image` block (since 0.99.9).
    */
   toolFilePlacement?: "inside" | "beside" | "none" | undefined;
+  /**
+   * The files this model reads natively: `{ formats: ["pdf"] }` sends a small visual PDF sent whole
+   * as a `document` block before its text. Only "pdf": the Messages API reads no Office file. Off by
+   * default. A value that is not valid is a TypeError when the adapter is made. New in 0.99.9.
+   */
+  documents?: DocumentsCapability | undefined;
   /** Chat requests are streamed, which keeps a long reply from timing out. False for a gateway without streaming. */
   stream?: boolean | undefined;
   /**
@@ -221,14 +228,22 @@ function roundMessages(round: ModelToolRound, ids: string[], files: "inside" | "
     content: round.raw !== undefined ? round.raw as Block[] : round.calls.map((call, index) => ({ type: "tool_use", id: idOf(call, index), name: call.name, input: call.args })),
   };
   if (round.answers.length === 0) return [asked];
-  const document = (file: { mimeType: string; bytes: Uint8Array }): Block => ({ type: "document", source: { type: "base64", media_type: file.mimeType, data: base64(file.bytes) } });
-  const results = round.answers.map((answer, index) => toolResultOf(idOf(answer.call, index), answer.result, files === "inside" ? (answer.files ?? []).map(document) : []));
+  const results = round.answers.map((answer, index) => toolResultOf(idOf(answer.call, index), answer.result, files === "inside" ? (answer.files ?? []).map(fileBlock) : []));
   // Anything else in the turn comes after every tool result: the API refuses text before one.
   const beside = files === "beside" ? round.answers.flatMap((answer) => (answer.files ?? []).flatMap((file) => [
     { type: "text", text: `${file.name} (returned by ${answer.call.name}):` },
-    document(file),
+    fileBlock(file),
   ])) : [];
   return [asked, { role: "user", content: [...results, ...beside] }];
+}
+
+/**
+ * A file as a content block: an image as an `image` block (since 0.99.9), any other file as a
+ * `document` block, as before.
+ */
+function fileBlock(file: Pick<ToolFile, "mimeType" | "bytes">): Block {
+  const source = { type: "base64", media_type: file.mimeType, data: base64(file.bytes) };
+  return file.mimeType.startsWith("image/") ? { type: "image", source } : { type: "document", source };
 }
 
 /** Turns that follow each other with the same role, made one: tool results and the text after them belong to one user turn. */
@@ -324,6 +339,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
     }
   })();
   const files = options.toolFilePlacement ?? "inside";
+  const documents = documentsOption("anthropic()", options.documents, ["pdf"]);
   const maxTokens = Math.max(1, Math.trunc(options.maxTokens ?? DEFAULT_MAX_TOKENS));
   const streaming = options.stream !== false;
   const eager = options.eagerInputStreaming ?? firstParty;
@@ -349,8 +365,11 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
     const used = new Set<string>();
     return joined(messages.flatMap((message): AnthropicMessage[] => {
       if (message.role !== "tools") {
+        // Its files first (since 0.99.9): a PDF as a document block, an image as an image block.
+        const given = message.files ?? [];
+        for (const file of given) messageFileKind("anthropic()", file);
         // The API refuses an empty text block.
-        return [{ role: message.role, content: message.parts.flatMap((part): Block[] => (part.native !== undefined ? [part.native as Block] : part.text ? [{ type: "text", text: part.text }] : [])) }];
+        return [{ role: message.role, content: [...given.map(fileBlock), ...message.parts.flatMap((part): Block[] => (part.native !== undefined ? [part.native as Block] : part.text ? [{ type: "text", text: part.text }] : []))] }];
       }
       const ids = callIds(message, ++rounds, used);
       const key = ids.join(" ");
@@ -484,6 +503,8 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       appendOnly: true,
       // With context editing, Claude may no longer have a result shown earlier: none is pointed to.
       ...(clearsToolResults(options.body) ? { clearsToolResults: true } : {}),
+      // Since 0.99.9, only with the option: without it the object of 0.10.
+      ...(documents ? { documents } : {}),
     },
     requestBytes: (request) => Buffer.byteLength(JSON.stringify(bodyOf(request, streaming))),
     generateText,

@@ -183,7 +183,9 @@ function filesIn(folder) {
 let bare;
 step("Install the tarball without the optional peers", () => {
   bare = project("bare", [`@types/node@${lockedVersion("@types/node")}`]);
-  const present = [...PEERS, "vitest"].filter((name) => existsSync(join(bare, "node_modules", name)));
+  // @napi-rs/canvas (page images, 0.99.9) is an optional peer too, and a native binary: never
+  // installed unasked. It is not in PEERS: no step needs it, and the lockfile has no version of it.
+  const present = [...PEERS, "@napi-rs/canvas", "vitest"].filter((name) => existsSync(join(bare, "node_modules", name)));
   if (present.length > 0) throw new Error(`Installed although nothing asked for them: ${present.join(", ")}`);
 }, { required: true });
 

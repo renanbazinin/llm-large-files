@@ -2,7 +2,7 @@
 // neutral request into the provider's own, sends it, and reads the reply back. Everything else
 // (planning, tools, limits, retries, usage, the forced answer) is the loop's, once, for every provider.
 import { brand, branded } from "./errors.js";
-import type { GenerateText, ToolDeclaration, ToolFile, ToolResult } from "./types.js";
+import type { DocumentsCapability, GenerateText, ToolDeclaration, ToolFile, ToolFileType, ToolResult } from "./types.js";
 
 /**
  * A tool call a model made. `id` is the provider's own, where it gives one. `problem` says why
@@ -21,8 +21,15 @@ export type ToolAnswer = { call: ToolCall; result: ToolResult; files?: ToolFile[
  */
 export type ModelPart = { text: string; native?: undefined } | { native: unknown; text?: string };
 
-/** A turn of the user or of the model, as text and native parts. */
-export type ModelTextMessage = { role: "user" | "assistant"; parts: ModelPart[] };
+/**
+ * A turn of the user or of the model, as text and native parts. `files` (new in 0.99.9) go first in
+ * the turn, before its parts: uploaded files sent as they are. The loop adds files of its own (small
+ * visual files, `ModelCapabilities.documents`) only when every model of the question declares
+ * `documents`; files you put in a message are passed on as they are. Every built-in adapter sends
+ * the files it can take (a PDF or an image; `gemini()` any type, as `inlineData`) and throws a
+ * `TypeError` for one it cannot. An adapter of your own that does not read `files` drops them.
+ */
+export type ModelTextMessage = { role: "user" | "assistant"; parts: ModelPart[]; files?: ToolFile[] };
 
 /**
  * One round of tool use: the calls of a model turn, and what the tools returned for them, in call
@@ -173,8 +180,26 @@ export type ModelCapabilities = {
    * "none", `view_pages` is not offered.
    */
   toolFiles: "inside" | "beside" | "none";
-  /** About what the model bills for one PDF page it is shown, in tokens. */
+  /**
+   * About what the model bills for one page it is shown (a PDF page, or a page drawn as an image),
+   * in tokens.
+   */
   pageTokens: number;
+  /**
+   * The kinds of file a tool may hand this model; `toolFiles` says where they go. Left out:
+   * ["application/pdf"], as before 0.99.9. `view_pages` sends one small PDF when every model of the
+   * question takes "application/pdf"; else each page drawn as an image, a JPEG when every model
+   * takes "image/jpeg", else a PNG when every model takes "image/png"; else it is not offered.
+   * Ignored with `toolFiles: "none"`. New in 0.99.9.
+   */
+  toolFileTypes?: readonly ToolFileType[];
+  /**
+   * The uploaded files this model reads natively in a user turn. When every model of the question
+   * declares it, small visual files sent whole go to it as the files themselves too, before their
+   * text (`ModelTextMessage.files`). Left out (every built-in adapter, unless you pass `documents`):
+   * none, as before 0.99.9. New in 0.99.9.
+   */
+  documents?: DocumentsCapability;
   /**
    * How many of this model's tokens one token of the library's estimate comes to. The estimate
    * (`estimateTokens`) is fitted to Gemini, so that is 1, the default. A model whose tokenizer

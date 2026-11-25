@@ -28,7 +28,9 @@ export const calls = (list: ToolCall[], more: Partial<ModelReply> = {}): Partial
  *
  * The capabilities are `{ toolFiles: "inside", pageTokens: 500 }` (files inside tool results, as
  * Gemini takes them) unless the options say otherwise: `toolFiles: "none"` for a model that takes
- * no files (no `view_pages`), `appendOnly: true` for one that the loop treats as Claude.
+ * no files (no `view_pages`), `appendOnly: true` for one that the loop treats as Claude,
+ * `toolFileTypes: ["image/jpeg"]` for one that is shown pages as images, and
+ * `documents: { formats: ["pdf"] }` for one that is sent small visual files as they are (0.99.9).
  */
 export function fakeModel(script: Scripted[], options: Partial<ModelCapabilities> & { id?: string; generateText?: GenerateText } = {}): FakeModel {
   const { id = "fake-model", generateText, ...capabilities } = options;
