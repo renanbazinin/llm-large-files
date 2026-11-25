@@ -827,12 +827,16 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
    */
   async function changeMeta(id: string, caller: Caller, operation: string, change: Omit<MetaPatch, "createdAt">): Promise<DocumentMeta | undefined> {
     const patchMeta = usableStoreMethod(store, "patchMeta");
-    if (!patchMeta) throw new TypeError(`files.${operation} needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one that has its own put, get, getMeta or delete needs its own patchMeta).`);
+    if (!patchMeta) throw new TypeError(`files.${operation} needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one, or one whose put, get, getMeta or delete was replaced, needs its own patchMeta).`);
     const meta = await metaFor(id, caller);
     if (!meta) return undefined;
-    const changed = metaOf(await timed("write", () => patchMeta.call(store, id, { ...change, createdAt: meta.createdAt }, caller.context), caller.signal), id);
-    // The store changed the document of that `createdAt`, or none: one of another is not given back.
-    return changed && changed.createdAt === meta.createdAt ? wholeName(changed) : undefined;
+    // An expiry already as late: nothing to write.
+    if (change.appData === undefined && change.expiresAt !== undefined && Date.parse(change.expiresAt) <= Date.parse(meta.expiresAt)) return meta;
+    // The document as it was looked up: its `createdAt`, owner and scope.
+    const one = { createdAt: meta.createdAt, ...(meta.owner !== undefined ? { owner: meta.owner } : {}), ...(meta.scope !== undefined ? { scope: meta.scope } : {}) };
+    const changed = metaOf(await timed("write", () => patchMeta.call(store, id, { ...change, ...one }, caller.context), caller.signal), id);
+    // The store changed that document, or none: one of another is not given back.
+    return changed && changed.createdAt === meta.createdAt && heldBy(changed, meta.owner, meta.scope) ? wholeName(changed) : undefined;
   }
 
   /**
@@ -1126,7 +1130,7 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
     async list(access) {
       const caller = callerOf(access, rules);
       const list = usableStoreMethod(store, "list");
-      if (!list) throw new TypeError("files.list needs a store with list(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one that has its own put, get, getMeta or delete needs its own list).");
+      if (!list) throw new TypeError("files.list needs a store with list(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one, or one whose put, get, getMeta or delete was replaced, needs its own list).");
       const found: unknown = await reading(() => list.call(store, caller.context), caller.signal);
       const at = now().getTime();
       const listed: DocumentMeta[] = [];
@@ -1160,7 +1164,7 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       const caller = callerOf(access, rules);
       if (appData === undefined) {
         // Nothing to change: the document as it is, when the store could change it.
-        if (!usableStoreMethod(store, "patchMeta")) throw new TypeError("files.update needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one that has its own put, get, getMeta or delete needs its own patchMeta).");
+        if (!usableStoreMethod(store, "patchMeta")) throw new TypeError("files.update needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one, or one whose put, get, getMeta or delete was replaced, needs its own patchMeta).");
         return metaFor(id, caller);
       }
       return changeMeta(id, caller, "update", { appData });

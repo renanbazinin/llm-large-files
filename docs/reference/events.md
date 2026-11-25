@@ -837,7 +837,7 @@ this order, and each stage ends before the next starts:
 | `"extract"` | pages, or parts | the pages, or the parts | Text read: each page of a PDF; each part of a DOCX (body, footnotes, headers…), each slide of a PPTX or each sheet of an XLSX. | A PDF, DOCX, PPTX or XLSX, or an extractor of your own that reports it. Not a text file. |
 | `"pictures"` | pages | the pages | Pages looked at for pictures. | A PDF, with `@cantoo/pdf-lib` installed and `pictures` on. |
 | `"decode"` | bytes | the bytes | One event when the file is decoded. | A text file that is not UTF-8, and every HTML file. |
-| `"prepare"` | characters | the characters | The text cleaned before it is cut into lines. | Every file. |
+| `"prepare"` | characters | the characters | The text cleaned before it is cut into lines. | Every file, except one that `dedupe` (0.10.2) answers with a document stored before: it has no stage after `ingest.start`, only `ingest.finish`. |
 | `"index"` | characters | the characters | The line index built. | A store with `putIndex`, such as `FileDocumentStore`. |
 | `"store"` | parts | the writes | Each write to the store, once done: the original file (`keepOriginals`), the line index, then the text. | Every file. |
 

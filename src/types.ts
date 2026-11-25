@@ -155,6 +155,13 @@ export type MetaPatch = {
    * (deleted, then ingested again) has another, and is not changed.
    */
   createdAt: string;
+  /**
+   * The owner of the document to change, absent for none: a document of another owner, even of the
+   * same `createdAt`, is not changed. Compare as `owner ?? undefined` (null is none).
+   */
+  owner?: string;
+  /** The scope of the document to change, absent for none, compared segment by segment, as `owner` is. */
+  scope?: DocumentScope;
   /** A later expiry: the stored `expiresAt` becomes the later of the two, as ISO 8601 dates compare. */
   expiresAt?: string;
   /** The application's own data: replaces `appData` whole, or removes it when null. */
@@ -230,8 +237,8 @@ export interface DocumentStore {
    */
   list?(context?: DocumentContext): Promise<DocumentMeta[]>;
   /**
-   * Changes the fields of `patch` in the metadata of the document `id` whose `createdAt` is
-   * `patch.createdAt`, and nothing else: its other fields, its text, line index and original stay
+   * Changes the fields of `patch` in the metadata of the document `id` whose `createdAt`, owner and
+   * scope are `patch`'s, and nothing else: its other fields, its text, line index and original stay
    * as they are. Returns the metadata as it is after the change, or undefined when no such document
    * is there (unknown, deleted, expired, or another one stored under the ID since), and nothing was
    * written. Apply the fields to what is stored at the time of the write, not to a copy read

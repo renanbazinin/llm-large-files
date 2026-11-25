@@ -238,7 +238,9 @@ let checksMade = 0;
  * ```
  *
  * Each check makes its own store with `create`, over storage of its own, and gives it to `dispose`
- * at the end. Checks are only added in minor versions. New in 0.9.0.
+ * at the end. A check a patch release adds runs only for a method the store did not have before
+ * (0.10.2: `list` and `patchMeta`, when the store has them), so a patch never fails a store that
+ * passed. New in 0.9.0.
  */
 export function documentStoreChecks(options: DocumentStoreChecksOptions): DocumentStoreCheck[] {
   if (typeof options?.create !== "function") throw new TypeError("documentStoreChecks needs a create function that makes a store.");
@@ -525,25 +527,29 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
   }
 
   if (!skip.has("meta")) {
-    checks.push(check("changes the fields of patchMeta alone, of the document of that createdAt only (when it has patchMeta)", async ({ store, raw, start, context }) => {
+    checks.push(check("changes the fields of patchMeta alone, of the document of that createdAt, owner and scope only (when it has patchMeta)", async ({ store, raw, start, context }) => {
       if (!usableStoreMethod(raw, "patchMeta")) return;
       const meta = metaFor("check-meta", TEXT, start, start + DAY, { scope: [...scopes.a], owner: "owner-a", appData: { row: "1" } });
       await must(() => store.put({ meta, text: TEXT }, context()), "put");
       const later = new Date(start + 3 * DAY).toISOString();
       const expected = { ...meta, expiresAt: later, appData: { row: "42", tags: ["a"] } };
-      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, expiresAt: later, appData: { row: "42", tags: ["a"] } }, context()), "patchMeta"), expected, "what patchMeta gave for a document that is there");
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, owner: "owner-a", scope: [...scopes.a], expiresAt: later, appData: { row: "42", tags: ["a"] } }, context()), "patchMeta"), expected, "what patchMeta gave for a document that is there");
       same(await store.getMeta("check-meta", context()), expected, "getMeta(id) after patchMeta");
       same((await store.get("check-meta", context()))?.text, TEXT, "get(id).text after patchMeta, which must not change");
       // An earlier expiry is not taken: the later of the two stays. appData: null removes it.
       const { appData: _removed, ...withoutData } = expected;
-      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, expiresAt: new Date(start + DAY).toISOString(), appData: null }, context()), "patchMeta"), withoutData, "patchMeta with an earlier expiry and appData: null");
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, owner: "owner-a", scope: [...scopes.a], expiresAt: new Date(start + DAY).toISOString(), appData: null }, context()), "patchMeta"), withoutData, "patchMeta with an earlier expiry and appData: null");
       // Another createdAt is another document, stored under the ID since: nothing is changed.
-      same(await must(() => store.patchMeta!("check-meta", { createdAt: new Date(start + 1).toISOString(), appData: { row: "x" } }, context()), "patchMeta"), undefined, "patchMeta for another createdAt");
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: new Date(start + 1).toISOString(), owner: "owner-a", scope: [...scopes.a], appData: { row: "x" } }, context()), "patchMeta"), undefined, "patchMeta for another createdAt");
       same(await store.getMeta("check-meta", context()), withoutData, "getMeta(id) after patchMeta for another createdAt, which must change nothing");
-      same(await must(() => store.patchMeta!("check-meta-unknown", { createdAt: meta.createdAt, appData: { row: "x" } }, context()), "patchMeta"), undefined, "patchMeta of an unknown ID");
+      // Another owner, or no owner, is another document, even of the same createdAt.
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, owner: "owner-b", scope: [...scopes.a], appData: { row: "x" } }, context()), "patchMeta"), undefined, "patchMeta for another owner");
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, scope: [...scopes.a], appData: { row: "x" } }, context()), "patchMeta"), undefined, "patchMeta for no owner, of a document that has one");
+      same(await store.getMeta("check-meta", context()), withoutData, "getMeta(id) after patchMeta for another owner, which must change nothing");
+      same(await must(() => store.patchMeta!("check-meta-unknown", { createdAt: meta.createdAt, owner: "owner-a", scope: [...scopes.a], appData: { row: "x" } }, context()), "patchMeta"), undefined, "patchMeta of an unknown ID");
       same(await store.getMeta("check-meta-unknown", context()), undefined, "getMeta(id) after patchMeta of an unknown ID, which must write nothing");
       await store.delete("check-meta", context());
-      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, expiresAt: later }, context()), "patchMeta"), undefined, "patchMeta after delete");
+      same(await must(() => store.patchMeta!("check-meta", { createdAt: meta.createdAt, owner: "owner-a", scope: [...scopes.a], expiresAt: later }, context()), "patchMeta"), undefined, "patchMeta after delete");
       same(await store.getMeta("check-meta", context()), undefined, "getMeta(id) after patchMeta of a deleted document");
     }));
 
@@ -553,8 +559,8 @@ export function documentStoreChecks(options: DocumentStoreChecksOptions): Docume
       await must(() => store.put({ meta, text: TEXT }, context()), "put");
       const later = new Date(start + 2 * DAY).toISOString();
       await Promise.all([
-        must(() => store.patchMeta!("check-meta-both", { createdAt: meta.createdAt, expiresAt: later }, context()), "patchMeta"),
-        must(() => store.patchMeta!("check-meta-both", { createdAt: meta.createdAt, appData: { row: "7" } }, context()), "patchMeta"),
+        must(() => store.patchMeta!("check-meta-both", { createdAt: meta.createdAt, owner: "owner-a", scope: [...scopes.a], expiresAt: later }, context()), "patchMeta"),
+        must(() => store.patchMeta!("check-meta-both", { createdAt: meta.createdAt, owner: "owner-a", scope: [...scopes.a], appData: { row: "7" } }, context()), "patchMeta"),
       ]);
       same(await store.getMeta("check-meta-both", context()), { ...meta, expiresAt: later, appData: { row: "7" } }, "getMeta(id) after two patchMeta calls at once, the expiry of one and the appData of the other");
     }));

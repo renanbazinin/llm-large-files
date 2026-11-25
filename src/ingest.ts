@@ -165,8 +165,9 @@ async function sameDocument(context: IngestContext, target: Target, sha256: stri
     const patchMeta = usableStoreMethod(store, "patchMeta");
     if (!patchMeta) return meta;
     // The document of that `createdAt` only: one deleted and stored again under the ID is not it.
-    const touched = metaOf(await call("write", () => patchMeta.call(store, meta.id, { createdAt: meta.createdAt, expiresAt: expiryAfter(now(), ttlMs) }, target.context)), meta.id);
-    if (touched && touched.createdAt === meta.createdAt) return touched;
+    const one = { createdAt: meta.createdAt, ...(meta.owner !== undefined ? { owner: meta.owner } : {}), ...(meta.scope !== undefined ? { scope: meta.scope } : {}) };
+    const touched = metaOf(await call("write", () => patchMeta.call(store, meta.id, { ...one, expiresAt: expiryAfter(now(), ttlMs) }, target.context)), meta.id);
+    if (touched && touched.createdAt === meta.createdAt && heldBy(touched, target.owner, target.scope)) return touched;
   }
   return undefined;
 }
@@ -1003,7 +1004,7 @@ export async function ingestDocument(context: IngestContext, input: IngestInput 
     if (events.active) events.emit({ type: "ingest.start", ...startOf(input, stated?.size) });
     checkOwner(input.owner);
     const target = targetOf(input, context.rules);
-    if (target.dedupe && !usableStoreMethod(context.store, "list")) throw new TypeError("dedupe needs a store with list(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one that has its own put, get, getMeta or delete needs its own list).");
+    if (target.dedupe && !usableStoreMethod(context.store, "list")) throw new TypeError("dedupe needs a store with list(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one, or one whose put, get, getMeta or delete was replaced, needs its own list).");
     // The path looked at, as it was made absolute then (the working directory may have changed
     // since); checked again for an input it was not taken from, which throws here.
     const path = quietPath ?? sourcePathOf(input);

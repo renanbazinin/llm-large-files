@@ -36,7 +36,9 @@ export function documentVersion(meta: DocumentMeta): string {
  * not served from here.
  */
 export class DocumentCache<T extends Sized> {
-  private readonly entries = new Map<string, { version: string; value: T; bytes: number; owner?: string }>();
+  private readonly entries = new Map<string, { version: string; value: T; bytes: number; owner?: string; used: number }>();
+  /** A count of uses, to tell which of the documents and the one kept apart was used longest ago. */
+  private uses = 0;
   /** Entries that belong to no other: the documents. */
   private documents = 0;
   private total = 0;
@@ -45,7 +47,7 @@ export class DocumentCache<T extends Sized> {
    * last use (P4, 0.10.2): the tool calls of one question that read it again do not each load and
    * index it again, as they did over a store without `readTextRange`. One at most.
    */
-  private oversize: { id: string; version: string; value: T; bytes: number; timer: ReturnType<typeof setTimeout> } | undefined;
+  private oversize: { id: string; version: string; value: T; bytes: number; timer: ReturnType<typeof setTimeout>; used: number } | undefined;
 
   constructor(
     private readonly maxBytes: number,
@@ -71,6 +73,7 @@ export class DocumentCache<T extends Sized> {
     }
     // Most recently used last.
     this.entries.delete(id);
+    entry.used = ++this.uses;
     this.entries.set(id, entry);
     return entry.value;
   }
@@ -89,16 +92,14 @@ export class DocumentCache<T extends Sized> {
       // A document (not a piece), with a cache that keeps any: the last one is kept apart.
       if (owner === undefined && this.maxBytes > 0) {
         this.keepOversize(id, version, value, bytes);
-        // The one kept apart is the most recently used: the others go first.
-        this.withinEntries(false);
+        this.withinEntries();
       }
       return;
     }
-    this.entries.set(id, { version, value, bytes, ...(owner !== undefined ? { owner } : {}) });
+    this.entries.set(id, { version, value, bytes, ...(owner !== undefined ? { owner } : {}), used: ++this.uses });
     this.total += bytes;
     if (owner === undefined) this.documents++;
-    // This document is the most recently used: the one kept apart goes before it.
-    this.withinEntries(owner === undefined);
+    this.withinEntries();
     // Too much memory: the entries used longest ago go, whatever they are.
     for (const [oldest] of this.entries) {
       if (this.total <= this.maxBytes) break;
@@ -127,12 +128,11 @@ export class DocumentCache<T extends Sized> {
   }
 
   /**
-   * Within `maxEntries` documents, the one kept apart counted (`cacheSize`): one too many, the one
-   * kept apart goes first when `apartFirst` (a document was just kept, and is used more recently),
-   * then the one used longest ago, with what belongs to it, and with none left the one kept apart.
+   * Within `maxEntries` documents, the one kept apart counted (`cacheSize`): one too many, the
+   * document used longest ago goes, with what belongs to it, whether it is one of the others or the
+   * one kept apart.
    */
-  private withinEntries(apartFirst: boolean): void {
-    if (apartFirst && this.oversize && this.documents + 1 > this.maxEntries) this.dropOversize();
+  private withinEntries(): void {
     while (this.documents + (this.oversize ? 1 : 0) > this.maxEntries) {
       let oldest: string | undefined;
       for (const [key, entry] of this.entries) {
@@ -141,9 +141,11 @@ export class DocumentCache<T extends Sized> {
           break;
         }
       }
-      if (oldest === undefined) {
+      const apart = this.oversize;
+      if (oldest === undefined || (apart && apart.used < this.entries.get(oldest)!.used)) {
         this.dropOversize();
-        break;
+        if (oldest === undefined) break;
+        continue;
       }
       this.delete(oldest);
       for (const [key, entry] of [...this.entries]) if (entry.owner === oldest) this.delete(key);
@@ -159,12 +161,13 @@ export class DocumentCache<T extends Sized> {
       return undefined;
     }
     kept.timer = this.oversizeTimer(kept.timer);
+    kept.used = ++this.uses;
     return kept.value;
   }
 
   private keepOversize(id: string, version: string, value: T, bytes: number): void {
     this.dropOversize();
-    this.oversize = { id, version, value, bytes, timer: this.oversizeTimer() };
+    this.oversize = { id, version, value, bytes, timer: this.oversizeTimer(), used: ++this.uses };
   }
 
   /**

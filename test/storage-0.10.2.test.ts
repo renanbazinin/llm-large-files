@@ -1,7 +1,7 @@
 // Storage for an application's own panels (0.10.2): `files.list`, `files.touch` (expiry from the
 // last use, H5), and the application's own data on a document (`appData`, `files.update`), over the
 // memory and file stores, with `list` and `patchMeta` on the store.
-import { chmod, mkdtemp, readdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readdir, readFile, rename, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -182,11 +182,11 @@ describe("FileDocumentStore.patchMeta", () => {
     const files = createLargeFiles({ store, now: time.now });
     const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), scope: ["u1", "c1"] });
     const context = { scope: ["u1", "c1"] };
-    expect(await store.patchMeta!(meta.id, { createdAt: meta.createdAt, appData: { a: 1 } }, context)).toEqual({ ...meta, appData: { a: 1 } });
+    expect(await store.patchMeta!(meta.id, { createdAt: meta.createdAt, scope: ["u1", "c1"], appData: { a: 1 } }, context)).toEqual({ ...meta, appData: { a: 1 } });
     expect((await store.getMeta(meta.id, context))?.appData).toEqual({ a: 1 });
     expect((await store.get(meta.id, context))?.text).toBe("alpha");
     await files.delete(meta.id, context);
-    expect(await store.patchMeta!(meta.id, { createdAt: meta.createdAt, appData: { a: 2 } }, context)).toBeUndefined();
+    expect(await store.patchMeta!(meta.id, { createdAt: meta.createdAt, scope: ["u1", "c1"], appData: { a: 2 } }, context)).toBeUndefined();
     const folder = path.join(directory!, "u1", "c1", ".llm-large-files");
     expect((await readdir(folder)).filter((name) => name.startsWith(meta.id))).toEqual([]);
     // A scope whose folder is not there: undefined, and no folder is made.
@@ -243,6 +243,8 @@ describe("the review of 0.10.2", () => {
       time.advance(1_000);
       await files.ingest({ name: "report.txt", bytes: utf8("BBBB of B"), id: "report-1", owner: "b" });
     };
+    // Later, so that the touch has something to write.
+    time.advance(60_000);
     expect(await files.touch!("report-1", { owner: "a" })).toBeUndefined();
     const theirs = await files.getMeta("report-1", { owner: "b" });
     expect(theirs?.owner).toBe("b");
@@ -358,7 +360,7 @@ describe("the second review of 0.10.2", () => {
       for (const name of await readdir(folder)) await rename(path.join(folder, name), path.join(outside, name));
       await rm(folder, { recursive: true });
       await symlink(outside, folder);
-      await expect(store.patchMeta!(meta.id, { createdAt: meta.createdAt, appData: { a: 1 } }, { scope: ["u1"] })).rejects.toThrow(/link/);
+      await expect(store.patchMeta!(meta.id, { createdAt: meta.createdAt, scope: ["u1"], appData: { a: 1 } }, { scope: ["u1"] })).rejects.toThrow(/link/);
       expect(JSON.parse(await readFile(path.join(outside, `${meta.id}.json`), "utf8")).appData).toBeUndefined();
     } finally {
       await rm(outside, { recursive: true, force: true });
@@ -394,6 +396,94 @@ describe("the second review of 0.10.2", () => {
     } finally {
       await chmod(secret, 0o600);
     }
+  });
+});
+
+describe("the third review of 0.10.2", () => {
+  it("never leaves the metadata of a document over the text of the one that replaced it, in one process", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "llf-0102-"));
+    const files = createLargeFiles({ store: new FileDocumentStore(directory), ttlMs: 60 * 60 * 1000 });
+    for (let round = 0; round < 200; round++) {
+      const first = await files.ingest({ name: "a.txt", bytes: utf8(`alpha ${round}`), id: "race-1", ifExists: "replace" });
+      await Promise.all([
+        files.touch!("race-1"),
+        files.update!("race-1", { appData: { round } }),
+        files.ingest({ name: "b.txt", bytes: utf8(`bravo ${round}`), id: "race-1", ifExists: "replace" }),
+      ]);
+      const stored = await new FileDocumentStore(directory).get("race-1");
+      expect(stored?.meta.name, `round ${round}`).toBe("b.txt");
+      expect(stored?.text, `round ${round}`).toBe(`bravo ${round}`);
+      expect(stored?.meta.createdAt === first.createdAt && stored.meta.name === "b.txt", `round ${round}`).toBe(false);
+    }
+  });
+
+  it("never changes another owner's document stored under the ID in the same millisecond", async () => {
+    const memory = new MemoryDocumentStore({ now: () => new Date("2026-11-25T08:00:00Z") });
+    let swap: (() => Promise<void>) | undefined;
+    const store: DocumentStore = {
+      put: (d, c) => memory.put(d, c), get: (id, c) => memory.get(id, c), getMeta: (id, c) => memory.getMeta(id, c), delete: (id, c) => memory.delete(id, c),
+      list: (c) => memory.list(c),
+      patchMeta: async (id, patch, c) => {
+        await swap?.();
+        return memory.patchMeta(id, patch, c);
+      },
+    };
+    // One clock that does not move: both documents have the same createdAt.
+    const files = createLargeFiles({ store, now: () => new Date("2026-11-25T08:00:00Z") });
+    const first = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), id: "same-ms", owner: "alice" });
+    swap = async () => {
+      swap = undefined;
+      await memory.delete("same-ms");
+      await files.ingest({ name: "b.txt", bytes: utf8("bravo"), id: "same-ms", owner: "bob" });
+    };
+    expect(await files.update!("same-ms", { appData: { by: "alice" } }, { owner: "alice" })).toBeUndefined();
+    const bobs = await files.getMeta("same-ms", { owner: "bob" });
+    expect(bobs?.createdAt).toBe(first.createdAt);
+    expect(bobs?.appData).toBeUndefined();
+  });
+
+  it("does not sweep an application's own JSON without a .txt in a folder it shares", async () => {
+    directory = await mkdtemp(path.join(tmpdir(), "llf-0102-"));
+    await writeFile(path.join(directory, "plan.json"), JSON.stringify({ id: "plan", name: "mine", expiresAt: "2999-01-01T00:00:00Z" }));
+    const hourAgo = new Date(Date.now() - 2 * HOUR);
+    await utimes(path.join(directory, "plan.json"), hourAgo, hourAgo);
+    const store = new FileDocumentStore(directory, { orphanAgeMs: 1_000 });
+    expect(await store.sweep()).toBe(0);
+    expect(await readdir(directory)).toEqual(["plan.json"]);
+  });
+
+  it("drops the document used longest ago under cacheSize, whether the one kept apart or another", () => {
+    const meta = (id: string) => ({ id }) as DocumentMeta;
+    const item = (memoryBytes: number) => ({ memoryBytes, meta: meta("x") });
+    const cache = new DocumentCache<ReturnType<typeof item>>(100, 2);
+    const [a, b, big] = [item(10), item(10), item(500)];
+    cache.set("a", "v", a);
+    cache.set("big", "v", big);
+    expect(cache.get("a", "v")).toBe(a); // a is used after big
+    cache.set("b", "v", b); // one too many: big, used longest ago, goes
+    expect(cache.get("big", "v")).toBeUndefined();
+    expect(cache.get("a", "v")).toBe(a);
+    expect(cache.get("b", "v")).toBe(b);
+    cache.set("big", "v", big); // one too many: a, used longest ago, goes
+    expect(cache.get("a", "v")).toBeUndefined();
+    expect(cache.get("b", "v")).toBe(b);
+    expect(cache.get("big", "v")).toBe(big);
+  });
+
+  it("writes nothing when touch finds the expiry already as late", async () => {
+    const memory = new MemoryDocumentStore();
+    let patches = 0;
+    const store: DocumentStore = {
+      put: (d, c) => memory.put(d, c), get: (id, c) => memory.get(id, c), getMeta: (id, c) => memory.getMeta(id, c), delete: (id, c) => memory.delete(id, c),
+      patchMeta: (id, patch, c) => {
+        patches++;
+        return memory.patchMeta(id, patch, c);
+      },
+    };
+    const files = createLargeFiles({ store, ttlMs: Number.POSITIVE_INFINITY });
+    const meta = await files.ingest({ name: "a.txt", bytes: utf8("alpha") });
+    expect((await files.touch!(meta.id))?.expiresAt).toBe(meta.expiresAt);
+    expect(patches).toBe(0);
   });
 });
 

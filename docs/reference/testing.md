@@ -228,6 +228,10 @@ What the checks cover:
   left shows when a document is put again under the ID. With `isolatesScopes`, a sweep with a scope
   removes only that scope's.
 - The IDs an application may choose ([`APP_DOCUMENT_ID_PATTERN`](./library.md#app_document_id_pattern)).
+- Since 0.10.2, when the store has them: `list` gives the documents of a scope, not the deleted
+  ones, as copies ("list"); `patchMeta` changes its fields alone, only for the document of that
+  `createdAt`, owner and scope, keeps the later expiry, and keeps both of two changes made at once
+  ("meta").
 - Every method takes a context. Without `requiresScope`, also no context, `{}`, and an owner alone.
 - With `requiresScope`: a call without a scope throws a
   [`DocumentScopeError`](./library.md#documentscopeerror) of code `"scope_required"`, and `sweep`

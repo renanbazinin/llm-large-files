@@ -70,9 +70,11 @@ with another signature no longer matches the interface: rename it.)
   ([`files.list`](docs/reference/library.md#fileslistaccess)).
 - **`files.touch(id, access)`**: the document's expiry is counted again from now (H5), so `ttlMs`
   becomes the time a file is kept after its last use. Only the expiry is changed, through the
-  store's new optional `patchMeta(id, { createdAt, expiresAt?, appData? }, context)`: field by field,
-  and only in the document of that `createdAt`, so a document stored again under the same ID
-  meanwhile is never changed, and a `touch` and an `update` at once both stay
+  store's new optional `patchMeta(id, { createdAt, owner?, scope?, expiresAt?, appData? }, context)`:
+  field by field, and only in the document of that `createdAt`, owner and scope, so a document
+  stored again under the same ID meanwhile is never changed, and a `touch` and an `update` at once
+  both stay. `FileDocumentStore` makes them take turns with its `put` and `delete` of the document;
+  across servers sharing a folder, see [Storage](docs/guides/storage.md#filedocumentstore)
   ([Expiry from the last use](docs/guides/storage.md#expiry-from-the-last-use)).
 - **`appData`**: the application's own data about a document (`DocumentMeta.appData`, a JSON object
   of at most 16 KB, `MAX_APP_DATA_BYTES`), set with `ingest({ appData })` and changed with

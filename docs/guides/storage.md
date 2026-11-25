@@ -97,8 +97,15 @@ With `scopes` (new in 0.9.0), the files of each scope are in a folder of their o
 - `put` writes the text first and the metadata last. `delete` removes the metadata first, and
   nothing else when that fails: it throws, and the document stays whole. Once the metadata is
   gone, the document is gone: `delete` returns true, and a text, index or original it could not
-  remove is left for `sweep` (new in 0.9.0: it threw). A document never appears without its text,
-  and is never listed once its text is gone.
+  remove is left for `sweep` (new in 0.9.0: it threw). A document never appears without its text.
+  Once its text is gone, a question takes it as missing; `getMeta` and `list` still give its
+  metadata until `sweep` removes it (since 0.10.2, once that metadata is older than `orphanAgeMs`).
+- `patchMeta` (`files.touch`, `files.update`, `dedupe`, 0.10.2) reads the metadata, changes it and
+  writes it whole. On one server its changes take turns with `put` and `delete` of the same document,
+  so a document deleted and stored again meanwhile is never written over. Across servers that share
+  the folder nothing makes them take turns: a change on one server at the moment of a delete and a
+  new `put` of the same ID on another can write the old metadata over the new document (with
+  `scopes`, both are in one chat's folder, so of one user), or leave metadata without text.
 - File names are document IDs: the library's (`doc_` and 32 hex digits), or, since 0.9.0, an
   application's ([Application IDs](#application-ids)). `APP_DOCUMENT_ID_PATTERN` leaves out the
   names Windows keeps for devices (`con`, `nul`, `com1` and the like), since `con.json` is not a
@@ -636,7 +643,9 @@ them in your database:
   and SHA-256) when a user uploads it again, instead of a second copy. The file is read once to
   hash it, not extracted; the document keeps its own name, `createdAt` and `appData`, and its expiry
   is counted again. Its `createdAt` is before the upload: if your app deletes an upload's document
-  when a later step fails, do not delete this one.
+  when a later step fails, do not delete this one. Dedupe looks at what is stored: two uploads of
+  the same file at the same moment may both be stored. The upload handlers of `llm-large-files/node`
+  do not pass `dedupe` or `appData`.
 
 ```ts
 const meta = await files.ingest({ name, bytes, owner: userId, scope: [userId, chatId], dedupe: true, appData: { uploadedBy: userId } });
@@ -841,8 +850,8 @@ Which context a call carries:
 | `readTextRange(id, start, end)` | No | To read a document larger than `wholeDocumentBytes`, and to build its index. Only after `getMeta` found the document. | Return the bytes of the text from `start` (inclusive) to `end` (exclusive). See [Reading by range](#reading-by-range). |
 | `putIndex(id, index)` | No | `ingest`, after `putOriginal` and before `put`, for every document. Again when a document read by range has no index, or one that does not match its text. | Keep the bytes. |
 | `getIndex(id)` | No | When a document read by range is opened. | Return the bytes `putIndex` kept, or undefined. A damaged index is noticed and built again. |
-| `list()` | No | `files.list`, and `ingest({ dedupe: true })`. New in 0.10.2. | Return the metadata of the documents of `context.scope` (of no scope without one), without the expired ones. A query on the scope, not a read of each document: index the field you keep the scope in. |
-| `patchMeta(id, patch)` | No | `files.touch`, `files.update`, and `ingest({ dedupe: true })` for the document it gives back. New in 0.10.2. | Change only the fields of `patch` (the later `expiresAt`; `appData` set, or removed when `null`), only in the document of that `id` and `createdAt`, applied to what is stored at the time of the write; return the metadata after the change, or undefined, writing nothing, when there is no such document. In MongoDB: `findOneAndUpdate({ _id: id, "meta.createdAt": patch.createdAt }, { $max: { "meta.expiresAt": patch.expiresAt }, $set: { "meta.appData": … } }, { returnDocument: "after" })`, and `$unset` for `null`. In a store that keeps `expiresAt` in a field of its own for a TTL index, change that field too. |
+| `list()` | No | `files.list`, and `ingest({ dedupe: true })`. New in 0.10.2. | Return the metadata of the documents of `context.scope` (of no scope without one). Expired ones may be left out or given: the library leaves them out. A query on the scope, not a read of each document: index the field you keep the scope in. |
+| `patchMeta(id, patch)` | No | `files.touch`, `files.update`, and `ingest({ dedupe: true })` for the document it gives back. New in 0.10.2. | Change only the fields of `patch` (the later `expiresAt`; `appData` set, or removed when `null`), only in the document of that `id` whose `createdAt`, owner and scope are `patch`'s (absent is none), applied to what is stored at the time of the write; return the metadata after the change, or undefined, writing nothing, when there is no such document. In MongoDB: `findOneAndUpdate({ _id: id, "meta.createdAt": patch.createdAt, "meta.owner": patch.owner ?? null, "meta.scope": patch.scope ?? null }, { $max: { "meta.expiresAt": patch.expiresAt }, $set: { "meta.appData": … } }, { returnDocument: "after" })` (`null` matches a field left out), and `$unset` for `null`. In a store that keeps `expiresAt` in a field of its own for a TTL index, change that field too. |
 
 The library checks `expiresAt` itself, with its own clock, before every use. Your `getMeta` and
 `get` may return a document that has expired; your `sweep` must remove it. If they remove an expired
