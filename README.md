@@ -308,7 +308,7 @@ Reference, one page per module:
 - [`llm-large-files`: the tools](docs/reference/tools.md): every tool the model sees, its arguments, results and limits.
 - [`llm-large-files`: events](docs/reference/events.md): `askStream`, the events of a question and of an ingest, `eventStream`.
 - [`llm-large-files/gemini`](docs/reference/gemini.md): `askGemini`, `gemini()`, `geminiApi()`, `vertexAi()`.
-- [`llm-large-files/openai`](docs/reference/openai.md): `openAiCompatible()` and its options.
+- [`llm-large-files/openai`](docs/reference/openai.md): `openAiCompatible()`, `openAiResponses()` (new in 0.99.9) and their options.
 - [`llm-large-files/anthropic`](docs/reference/anthropic.md): `anthropic()` and its options.
 - [`llm-large-files/node`](docs/reference/node.md): `createDocumentHandlers`, its routes and responses, `createIsolatedExtractors`.
 - [`llm-large-files/testing`](docs/reference/testing.md): `fakeModel` and `fakeFetch`, for your tests (new in 0.9.0).

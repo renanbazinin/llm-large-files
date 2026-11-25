@@ -51,15 +51,47 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
 
 ### New: what you can add
 
-<!-- owner (upload handlers), responses, visual, questions, aisdk, MCP (removable) -->
+<!-- owner (upload handlers), visual, questions, aisdk, MCP (removable) -->
+
+- **`openAiResponses()`** in `llm-large-files/openai` (A1): a model behind OpenAI's Responses API,
+  for OpenAI's reasoning models with tools, which reason while they call the document tools.
+  Through Chat Completions, newer OpenAI models refuse function tools unless the effort is
+  `"none"`, and some refuse them altogether. Each
+  request sends `store: false` and the whole conversation, and gives each reasoning item back, with
+  its encrypted content, in the later requests of the same question. Azure OpenAI works with
+  `baseUrl: "https://{resource}.openai.azure.com/openai/v1"`. It was built from OpenAI's and Azure's
+  documentation and tested against fake servers: it has not been run against either
+  ([OpenAI's Responses API](docs/guides/openai-compatible.md#openais-responses-api)).
+
+  ```ts
+  import { openAiResponses } from "llm-large-files/openai";
+
+  const model = openAiResponses({
+    apiKey: process.env.OPENAI_API_KEY!,
+    model: "gpt-5.5",
+    contextTokens: 1_050_000,
+    body: { reasoning: { effort: "medium" } },
+  });
+  ```
+- It can send the pages of `view_pages` inside the tool's output or after it (`toolFilePlacement`:
+  `"inside"` or `"beside"`). It sends none by default, so `view_pages` is not offered.
 
 ### Changed: what works differently
 
 <!-- every package -->
 
+- `openAiCompatible()` sends what 0.10.2 sent, byte for byte: the Responses API is a separate
+  adapter, `openAiResponses()`.
+
 ### Fixed
 
 <!-- shapes (removal claim), others -->
+
+- **Docs:** the OpenAI recipe of `openAiCompatible()` said that `reasoning_effort: "none"` is the
+  default of GPT-5.4 and later, so it could be left out of `body`. GPT-5.5 defaults to `"medium"`
+  (OpenAI's model page): set `"none"` for tool calls through Chat Completions, or use
+  `openAiResponses()` to reason with tools
+  ([OpenAI](docs/guides/openai-compatible.md#openai)).
 
 ## 0.10.2 — 2026-11-25
 

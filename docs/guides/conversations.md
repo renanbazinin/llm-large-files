@@ -30,7 +30,8 @@ The rules:
   the end of the last (`"last"`). Never store them in your history.
 - **What you pass is not changed.** The loop works on copies.
 - **A `native` part goes unchanged to every model of the question**: a Gemini part to `gemini()`, a
-  Chat Completions content part to `openAiCompatible()`, a Messages API block to `anthropic()`.
+  Chat Completions content part to `openAiCompatible()`, a Responses content part (`input_image`,
+  `input_file`) to `openAiResponses()`, a Messages API block to `anthropic()`.
   With an [explorer model](./explorer-model.md) of another provider, both models get it, so both
   must read it. A native part that also has `text` is counted in tokens by that text, and in bytes
   by the larger of that text and its JSON; one without is sized by the length of its JSON, as media.

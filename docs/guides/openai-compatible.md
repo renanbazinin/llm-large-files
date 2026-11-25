@@ -4,7 +4,9 @@ This guide shows how to run `askWithFiles` on a model behind the Chat Completion
 `openAiCompatible()` from `llm-large-files/openai`: OpenAI, Azure OpenAI, DeepSeek, OpenRouter,
 vLLM, Ollama, LiteLLM, llama.cpp, or a gateway of your own. It is for you if one of these is your
 only model, or the second model next to Gemini. Every option, with its type and default, is in the
-[reference](../reference/openai.md).
+[reference](../reference/openai.md). For OpenAI's reasoning models with tools, `openAiResponses()`
+speaks OpenAI's Responses API instead ([OpenAI's Responses API](#openais-responses-api), new in
+0.99.9).
 
 ## The adapter in one sample
 
@@ -115,11 +117,15 @@ const openai = openAiCompatible({
 });
 ```
 
-- **Tool calls on GPT-5.4 and later need `reasoning_effort: "none"`** through Chat Completions,
-  which is their default: with another effort and tools in the request, the API refuses the
-  request. The chat requests of the loop offer tools, so leave the effort out of `body`, or set
-  `"none"`. A part read offers no tools, and may reason. For reasoning with tools, OpenAI points to
-  its Responses API, which this adapter does not speak (planned for 1.0.0).
+- **Tool calls through Chat Completions: set `reasoning_effort: "none"`.** The chat requests of
+  the loop offer tools. The default effort is the model's own: `"none"` on GPT-5.2 and GPT-5.4,
+  `"medium"` on GPT-5.5 (OpenAI's model pages and reasoning guide, read November 2026), so leaving
+  the effort out of `body` does not mean `"none"`. With another effort and tools in the request,
+  newer models refuse it on `/chat/completions` ("Function tools with reasoning_effort are not
+  supported for gpt-5.6-sol in /v1/chat/completions", as reported on OpenAI's forum), and OpenAI's
+  reasoning guide says that Chat Completions does not support function calling at all with some of
+  its newer models. A part read offers no tools, and may reason. For reasoning with tools, use
+  `openAiResponses()` ([OpenAI's Responses API](#openais-responses-api)).
 - Part reads name their output limit `max_completion_tokens`, which OpenAI's newer models require.
 - A reasoning model sends nothing while it thinks. `firstByteTimeoutMs` (600 s) is the wait for
   its first piece. Its `completion_tokens_details.reasoning_tokens` are counted as
@@ -474,7 +480,7 @@ of a tool call again with each piece of it is read right: the name is not double
 ## What it does not do
 
 - It speaks Chat Completions only, at `/chat/completions` or your `url`. OpenAI's Responses API is
-  not supported.
+  spoken by `openAiResponses()` ([OpenAI's Responses API](#openais-responses-api)).
 - It sends no output limit in chat requests, and no prompt-cache settings. Cached tokens the server
   reports are counted.
 - It does not ask the server for the model's window. Without `contextTokens` the library's budget
@@ -483,6 +489,80 @@ of a tool call again with each piece of it is read right: the name is not double
   `tokenScale`, and a question corrects the estimate by the counts the server reports.
 - It cannot tell that a server cut a prompt down without an error.
 - It sends no pages of PDFs unless `pdfInput` is on.
+
+## OpenAI's Responses API
+
+New in 0.99.9. `openAiResponses()`, from the same entry point, speaks OpenAI's Responses API
+(`/responses`) instead of Chat Completions. Use it for OpenAI's reasoning models with tools: the
+model reasons while it calls the document tools, which Chat Completions refuses on newer models
+([OpenAI](#openai) above). OpenAI's guide for GPT-5.5 says to use this API for any reasoning,
+tool-calling or multi-turn use. The v1 API of Azure OpenAI speaks it too. Every option is in the
+[reference](../reference/openai.md#openairesponsesoptions).
+
+It was built from OpenAI's API reference and guides and Azure OpenAI's Responses page (read
+November 2026), and tested against fake servers. It has not been run against OpenAI or Azure: try
+it on a staging deployment before you move traffic to it.
+
+```ts
+import { openAiResponses } from "llm-large-files/openai";
+
+const openai = openAiResponses({
+  apiKey: process.env.OPENAI_API_KEY!,
+  model: "gpt-5.5",
+  contextTokens: 1_050_000,                               // gpt-5.5's window, by OpenAI's model page
+  body: { reasoning: { effort: "medium" } },              // every chat request: it reasons, and calls tools
+  analysisBody: () => ({ reasoning: { effort: "low" } }), // the part reads of a whole-file read
+});
+```
+
+Azure OpenAI, with the `/openai/v1` path, which needs no `api-version`. `model` is the name of your
+deployment. A key goes in `headers`; a Microsoft Entra ID token in `apiKey`, as a function called
+before every request:
+
+```ts
+import { DefaultAzureCredential } from "@azure/identity";
+import { openAiResponses } from "llm-large-files/openai";
+
+const credential = new DefaultAzureCredential();
+
+const azure = openAiResponses({
+  baseUrl: `https://${process.env.AZURE_OPENAI_RESOURCE}.openai.azure.com/openai/v1`, // /responses is added
+  apiKey: async () => (await credential.getToken("https://cognitiveservices.azure.com/.default")).token,
+  // or, with a key: headers: { "api-key": process.env.AZURE_OPENAI_API_KEY! },
+  model: process.env.AZURE_OPENAI_DEPLOYMENT!,
+  body: { reasoning: { effort: "medium" } },
+});
+```
+
+- **Reasoning goes back within a question.** Every request sends `store: false` and the whole
+  conversation. The output items of a response, reasoning items with their encrypted content among
+  them, go back in the later requests of the same question, as OpenAI and Azure ask for requests
+  that store nothing. Between questions, `toolTurns` keep the calls and their results, as with
+  every adapter: a follow-up question has the results, not the earlier reasoning.
+- **`include`.** The adapter asks for `reasoning.encrypted_content`. A server that refuses it (HTTP
+  400 about `include` or encrypted content) is sent the request again without it, and is not asked
+  for it again. Set `encryptedReasoning: true` to get that error instead, or `false` never to ask.
+- **Pages of PDFs** are off by default (`toolFilePlacement: "none"`), so `view_pages` is not
+  offered. `"inside"` puts the pages in the `function_call_output`, after its JSON, as OpenAI
+  documents files in a tool's output; `"beside"` puts them in a user turn after the outputs. No one
+  has checked yet which models read them: try yours first.
+- **What differs from `openAiCompatible()`.** `body` and `analysisBody` take fields of the Responses
+  API. Errors are `OpenAiRequestError`, with the same `kind`, `code` and `param`, and usage fills
+  the same fields, `reasoning_tokens` as `thoughtTokens`. `toolTurns` stored with one adapter work
+  with the other.
+
+  | With `openAiCompatible()` | With `openAiResponses()` |
+  |---|---|
+  | `body: { reasoning_effort: "low" }` | `body: { reasoning: { effort: "low" } }` |
+  | `max_completion_tokens` in `body` | `max_output_tokens` in `body` |
+  | `maxTokensField` | No option: part reads send `max_output_tokens` |
+  | `systemRole` | No option: the system text goes in `instructions` |
+  | `answerWithoutTools` | No option: the request for the answer sends `tool_choice: "none"` |
+  | `pdfInput: true` | `toolFilePlacement: "inside"` or `"beside"` |
+
+- **What it does not do.** It sends no `previous_response_id` and no `conversation`; do not put
+  them in `body`, or the conversation goes twice. It has no background mode, offers no built-in
+  tools (web search, file search) of its own, and converts no history kept as Responses items.
 
 ## Pages of PDFs
 
@@ -637,6 +717,8 @@ included.
 The live checks on record for this adapter ran on Gemini's OpenAI layer, in 0.5.0: a streamed
 question about a 5.2 MB log, an explorer behind the layer with a thinking Gemini model answering,
 and a part read. In each, the usage the library returned was what the provider reported. `pdfInput`
-has not worked on any server yet: Gemini's OpenAI layer refuses its `file` part. The handling for the other servers in this guide is covered
+has not worked on any server yet: Gemini's OpenAI layer refuses its `file` part. `openAiResponses()`
+has not been run live: no OpenAI or Azure key was at hand, and its tests in
+`test/openai-responses.test.ts` replay the shapes of OpenAI's and Azure's documentation. The handling for the other servers in this guide is covered
 by the tests in `test/openai.test.ts` and `test/loop-robustness.test.ts`, which replay the shapes
 of their requests and replies. Dates and numbers are in [Measurements](../measurements.md).

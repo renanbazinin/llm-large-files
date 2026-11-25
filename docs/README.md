@@ -106,7 +106,8 @@ Each term links to the page that explains it. The defaults and limits are on tho
 
 - **Adapter**: a `ModelAdapter`, the object through which the loop talks to one model: an `id`,
   its `capabilities` (at least `toolFiles` and `pageTokens`) and `send()`, plus `generateText()`
-  when it can do whole-file reads. Built in: `gemini()`, `openAiCompatible()` and `anthropic()`.
+  when it can do whole-file reads. Built in: `gemini()`, `openAiCompatible()`, `openAiResponses()`
+  and `anthropic()`.
   See [`ModelAdapter`](./reference/ask.md#modeladapter) and
   [your own adapter and loop](./guides/own-adapter-and-loop.md).
 - **Budget**: the sizes one request must fit (`Budget`): the model's context window
