@@ -18,7 +18,7 @@ npm run test:watch   # the tests again on every save
 
 | Script | What it does |
 | --- | --- |
-| `npm run typecheck` | `tsc --noEmit` over `src/`, `test/`, `examples/` and `evals/`, in strict mode with `noUncheckedIndexedAccess` and no unused locals or parameters. The examples must compile too. |
+| `npm run typecheck` | `tsc --noEmit` over `src/`, `test/`, `examples/`, `evals/` and `scripts/`, in strict mode with `noUncheckedIndexedAccess` and no unused locals or parameters. The examples must compile too. |
 | `npm test` | `vitest run`: every test in `test/`, in two Vitest projects: `unit`, files in parallel, then `timing`, the files of `test/timing/` one at a time ([Tests](#tests)). No test calls a real model or needs a key. |
 | `npm run build` | Deletes `dist/` and compiles `src/` into it, with declarations and source maps (tsconfig.build.json). |
 
@@ -36,6 +36,14 @@ installs it ([publishing](docs/publishing.md#what-the-release-workflow-does)); i
 `npm run eval:replay` replays the eval cases from their recordings, without the network or a key
 ([The evals](#the-evals)).
 
+`npm run perf` builds the package, then runs the performance budgets (`scripts/perf.ts`): 100
+uploads ingested at once, and a log of 100 MB ingested and searched, each against a bar of time or
+memory ([Performance budgets](docs/measurements.md#performance-budgets-0999)). It takes one to three
+minutes and about 0.7 GB of the temporary folder. It needs Node 22.18 or later (Node runs the
+script's TypeScript), and checks memory only on Linux. It is not part of `npm test` or
+`npm run check`: other work on the machine slows it. Change a bar only with a new record in
+docs/measurements.md.
+
 The examples and most tests import the package by its names (`llm-large-files`,
 `llm-large-files/gemini` and the others), which tsconfig.json and vitest.config.ts map to `src/`.
 Tests of internals import from `src/` directly. So the typecheck and the tests need no build. When
@@ -49,11 +57,12 @@ CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `ma
 and 26, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
 the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`); and on Ubuntu, Node
 22.12.0 (the floor of `engines`) and 22.13.0. Each job runs `npm ci`, the typecheck, the tests, the
-build and `npm pack --dry-run`. Four more jobs run on Ubuntu: `unpdf-versions` runs the tests with
+build and `npm pack --dry-run`. Five more jobs run on Ubuntu: `unpdf-versions` runs the tests with
 other versions of the optional peer `unpdf`, `package` (Node 22.12.0, the newest 22, and 26) runs
 `scripts/check-tarball.mjs` on the packed tarball, `coverage` (Node 24) runs `npm run coverage`,
-which fails the job when a test fails or a total is under its threshold, and `evals-replay` (Node
-24) runs `npm run eval:replay`. Files use LF line endings (`.gitattributes`).
+which fails the job when a test fails or a total is under its threshold, `evals-replay` (Node 24)
+runs `npm run eval:replay`, and `perf` (Node 22) runs `npm run perf` alone on its runner: a bar
+that no run of three met fails it. Files use LF line endings (`.gitattributes`).
 
 ## Rules the code keeps
 
@@ -127,7 +136,8 @@ Add a test for every change in behavior. No test calls a real model:
   stays in the `unit` project. So do timers counted against a timer (heartbeats of 20 ms, at least
   4 in 260 ms), and a check that work does not hang, under a bound far above its time on a busy
   machine (a child process started within 8 s). `npx vitest run --project unit` runs the rest
-  alone.
+  alone. Bars on whole workloads (a log of 100 MB, 100 uploads at once) are not tests: they are
+  budgets in `scripts/perf.ts`, which CI runs in a job of its own (`npm run perf`).
 
 A test of the loop, from start to answer:
 

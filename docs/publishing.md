@@ -119,8 +119,8 @@ Pushing the tag starts the release workflow.
 
 4. Commit, push, and open a pull request titled "Release 0.6.0: what the version is about". Wait
    for CI (the tests on Node 22, 24 and 26, on Ubuntu and Windows; the tarball check on Node 22
-   and 26; the coverage report; the replayed evals), then squash-merge it. When release.yml
-   changed since the last release, run its dry run first
+   and 26; the coverage report; the replayed evals; the performance budgets), then squash-merge
+   it. When release.yml changed since the last release, run its dry run first
    ([below](#the-first-run-of-a-changed-workflow)): on the branch when the release.yml of `main`
    already has the `workflow_dispatch` trigger, or else on `main` after the merge and before the
    tag.

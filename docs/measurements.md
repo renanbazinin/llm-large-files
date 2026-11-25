@@ -7,9 +7,9 @@ has not.
 
 Each result is a measurement at one point in time, with the models named. It is not a guarantee.
 Another model, a later version of the same model, another provider or other files can give other
-results. Nothing was run again for this page but two records, which say so: each result is given
-as it was recorded, with the release it was recorded for. Before you rely on a number, check it on your own files
-([Measuring your own setup](#measuring-your-own-setup)).
+results. Nothing was run again for this page but two records and the performance budgets, which
+say so: each result is given as it was recorded, with the release it was recorded for. Before you
+rely on a number, check it on your own files ([Measuring your own setup](#measuring-your-own-setup)).
 
 ## How to read this page
 
@@ -33,6 +33,9 @@ as it was recorded, with the release it was recorded for. Before you rely on a n
   0.1.0 to 0.5.0.
 - **Before** in a table of 0.6.0 is the code of 0.6.0 before the change measured, which was never
   released. A column named 5157e7f or 0.5.0 is that code.
+- **Budget** is a bar that CI holds the library to on every pull request
+  ([Performance budgets](#performance-budgets-0999)): a number the library must stay under, not a
+  measurement.
 
 ## What has been run live
 
@@ -841,6 +844,68 @@ of 1, 4 and 8 MB in pieces of 16 KB, in memory, five runs of each build in each 
 as one string. Two runs each.
 
 [Security](./security.md) explains the limits that came of these measurements.
+
+## Performance budgets (0.99.9)
+
+Since 0.99.9, CI holds the library to bars of time and memory taken from the records of
+[The server](#the-server), on every pull request and every push to `main`: the job `perf` of
+`.github/workflows/ci.yml`, on Ubuntu with Node 22, apart from the tests. It runs `npm run perf`,
+which builds the package and runs `scripts/perf.ts`. You can run it too, with Node 22.18 or later:
+on Linux it checks every bar, elsewhere all but the four of memory, which it reads from `/proc`. A
+budget is a bar the library must stay under, not a measurement: what each run measured is in the
+summary of the job, and in its artifact `perf`.
+
+**The work.** Two inputs are made on the runner, never committed, and checked by their SHA-256, so
+that every run measures the same bytes: a log of 104,625,979 bytes and 1,180,000 lines,
+`serviceLog(1_180_000)` of `llm-large-files/testing`, just under the default `maxUploadBytes` of
+100 MB; and 100 logs of 1,999,969 bytes (190.7 MB in all), every tenth line in Hebrew, as in the
+record of 0.8.2. Four measures run one after the other, each in a fresh process
+(`node --expose-gc --max-old-space-size=2048`, the heap limit Node gave the laptop of the records),
+with the library's defaults, every call naming its owner:
+
+- **uploads**: the 100 logs, read into memory as the upload handler holds a body, all sent to
+  `files.ingest` at once, over a `FileDocumentStore` in a temporary folder;
+- **ingest**: the log of 100 MB, read into memory and sent to `files.ingest` over a
+  `FileDocumentStore`;
+- **search**: in a new process, one exact search of the stored log for "ERROR" (12,164 lines)
+  through `search_document`, read by range; it also loads the line index;
+- **searches**: in a new process, eight exact searches of it at once, for eight different texts.
+
+**How it is measured.** Memory is the kernel's high-water mark of the resident set while the work
+runs (`VmHWM`, reset through `/proc/self/clear_refs` as it starts), less the resident set as it
+starts, once full collections free nothing more: the inputs are not in it. The heap after is
+`heapUsed` once full collections free nothing more, with the uploads let go. A stall is the longest
+gap between two beats of a 5 ms timer. Times are by `performance.now()`.
+
+**How the bars were chosen.** Each bar is three times the slowest time, or twice the most memory,
+recorded above for the same work, scaled to the size of the log where the record's was smaller (the
+0.9.0 log of 95 MB: 1.05 times), and rounded up: to a whole second under 10 s, to 5 s above, to 100
+ms for a stall, to 10 MB for memory. The records were taken on a laptop (Intel Core i5-8250U, 4
+cores, 8 GB) that ran other work too. GitHub's runners can be two to four times slower, and three
+times a busy laptop's record leaves room for that. Memory does not follow the speed of the machine,
+so it gets less room. One bar is lower: an ingest may take no more than the 5.5 times the log that
+[Deployment](./guides/deployment.md#memory-on-each-server) tells you to size for.
+
+**When a bar is passed.** A measure with a value over its bar runs again, up to three runs, and
+each budget counts its best run. A bar that no run met fails the job. Change a bar only with a new
+record on this page.
+
+| Budget | Bar | Record it comes from | 0.10.2 on the laptop |
+|---|---|---|---|
+| `uploads.allSeconds`: 100 uploads at once, until the last is stored | 105 s | 27.6 to 33.4 s (many uploads at once, 0.8.2) | 25 to 41 s |
+| `uploads.firstSeconds`: until the first is stored | 3 s | 0.5 to 0.7 s (0.8.2) | 0.47 to 1.7 s |
+| `uploads.peakMB`: memory above the uploads | 200 MB | 329 to 356 MB in all, with 191 MB of uploads in a process of about 70 MB (0.8.2) | 80 to 114 MB |
+| `uploads.heapAfterMB`: heap in use after | 20 MB | about 10 MB (0.8.2) | 7 to 8 MB |
+| `ingest.seconds`: the log of 100 MB | 50 s | 11.6 to 14.9 s for 95 MB (0.9.0) | 8.9 to 11.3 s |
+| `ingest.peakMB`: memory above the log | 550 MB | 342 to 347 MB for 95 MB (0.9.0) | 272 to 288 MB |
+| `ingest.stallMs`: longest stall | 1,200 ms | 233 to 360 ms for 95 MB (0.9.0) | 123 to 205 ms |
+| `search.seconds`: one search | 6 s | 1.8 s (0.8.2) | 0.6 to 1.1 s |
+| `search.peakMB`: its memory | 100 MB | 49 MB above the process (0.8.2) | 64 to 72 MB |
+| `searches.seconds`: eight at once | 30 s | up to 9 s (0.8.2) | 1.0 to 1.8 s |
+| `searches.peakMB`: their memory | 200 MB | 115 to 159 MB in a process of 59 MB (0.8.2) | 85 to 90 MB |
+
+The laptop's numbers: 2026-11-25, 0.10.2 (e4f9377), Node 22.23.5, 5 to 7 runs each, on the laptop
+of the records, with a load average of 2 to 13.
 
 ## 0.10.0, live on the Gemini API
 

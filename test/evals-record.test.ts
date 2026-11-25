@@ -18,6 +18,7 @@ import { CassetteMissError, normalizeUrl, readCassette, recordingFetch, recordin
 import { gateProblems, lostFacts } from "../evals/lib/gate.js";
 import { gatesOf, markdown, summarize } from "../evals/lib/report.js";
 import { runCase, type CaseRun, type QuestionRun } from "../evals/lib/runner.js";
+import { code, jobsOf, workflow } from "./workflows.js";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const folders: string[] = [];
@@ -643,16 +644,6 @@ describe("the gate of a live or recorded run (evals/lib/gate.ts), and the report
     expect(report).toMatch(/\| table \| he \| lookup, inline-table \| 1 of 1 \| 2\.0, 2 \| 50% \| 1\.0 \| 0 \|/);
   });
 });
-
-/** The jobs of a workflow, each as the text of its block. */
-function jobsOf(workflow: string): Record<string, string> {
-  const body = workflow.slice(workflow.indexOf("\njobs:\n") + "\njobs:\n".length);
-  const names = [...body.matchAll(/^ {2}([a-z][\w-]*):\s*$/gm)];
-  return Object.fromEntries(names.map((match, index) => [match[1]!, body.slice(match.index, names[index + 1]?.index ?? body.length)]));
-}
-const workflow = (name: string) => readFileSync(path.join(ROOT, ".github", "workflows", name), "utf8");
-/** The lines of a job that are not comments. */
-const code = (job: string) => job.split("\n").filter((line) => !line.trim().startsWith("#")).join("\n");
 
 describe("the workflows of the evals and of a release", () => {
   it("replays the evals in CI on every pull request, with no secret", () => {
