@@ -698,16 +698,15 @@ repeats cheaper ([below](#prompt-caching)).
   sent whole can take several when the document is searched.
 - Name in `documentIds` only the documents a question is about. Each one named is planned: sent
   whole, or given a card.
-- Since 0.10.0 their lines are numbered (`numberInline`), so that the answer can cite them: about
-  8% to 16% more tokens for each file sent whole (15.5% for a CSV of short rows, 9.4% for a service
-  log, 8.4% for Hebrew prose). A file at the edge of `inlineTokens` may become a card for it.
-  `numberInline: false` sends them as 0.9 did.
+- Since 0.10.0 their lines are numbered, so that the answer can cite them: about 8% to 16% more
+  tokens for each file sent whole (15.5% for a CSV of short rows, 9.4% for a service log, 8.4% for
+  Hebrew prose). A file at the edge of `inlineTokens` may become a card for it.
 
 ### Tables sent whole
 
 Since 0.10.0 a table sent whole (a CSV, an XLSX workbook, a file with `| cell |` rows) gets
-`search_document`, `read_document` and `aggregate_table` (`inlineTables: "tools"`, the default), so
-that counts and sums over it are exact, not made by eye. What a question costs then:
+`search_document`, `read_document` and `aggregate_table`, so that counts and sums over it are exact,
+not made by eye. What a question costs then:
 
 - **A question that needs no count** stays at one request when the model answers at once, as it
   does when the answer is in the table it sees. The request is a little larger, by the three tool
@@ -729,16 +728,16 @@ that counts and sums over it are exact, not made by eye. What a question costs t
   to a model that does not share the other's cache.
 - **At most**, a model that goes on calling tools uses the question's ceiling: by default about
   `toolTurns` times its first request (`DEFAULT_INPUT_TOKENS`, 1,000,000, at least). For the CSV of
-  3,000 invoices that is 11 requests of about 134,000 tokens, about 1.5M input tokens, where
-  `"text"` makes one request of 133,000. `limits.inputTokens` or `limits.toolTurns` bound it.
+  3,000 invoices that is 11 requests of about 134,000 tokens, about 1.5M input tokens, where 0.9
+  made one request of 133,000. `limits.inputTokens` or `limits.toolTurns` bound it.
 - **Limits sized for 0.9.** A count needs room for about three requests with the table. A ceiling
   (`limits.inputTokens`) or `limits.requests` sized for 0.9's one request leaves no tool turn, and
-  so does `limits.toolTurns: 1`: such a question is then the one request of `"text"`, without the
-  tools, and its counts are made by eye again.
+  so does `limits.toolTurns: 1`: such a question is then one request without the tools, as in 0.9,
+  and its counts are made by eye again.
 
-To keep the cost of 0.9 for such questions, at the price of counts made by eye, pass
-`inlineTables: "text"`. A lower `inlineTokens` sends the table as a card instead: its requests are
-small, and the model reads it only through the tools.
+A lower `inlineTokens` sends the table as a card instead: its requests are small, and the model
+reads it only through the tools. (`inlineTables: "text"`, which sent it whole without the tools,
+was removed in 0.99.9.)
 
 ### An explorer model
 

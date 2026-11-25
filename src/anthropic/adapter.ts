@@ -2,7 +2,7 @@
 // caller gives a key or a token, and may give the URL of a gateway that speaks the same API.
 import { randomUUID } from "node:crypto";
 import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
-import { laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { checkToolTurnVersion, laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
@@ -289,8 +289,10 @@ export function fromAnthropicMessages(history: AnthropicMessage[]): ChatMessage[
 /**
  * The tool rounds a question returned (`AskResult.toolTurns`) as messages of the Messages API, for
  * an application that keeps its history in that form: put them between the question and its answer.
+ * A round of a newer version is a TypeError, as in askWithFiles (since 0.99.9).
  */
 export function anthropicToolTurns(turns: ToolTurn[]): AnthropicMessage[] {
+  for (const turn of turns) checkToolTurnVersion(turn);
   const used = new Set<string>();
   return turns.flatMap((turn, index) => {
     // A call that came without an ID is given one that no round of another question has: these

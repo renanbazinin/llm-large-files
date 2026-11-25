@@ -117,6 +117,16 @@ Add a test for every change in behavior. No test calls a real model:
   this import loads them while the file is collected, where no timeout applies, and not inside the
   first test's 5 s. Leave it out of a file that mocks them as not installed
   (`test/view-pages-library.test.ts`).
+- **Stored shapes** (`DocumentMeta`, `ToolTurn`, H7). `test/stored-shapes.test.ts` reads what
+  earlier versions stored (`test/fixtures/stored/<version>/`, recorded with
+  `scripts/record-stored-shapes.mjs`, never edited by hand; `.idx` files are binary in
+  `.gitattributes`). A change that removes, renames or retypes a field, gives one a new meaning, or
+  adds one an older version must not ignore raises `DOCUMENT_META_VERSION` or `TOOL_TURN_VERSION`.
+  The new version still reads the shape before it (N-1), and the same change records a fixture of
+  the last version that wrote that shape. An optional field older versions can ignore (as
+  `appData` in 0.10.2) raises nothing: name it, with its version, in `ADDED_AFTER_0_10_2` of the
+  test "stores the metadata fields 0.10.2 stored". A new shape keeps `expiresAt`, `createdAt` and
+  the `<id>.txt` name meaningful to the version before, whose `sweep` acts on them.
 - **A slow test** gets a `timeout` of its own, with a comment that says how long it takes in a
   usual run and on a busy machine. That timeout holds under `npm run coverage` too, where the test
   is several times slower: when it takes more than half of it there, raise it, and say that time

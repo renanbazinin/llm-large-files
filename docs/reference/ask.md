@@ -87,10 +87,10 @@ What it does, in order:
    that are missing are settled by `onMissingDocuments` before any model request: by default the
    question throws `DocumentsNotFoundError` ([missing documents](#missing-documents)).
 3. **Sends one request without tools** to `model` when every document went in whole, no PDF can be
-   looked at, and no table sent whole gets the tools (`inlineTables`), and returns its reply. So
-   it does when the tools are there only for tables sent whole and not one tool turn fits
-   (`limits.toolTurns: 1`, `limits.requests: 1`, or a ceiling with room for one request): the
-   request of `"text"`, with no notice (since 0.10.0).
+   looked at, and no table sent whole gets the tools, and returns its reply. So it does when the
+   tools are there only for tables sent whole and not one tool turn fits (`limits.toolTurns: 1`,
+   `limits.requests: 1`, or a ceiling with room for one request): one request without the tools,
+   with no notice (since 0.10.0).
 4. **Otherwise runs tool rounds.** The model that explores (`explorer`, or `model` without one)
    gets the tools; `model` does when no file is searched and the tools are there for tables sent
    whole (since 0.10.0). Of each turn's calls, the loop runs at most `limits.callsPerTurn`, up to
@@ -279,7 +279,7 @@ The options of `askWithFiles`.
 |---|---|---|---|
 | `files` | [`LargeFiles`](./library.md#largefiles) | required | The library that holds the documents, plans them and makes the tools. |
 | `model` | [`ModelAdapter`](#modeladapter) | required | The model that answers. Without `explorer`, it also makes the tool calls and reads whole files in parts. |
-| `explorer` | `ModelAdapter \| undefined` | none | A second model, of any provider, that makes the tool calls (search, read, look at pages) and reads whole files in parts. `model` then writes the answer from what the tools returned. Its requests get [`EXPLORER_INSTRUCTION`](#explorer_instruction), and its text is not shown. Left out, or the same object as `model`: one model does both. A question in which no file is searched and the tools are there for tables sent whole (`inlineTables`) does not use it: `model` runs the tools (since 0.10.0). |
+| `explorer` | `ModelAdapter \| undefined` | none | A second model, of any provider, that makes the tool calls (search, read, look at pages) and reads whole files in parts. `model` then writes the answer from what the tools returned. Its requests get [`EXPLORER_INSTRUCTION`](#explorer_instruction), and its text is not shown. Left out, or the same object as `model`: one model does both. A question in which no file is searched and the tools are there for tables sent whole does not use it: `model` runs the tools (since 0.10.0). |
 | `documentIds` | `string[]` | required | The documents this question may use. Duplicates count once. One that is missing throws [`DocumentsNotFoundError`](#documentsnotfounderror), unless `onMissingDocuments` says otherwise. |
 | `messages` | [`ChatMessage[]`](#chatmessage) | required | The conversation, oldest first. The last message must be the user's question. The loop works on copies: your array is not changed. |
 | `documentPlacement` | `"first" \| "last"` | `"first"` | Where document text and cards go. `"first"`: at the start of the first user turn, where they stay as the conversation grows, so the provider's prompt cache can reuse them on every follow-up question. `"last"`: after the text of the latest user turn; they then move on every turn and are billed in full each time. |
@@ -292,8 +292,6 @@ The options of `askWithFiles`.
 | `budget` | `Partial<`[`Budget`](./library.md#budget)`>` | the library's | Budget fields for this question, in place of the library's. Fields given nowhere follow the context window. The budget is then fitted to the models either way: `result.budget` shows it. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
 | `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`. It changes nothing for a library that keeps no originals. |
-| `inlineTables` | `"tools" \| "text"` | `"tools"` | `"tools"`: a table sent whole can still be counted and searched. A CSV or an XLSX workbook, or a DOCX, PPTX, PDF, HTML or Markdown file with a table of at least 3 `\| cell \|` rows, gets `search_document`, `read_document` and `aggregate_table` (not `get_document_overview`, not `analyze_whole_document`), its frame line its `document_id` for them, and the system text a line that says to count with them. The question then runs the tool loop: one that needs no count is answered in its first request, a count takes about 3. When not one tool turn fits the `limits`, it is the one request of `"text"`. When no file is searched, `model` runs that loop itself and `explorer` gets no request. `"text"`: it is sent whole without tools, as in 0.9. Another value is a `TypeError` before any request. See [the cost of tables sent whole](../guides/costs-and-limits.md#tables-sent-whole). New in 0.10.0. |
-| `numberInline` | `boolean` | `true` | Number the lines of the files sent whole, as the tools number them (`12\| `), so that the answer can cite them and `result.citations` can check it. Each such file is planned at its numbered size, 8% to 16% more tokens, so a file at the edge of `inlineTokens` may become a card. When no file is searched, the system text gets the line `Cite line numbers like (report.docx L12).` `false` sends them as in 0.9; with `inlineTables: "text"` too, the requests are those of 0.9, byte for byte. Another value is a `TypeError` before any request. New in 0.10.0. |
 | `onText` | `(delta: string) => void` | none | The answer's text as it arrives. With it, `streamText` defaults to `true`, and the adapter streams when it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
 | `streamText` | `boolean` | `true` with `onText`, and in [`askStream`](#askstreamoptions); `false` otherwise | Whether to ask the model for the answer as it is written: the loop then passes `onText` to the adapter's `send` ([`SendHooks`](#sendhooks)), and an adapter that can stream does. A reply that fails after its first piece of text is not sent again: that text was shown. With `false`, the text of each reply comes once the reply is in, to `onText` and as `text` events, and a reply that fails can be sent again. A listener of the events alone (`onEvent` without `onText`) does not change how the model is asked. New in 0.7.0. |
 | `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry of a chat request ("The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…"), and "Writing the answer…" before the request for the answer. Show it as plain text: a tool call's line can quote the model's words. The retries of a whole-file read's requests are not told here: they come only as `retry` events. |
@@ -305,6 +303,12 @@ The options of `askWithFiles`.
 | `filteredAnswer` | `"keep" \| "drop"` | `"keep"` | What to do with an answer that a filter of the provider stopped (`result.finish` `"filtered"`). `"keep"` keeps its text, as in 0.9, with `answered: true` when it has some. `"drop"` gives `answered: false` and `text: ""`. Text that was already sent (`onText`, `text` events) cannot be taken back: the `answer_filtered` notice then has `discardText: true`, before `run.finish`, and the page takes the text away. Text of a reply that was not streamed is not sent at all. Any other value (`"Drop"`, `true`) is a `TypeError` before any request: it would keep an answer that was meant to be dropped. See [filtered and cut answers](../guides/errors-and-reliability.md#filtered-and-cut-answers). New in 0.10.0. |
 | `onToolResult` | `(context: ToolResultContext) => ToolResultVerdict \| undefined \| Promise<ToolResultVerdict \| undefined>` | none | Called with the result of every tool call that ran, as soon as it is in (the hooks of one turn may run at the same time), before the model, the evidence, the steps and the events get it ([`ToolResultContext` and `ToolResultVerdict`](#toolresultcontext-and-toolresultverdict)). A call that was refused, not run, or answered with a pointer is not passed to it. What it throws, or a value of another shape, ends the question. For data loss prevention: [security](../security.md#tool-results-ontoolresult). New in 0.10.0. |
 | `signal` | `AbortSignal` | none | Stops the question: the request under way is aborted through the adapter, tool calls stop, and nothing is sent again. `askWithFiles` then throws the signal's reason, at once: the loop does not wait for an adapter, or a part reader, that does not look at the signal. A request left running that way may be billed by the provider, and is not counted in the usage. Since 0.10.0 the loop does not wait either for `files.prepare`, a tool call or `onToolResult` once it aborts, and it passes the signal on with the access of the question (`PrepareOptions.signal`, `ToolOptions.access.signal`), for a library that ends its own waits for the store with it. |
+
+`inlineTables` and `numberInline` were removed in 0.99.9: a table sent whole always gets the tools
+that count it, and files sent whole are always numbered
+([tables sent whole](../guides/costs-and-limits.md#tables-sent-whole)). Any value but `"tools"` and
+`true` is a `TypeError` before any request
+([Upgrading to 0.99](../upgrading-0.99.md#the-way-back-to-09s-text)).
 
 Guides: [conversations](../guides/conversations.md) (`messages`, `documentPlacement`),
 [storage](../guides/storage.md) (`owner`), [web app](../guides/web-app.md) (`onText`,
@@ -711,9 +715,8 @@ and tool calls were answered:
 > Stop using tools now. Answer my question using only what the tools returned above, with line
 > citations. Say plainly what you could not find. Answer in the language of my question.
 
-When files were also sent whole, with their lines numbered or tables the tools count
-(`numberInline`, `inlineTables`), the line says to answer from them too (new in 0.10.0; it is not
-exported):
+When files were also sent whole, with their lines numbered or tables the tools count, the line
+says to answer from them too (new in 0.10.0; it is not exported):
 
 > Stop using tools now. Answer my question using only the files shown in full and what the tools
 > returned above, with line citations. Say plainly what you could not find. Answer in the language
@@ -807,7 +810,11 @@ regex search that 0.5.0 stored without its last match: those run again (see
 sent to the model: of a stored round, only its calls are. A round of a higher version, made by a
 newer version of the package, is refused with a `TypeError` ("A stored tool round (toolTurns) has
 version 2: …"), before any request. Catch it to ask again without the old rounds. A test that
-compares the rounds whole must expect `version`.
+compares the rounds whole must expect `version`. Since 0.99.9 every reader of stored rounds refuses
+it the same way: [`compactToolTurns`](#compacttoolturnsturns), and `geminiToolTurns`,
+`openAiToolTurns` and `anthropicToolTurns`. 0.99.9 reads every shape stored since 0.2; from 0.99.9
+on, each version reads at least the shape of the version before it (H7;
+[Servers of two versions](../guides/deployment.md#servers-of-two-versions)).
 
 ## The adapter contract
 
@@ -822,8 +829,6 @@ loop's, once, for every provider. The built-in adapters are `gemini()` ([gemini]
 interface ModelAdapter {
   readonly id: string;
   readonly capabilities: ModelCapabilities;
-  /** @deprecated Never called: set capabilities.tokenScale. */
-  estimateTokens?(text: string): number;
   send(request: ModelRequest, hooks?: SendHooks): Promise<ModelReply>;
   requestBytes?(request: ModelRequest): number;
   generateText?: GenerateText;
@@ -839,7 +844,10 @@ A model provider, as the tool loop sees it.
 | `send(request, hooks?)` | yes | One chat request. Returns a [`ModelReply`](#modelreply). Throw a [`ModelRequestError`](./errors-and-retries.md#modelrequesterror) for an HTTP error, with status 0 for a connection that failed. The loop reads `status`, `kind`, `retryAfterMs`, `limitTokens` and `requestedTokens` from the error, and sends again the ones worth it. |
 | `requestBytes?(request)` | no | The size in bytes of the body `send` would post for `request`. The loop calls it before it shows the pages of a PDF in a turn, with the turn whose calls are being run as a round with no `answers` yet. With it the room for the pages is exact; without it, it is estimated. |
 | `generateText` | no | A plain completion for the parts of a whole-file read: see [`GenerateText`](#generatetext). The one of the model that explores is used. Without it, `analyze_whole_document` is not offered. It is called on its adapter, as `send` is, so a method of a class may use `this` (since 0.7.1; before, every part read of such a method failed). |
-| `estimateTokens?(text)` | no | Deprecated, and never called: `askWithFiles` sizes every request with the library's `estimateTokens`, scaled by `tokenScale`. Set `capabilities.tokenScale` for a model that counts differently. It is kept so that adapters that set it still compile, and a later version may remove it. |
+
+`estimateTokens`, deprecated in 0.6.0 and never called, was removed in 0.99.9: set
+`capabilities.tokenScale`. `askWithFiles` sizes every request with the library's `estimateTokens`,
+scaled by `tokenScale`.
 
 What `send` must do with the request:
 
@@ -1263,7 +1271,8 @@ result is replaced by its [`stubResult`](#stubresultcall-result-hadfiles) stand-
 smaller, and errors and small results stay as they are. It returns copies, and makes the same
 rounds that `storeRounds: "compact"` gives, from rounds stored in full (by 0.10.1 and earlier, or
 by `"full"`). A later question takes them as any stored round: the model sees that the results were
-dropped to make room, and reads again what it needs.
+dropped to make room, and reads again what it needs. A round of a newer version is a `TypeError`,
+as in `askWithFiles` (since 0.99.9).
 
 ```ts
 // Shrink the stored questions of a chat once it is older than a day.

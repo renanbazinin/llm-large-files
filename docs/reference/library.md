@@ -987,7 +987,8 @@ type PrepareOptions = AccessOptions & {
 ```
 
 The options of [`files.prepare`](#filesprepareids-base-options). Without the two options new in
-0.10.0, `prepare` gives the plan, the blocks and the instruction of 0.9.
+0.10.0, `prepare` gives the plan, the blocks and the instruction of 0.9. `askWithFiles` always asks
+for both (since 0.99.9, which removed `AskOptions.numberInline` and `inlineTables`).
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
@@ -1726,6 +1727,11 @@ version: `getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles` and the t
 with a [`DocumentStoreError`](#documentstoreerror) of code `"NEWER_VERSION"`, not as a missing
 document, so that an application does not ingest the file again over newer data. This happens
 while servers of two versions share a store: let the call be tried again on a newer one.
+
+0.99.9 reads every shape stored since 0.2; from 0.99.9 on, each version reads at least the shape of
+the version before it: a version that raises `DOCUMENT_META_VERSION` still reads the metadata of
+the one before. `files.list` and ingest's `dedupe` leave metadata of a newer version out, where the
+calls above refuse it ([Servers of two versions](../guides/deployment.md#servers-of-two-versions)).
 
 ### `DocumentStoreError`
 

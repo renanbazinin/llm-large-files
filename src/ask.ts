@@ -7,6 +7,7 @@ import { isCutReply, until } from "./http.js";
 import type { LargeFiles } from "./library.js";
 import { Limiter } from "./limiter.js";
 import {
+  checkToolTurnVersion,
   DocumentsNotFoundError,
   errorKindOf,
   laterResult,
@@ -52,8 +53,8 @@ import { wholeReadCost } from "./whole-cost.js";
 export const FINAL_ANSWER_REQUEST = "Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
 /**
  * The same, when files were also sent whole and the tools can read them or their lines are
- * numbered (`inlineTables`, `numberInline`): what they say is part of the answer too, not only what
- * the tools returned. New in 0.10.0. Not exported from the package.
+ * numbered: what they say is part of the answer too, not only what the tools returned. New in
+ * 0.10.0. Not exported from the package.
  */
 export const FINAL_ANSWER_WITH_FILES = "Stop using tools now. Answer my question using only the files shown in full and what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.";
 /** The same, when the only tool was `view_pages`: the text of the files is in the prompt, not in tool results. */
@@ -134,7 +135,7 @@ export type AskOptions = {
    * A second model that explores the documents: it makes the tool calls (search, read, look at
    * pages) and reads a whole file in parts. It may be of another provider than `model`. Left out,
    * or the same adapter as `model`: one model does both. Since 0.10.0 it is not used when no file
-   * is searched and the tools are there for tables sent whole (`inlineTables`): `model` runs them.
+   * is searched and the tools are there for tables sent whole: `model` runs them.
    */
   explorer?: ModelAdapter | undefined;
   /** Documents this conversation may use. Where their text or cards go: see `documentPlacement`. */
@@ -146,20 +147,6 @@ export type AskOptions = {
    * document then moves on every turn and is billed in full each time.
    */
   documentPlacement?: "first" | "last";
-  /**
-   * "tools": a table sent whole (a CSV, a workbook, a file with `| cell |` rows) can still be
-   * counted and searched: the question gets `search_document`, `read_document` and
-   * `aggregate_table` for it, and runs the tool loop. When no file is searched, `model` runs that
-   * loop itself, without the explorer, so a question that needs no count is still answered in one
-   * request. "text": it is sent whole without tools, as in 0.9. Defaults to "tools". New in 0.10.0.
-   */
-  inlineTables?: "tools" | "text";
-  /**
-   * Number the lines of the files sent whole, as the tools number them ("12| "), so that the answer
-   * can cite them. When no file is searched, the system text asks for citations like
-   * "(report.docx L12)". Defaults to true; false sends them as in 0.9. New in 0.10.0.
-   */
-  numberInline?: boolean;
   /**
    * What to do with an answer that a filter of the provider stopped (`AskResult.finish`
    * "filtered"): "keep" (the default) keeps its text, as in 0.9; "drop" gives `answered: false` and
@@ -392,9 +379,11 @@ function checkStoreRounds(given: unknown): void {
  * the stand-in the loop sends when it drops a result to make room (`stubResult`): the document, the
  * lines or pages it showed, a search's query and total, the largest groups of a count, and a note
  * that it was dropped. Errors and small results stay as they are. Copies: the turns given are not
- * changed. For rounds stored by `storeRounds: "full"`, or by an earlier version. New in 0.10.2.
+ * changed. For rounds stored by `storeRounds: "full"`, or by an earlier version. New in 0.10.2. A
+ * round of a newer version is a `TypeError`, as in `askWithFiles` (since 0.99.9).
  */
 export function compactToolTurns(turns: readonly ToolTurn[]): ToolTurn[] {
+  for (const turn of turns) checkToolTurnVersion(turn);
   return turns.map((turn) => ({
     ...turn,
     calls: turn.calls.map((call) => {
@@ -404,13 +393,18 @@ export function compactToolTurns(turns: readonly ToolTurn[]): ToolTurn[] {
   }));
 }
 
+/** How a value of a removed option is shown in its TypeError: a string quoted, a boolean or a number as it is. */
+const removedValue = (value: unknown): string => (typeof value === "string" ? JSON.stringify(value) : typeof value === "boolean" || typeof value === "number" ? String(value) : value === null ? "null" : typeof value);
+
 /**
- * `inlineTables` and `numberInline` checked: a value they cannot be ("Text", "false") is an error
- * before anything is planned, as `prepare` would throw it, but in the words of the question.
+ * The options 0.99.9 removed, `inlineTables` and `numberInline`, refused when a caller still passes
+ * a value that would change something (JavaScript, or options spread in from another object).
+ * "tools" and true, what they defaulted to, change nothing.
  */
-function checkInlineOptions(tables: unknown, numbered: unknown): void {
-  if (tables !== undefined && tables !== "tools" && tables !== "text") throw new TypeError(`inlineTables must be "tools" or "text", and is ${shownValue(tables)}.`);
-  if (numbered !== undefined && typeof numbered !== "boolean") throw new TypeError(`numberInline must be true or false, and is ${shownValue(numbered)}.`);
+function checkRemovedOptions(options: object): void {
+  const { inlineTables, numberInline } = options as { inlineTables?: unknown; numberInline?: unknown };
+  if (inlineTables !== undefined && inlineTables !== "tools") throw new TypeError(`inlineTables was removed in 0.99.9, and is ${removedValue(inlineTables)}: a table sent whole always gets the tools that count it, as "tools" did. Leave it out.`);
+  if (numberInline !== undefined && numberInline !== true) throw new TypeError(`numberInline was removed in 0.99.9, and is ${removedValue(numberInline)}: the lines of files sent whole are always numbered, as true did. Leave it out.`);
 }
 
 /**
@@ -602,20 +596,6 @@ function pagesShown(result: ToolResult): number {
  * character in it (0.5.0 cut some search windows inside an emoji, and Claude's API refuses them).
  */
 const carriedResult = (result: ToolResult): ToolResult => wellFormedJson(laterResult(result));
-
-/**
- * Refuses a stored tool round of a version this package does not read: one a newer version made
- * (`ToolTurn.version` above `TOOL_TURN_VERSION`). A round without a version (before 0.9.0) is read
- * as before. A `TypeError`, which an application can catch to leave such rounds out.
- */
-function checkToolTurnVersion(turn: ToolTurn): void {
-  const version: unknown = turn.version ?? 0;
-  if (typeof version === "number" && version <= TOOL_TURN_VERSION) return;
-  if (typeof version !== "number" || Number.isNaN(version)) {
-    throw new TypeError(`A stored tool round (toolTurns) has a version that is not a number (${typeof version === "string" ? JSON.stringify(version) : String(version)}). Leave it out of messages, or store it as it was given.`);
-  }
-  throw new TypeError(`A stored tool round (toolTurns) has version ${String(version)}: a newer version of llm-large-files made it, and this one reads up to version ${TOOL_TURN_VERSION}. Leave it out of messages.`);
-}
 
 /**
  * The conversation as the loop keeps it: copies, so that nothing of the caller's is changed. Of a
@@ -1013,11 +993,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   checkMissingPolicy(options.onMissingDocuments);
   checkFilteredAnswer(options.filteredAnswer);
   checkStoreRounds(options.storeRounds);
-  checkInlineOptions(options.inlineTables, options.numberInline);
-  // Since 0.10.0 by default: the tables sent whole get the tools, and the files sent whole have
-  // numbered lines. "text" and false send them as 0.9 did.
-  const inlineTables = options.inlineTables ?? "tools";
-  const numberInline = options.numberInline ?? true;
+  checkRemovedOptions(options);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -1068,16 +1044,18 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     // The guide and the cards name `analyze_whole_document` only when the tools will have it.
     wholeDocumentAnalysis: options.wholeDocumentAnalysis !== false && typeof (given ?? model).generateText === "function",
     budget,
-    numberInline,
-    inlineTables,
+    // Since 0.99.9 always: tables sent whole get the tools, and files sent whole are numbered. A
+    // `prepare` of your own may leave the options aside, as 0.9's did.
+    numberInline: true,
+    inlineTables: "tools",
   }), signal));
   const { prepared, documentIds } = planned;
   /** The documents left out of the question ("drop"), by this try and by the first. */
   const missing = [...carried?.missing ?? [], ...planned.dropped];
   // Tools are needed for a file that is too large to send whole, for a PDF whose pages can be
   // looked at (that one may have its whole text in the prompt and still hide a chart from the
-  // model), and for a table sent whole whose rows they can count (`inlineTables`). A library of
-  // your own whose `prepare` gives no `toolable` has none of the last.
+  // model), and for a table sent whole whose rows they can count. A library of your own whose
+  // `prepare` gives no `toolable` has none of the last.
   const { searchable } = prepared.plan;
   const { viewable } = prepared;
   const toolable = prepared.toolable ?? [];
@@ -1087,10 +1065,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   // not sent to two models that share no cache.
   const explorer = given && !(searchable.length === 0 && toolable.length > 0) ? given : undefined;
   const toolModel = explorer ?? model;
-  // The lines of the files sent whole are numbered when asked, by a library whose `prepare` is
-  // that of this package (its result has the mark, `preparedHere`): one of your own of 0.9 sends
-  // them as they are.
-  const numbered = numberInline && preparedHere(prepared);
+  // The lines of the files sent whole are numbered by a library whose `prepare` is that of this
+  // package (its result has the mark, `preparedHere`); one of your own of 0.9 sends them as they
+  // are, with no citation line.
+  const numbered = preparedHere(prepared);
 
   const blocks = [...new Set(documentIds)].map((id) => prepared.blocks.get(id)).filter((block): block is string => Boolean(block));
   if (blocks.length) {
@@ -1833,10 +1811,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const toolRole: RequestRole = explorer ? "explorer" : "tools";
     /** A call as one line of plain text. An unknown tool's name is quoted and cut: no step starts with what the model chose, at any length. */
     const labelOf = (call: ToolCall): string => stepLine(tools.has(call.name) ? tools.describe(call.name, call.args) : `Call ${unknownToolName(call.name)}`);
-    // The tools are there only for tables sent whole (`inlineTables`): without them, the question
-    // would be the one request of 0.9 (and of "text"). It is still that, without the tools, the
-    // line that says to count with them, or a notice, when not one tool turn fits: a ceiling or a
-    // count of requests sized for that one request, or `toolTurns: 1`.
+    // The tools are there only for tables sent whole: without them, the question would be the one
+    // request of 0.9. It is still that, without the tools, the line that says to count with them,
+    // or a notice, when not one tool turn fits: a ceiling or a count of requests sized for that one
+    // request, or `toolTurns: 1`.
     const tablesOnly = !explorer && searchable.length === 0 && viewable.length === 0;
     if (tablesOnly && (1 + (carried?.answered ?? 0) >= maxTurns || spent())) {
       const plainLine = inlineInstruction({ plan: prepared.plan }, numbered);

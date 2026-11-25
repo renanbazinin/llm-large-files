@@ -448,7 +448,7 @@ describe("the room a request has for tool results", () => {
     expect(await named(fakeModel([says("ok")], { generateText }), { wholeDocumentAnalysis: false })).toBe(false);
   });
 
-  it("counts a model's tokens with its tokenScale, and never calls its deprecated estimateTokens", async () => {
+  it("counts a model's tokens with its tokenScale, and ignores an estimateTokens member an adapter still has", async () => {
     const { files, meta } = await largeLog();
     let estimated = 0;
     const search = { id: "c1", name: "search_document", args: { document_id: meta.id, query: "ERROR", mode: "exact", max_results: 3 } };

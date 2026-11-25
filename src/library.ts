@@ -1,5 +1,5 @@
 import {
-  callerOf, checkMetaVersion, checkStuck, documentContext, heldBy, isTimeLimit, mayUse, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, storeTimeout,
+  callerOf, checkMetaVersion, checkStuck, documentContext, heldBy, isTimeLimit, mayUse, metaOf, OWNER_REQUIRED, readableMetaVersion, SCOPE_REQUIRED, storeCall, storeContext, storeTimeout,
   stuckCalls, type AccessRules, type Caller,
 } from "./access.js";
 import { givenBudget, resolveBudget, type ModelLimits } from "./budget.js";
@@ -16,7 +16,7 @@ import { SearchableDocument, type DocumentSource } from "./search.js";
 import { TimeSlicer } from "./pause.js";
 import { checkScope } from "./scope.js";
 import { isSha256, sha256InSlices } from "./source.js";
-import { APP_DOCUMENT_ID_PATTERN, DOCUMENT_META_VERSION, usableStoreMethod } from "./stores.js";
+import { APP_DOCUMENT_ID_PATTERN, usableStoreMethod } from "./stores.js";
 import { wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
 import { createDocumentTools, type PageLookTurns } from "./tools.js";
@@ -363,15 +363,15 @@ export type PrepareOptions = AccessOptions & {
   /**
    * Number the lines of the documents sent whole, as the tools number them ("12| text"), and plan
    * them at that size. Defaults to false here, so that `prepare` gives the blocks of 0.9;
-   * `askWithFiles` asks for true unless `AskOptions.numberInline` is false. A value that is not
-   * true or false is a TypeError. New in 0.10.0.
+   * `askWithFiles` always asks for true (since 0.99.9). A value that is not true or false is a
+   * TypeError. New in 0.10.0.
    */
   numberInline?: boolean;
   /**
    * "tools": list the documents sent whole whose tables the tools can count in `toolable`, with
    * their document_id in the first line of their block; "text": as in 0.9. Defaults to "text"
-   * here; `askWithFiles` asks for "tools" unless `AskOptions.inlineTables` is "text". Another value
-   * is a TypeError. New in 0.10.0.
+   * here; `askWithFiles` always asks for "tools" (since 0.99.9). Another value is a TypeError. New
+   * in 0.10.0.
    */
   inlineTables?: "tools" | "text";
 };
@@ -1169,9 +1169,9 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
         const meta = metaOf(item as DocumentMeta, (item as { id?: unknown } | null)?.id as string);
         // Damaged, or of another ID than a document may have, or expired (as `getMeta` reads the date): not listed.
         if (!meta || typeof meta.id !== "string" || !isDocumentId(meta.id) || Date.parse(meta.expiresAt) <= at) continue;
-        // Written by a newer version of the package: left out, where `getMeta` would throw.
-        const version: unknown = meta.metaVersion ?? 0;
-        if (typeof version !== "number" || version > DOCUMENT_META_VERSION) continue;
+        // Written by a newer version of the package, or of a version that is not a number (NaN
+        // before 0.99.9): left out, where `getMeta` would throw.
+        if (!readableMetaVersion(meta)) continue;
         // Exactly the caller's owner and scope: a document without an owner, which any caller who
         // has its ID may use, is never handed to a caller with an owner (nor one without a scope to
         // a caller with one), and the rules of `requireOwner` and `requireScope` still hold.

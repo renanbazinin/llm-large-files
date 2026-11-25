@@ -1,5 +1,5 @@
 // Gemini (Generate Content REST) as a model of `askWithFiles`.
-import { laterResult, TOOL_TURN_VERSION, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelPart, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
+import { checkToolTurnVersion, laterResult, TOOL_TURN_VERSION, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelPart, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { TOOL_NAMES } from "../tools.js";
 import type { ToolResult } from "../types.js";
 import { retryAfterMs } from "../retry.js";
@@ -224,9 +224,11 @@ export function fromGeminiContents(contents: GeminiContent[], options: FromGemin
 /**
  * The tool rounds a question returned (`AskResult.toolTurns`) as Gemini `contents`: a model turn
  * of function calls and a user turn of function responses for each. For an application that
- * keeps its history as `contents`: put them between the question and its answer.
+ * keeps its history as `contents`: put them between the question and its answer. A round of a newer
+ * version is a TypeError, as in askWithFiles (since 0.99.9).
  */
 export function geminiToolTurns(turns: ToolTurn[]): GeminiContent[] {
+  for (const turn of turns) checkToolTurnVersion(turn);
   return turns.flatMap((turn) => {
     // Sent again in later questions: without the tool turns this question had left.
     const answers = turn.calls.map(({ result, ...call }) => ({ call, result: laterResult(result) }));

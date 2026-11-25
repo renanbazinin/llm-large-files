@@ -258,10 +258,9 @@ valid UTF-8 adds a note after the line count ([Text encodings](#text-encodings))
 
 Since 0.10.0 `askWithFiles` numbers the lines between the frame lines as `read_document` numbers
 them, from `1| `, so that an answer can cite a file sent whole as it cites a searched one
-([below](#numbered-lines-and-tables-sent-whole)). With `numberInline: false`, and in
-`files.prepare()` unless it is asked for, the text goes as it is, as in 0.9. The frame lines are the
-same either way, but for a table that the tools count (`inlineTables: "tools"`): its first frame
-line gives its document_id, `(csv, 3,001 lines; document_id doc_…; it ends only at the line with
+([below](#numbered-lines-and-tables-sent-whole)). In `files.prepare()`, unless it is asked for,
+the text goes as it is, as in 0.9. The frame lines are the same either way, but for a table that
+the tools count: its first frame line gives its document_id, `(csv, 3,001 lines; document_id doc_…; it ends only at the line with
 mark …)`, since the tools take it and a file sent whole has no card.
 
 A file too large to send whole is replaced by its card, a few kilobytes. This is the card of a
@@ -412,8 +411,8 @@ console.log(prepared.instruction); // the tool guide, or ""
 New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do, and that
 `files.prepare()` does only when asked (`PrepareOptions.numberInline`, `inlineTables`):
 
-- **Numbered lines** (`numberInline`, true by default). Every line of a file sent whole carries its
-  number, `12| `, as the tools show lines. The model can then cite it, "(report.docx L12)", and
+- **Numbered lines** (always in `askWithFiles` since 0.99.9; `numberInline: true` in `prepare`).
+  Every line of a file sent whole carries its number, `12| `, as the tools show lines. The model can then cite it, "(report.docx L12)", and
   `result.citations` checks the citation against the file's lines. The plan counts each such file
   at its numbered size, about 1.2 tokens a digit of the numbers and 1.5 a line more: 8% to 16% more
   tokens (15.5% for a CSV of 3,000 short rows, 9.4% for a service log, 8.4% for Hebrew prose). It
@@ -422,7 +421,8 @@ New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do,
   searched, no tool guide asks for citations, so the system text gets one fixed line:
   `Cite line numbers like (report.docx L12).` Its file name is an example, the same in every
   question, so the line does not change the start of the requests from one question to the next.
-- **Tables that the tools still count** (`inlineTables: "tools"`, the default). A file sent whole
+- **Tables that the tools still count** (always in `askWithFiles` since 0.99.9;
+  `inlineTables: "tools"` in `prepare`). A file sent whole
   whose rows `aggregate_table` reads gets the tools: a CSV or an XLSX workbook always, and a DOCX,
   PPTX, PDF, HTML or Markdown file when its text has a table of at least 3 `| cell |` rows (a run
   of lines that start and end with `|`, as `aggregate_table` reads a table, a `| --- |` separator
@@ -445,8 +445,8 @@ New in 0.10.0. `askWithFiles` asks `prepare` for two things that 0.9 did not do,
 
 When no file is searched, the answering model runs that loop itself, even when the question has an
 explorer ([An explorer model](#an-explorer-model)). The [evidence](#usage-and-evidence) lists each
-file sent whole first. `inlineTables: "text"` with `numberInline: false` sends what 0.9 sent, byte
-for byte.
+file sent whole first. Before 0.99.9, `inlineTables: "text"` with `numberInline: false` sent what
+0.9 sent, byte for byte; 0.99.9 removed both.
 
 ## Token estimates
 

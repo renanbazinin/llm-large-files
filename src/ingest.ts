@@ -1,7 +1,7 @@
 // `files.ingest`: reads a file, prepares its text, and stores it. Moved out of library.ts in 0.9.0:
 // the library hands it what it needs in an `IngestContext`.
 import { randomUUID } from "node:crypto";
-import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, isTimeLimit, metaOf, OWNER_REQUIRED, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
+import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, isTimeLimit, metaOf, OWNER_REQUIRED, readableMetaVersion, SCOPE_REQUIRED, storeCall, storeContext, watchStuck, type AccessRules } from "./access.js";
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type EventError, type IngestEvent, type IngestStage } from "./events.js";
@@ -150,8 +150,8 @@ async function sameDocument(context: IngestContext, target: Target, sha256: stri
   for (const item of Array.isArray(listed) ? listed : []) {
     const meta = metaOf(item as DocumentMeta, (item as { id?: unknown } | null)?.id as string);
     if (!meta || typeof meta.id !== "string" || !APP_DOCUMENT_ID_PATTERN.test(meta.id) || meta.sha256 !== sha256 || Date.parse(meta.expiresAt) <= at || !heldBy(meta, target.owner, target.scope)) continue;
-    const version: unknown = meta.metaVersion ?? 0;
-    if (typeof version === "number" && version <= DOCUMENT_META_VERSION) candidates.push(meta);
+    // Written by a newer version: never taken for the same upload, so a new copy is ingested.
+    if (readableMetaVersion(meta)) candidates.push(meta);
   }
   // The latest first: an older copy may be on its way out.
   candidates.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt));

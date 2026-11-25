@@ -31,7 +31,6 @@ An adapter is one object. The loop uses these members:
 | `send(request, hooks?)` | Yes | Every chat request: each tool turn, and the answer. |
 | `generateText` | No | The part reads of `analyze_whole_document`. Without it on the model that explores, that tool is not offered. |
 | `requestBytes(request)` | No | The size of a request body, so that the pages of `view_pages` get exactly the room that is left. Without it, the loop estimates. |
-| `estimateTokens(text)` | No | Deprecated, and never called. Set `capabilities.tokenScale` instead: see [`requestBytes` and `estimateTokens`](#requestbytes-and-estimatetokens). |
 
 One adapter object serves every question at once, so keep nothing of one request on it. The loop
 tells models apart by object, not by `id`: `explorer` set to the same object as `model` is one
@@ -223,7 +222,7 @@ returns the text of the reply.
   exported by `llm-large-files/gemini`). For a model of yours that thinks, send at least that.
 - Set a timeout of your own. The adapters of the package give a part read 180 seconds.
 
-### `requestBytes` and `estimateTokens`
+### `requestBytes`
 
 `requestBytes(request)` returns the size in bytes of the body `send` would post for `request`. The
 loop calls it on the model that explores, in a turn that looks at pages, with the model's turn
@@ -232,10 +231,9 @@ left of `maxRequestBytes` after that request and a margin of a tenth of it (at l
 times 3/4 for base64. Without `requestBytes`, the loop uses its estimate of the request. The size
 of the body without streaming is close enough.
 
-`estimateTokens(text)` is deprecated: the loop never calls it, and a later version may remove it.
-Every size is the library's estimate (`estimateTokens` from `llm-large-files`) scaled by
-`capabilities.tokenScale`: set that for a tokenizer that counts differently, and leave the
-`estimateTokens` member out of your adapter. An adapter that still declares it compiles as before.
+Every size the loop counts is the library's estimate (`estimateTokens` from `llm-large-files`)
+scaled by `capabilities.tokenScale`: set that for a tokenizer that counts differently.
+`ModelAdapter.estimateTokens`, deprecated in 0.6.0 and never called, was removed in 0.99.9.
 
 ## A complete adapter
 
