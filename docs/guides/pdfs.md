@@ -252,7 +252,9 @@ An HTML page (`.html`, `.htm`) is read as the text a browser shows. Scripts, sty
 lists and other content that is not read are dropped. Headings become Markdown headings, list
 items `- item` or `1. item`, each table row `| cell | cell |`, a link `text (https://…)`, and a
 picture its alt text. The page's title is a `#` heading when no heading holds it. Entities are
-decoded, so "AT&T" written `AT&amp;T` is found. A page saved in an older encoding is read as a
+decoded, so "AT&T" written `AT&amp;T` is found. A name without its `;` is decoded only where HTML
+reads one in an attribute (`&copy 2026`, not `&mdash` or `&le`), and never before `=`, so the
+parameters of an address stay as written (`?a=1&copy=2`; since 0.99.10). A page saved in an older encoding is read as a
 text file is ([Text encodings](#text-encodings)). Until 0.8.0 an HTML file was `text`, tags and
 all, and an XLSX was refused as a ZIP archive.
 
@@ -445,6 +447,11 @@ It is cautious: where the evidence for a table is weak, the text stays as it was
 - Columns that are closer together than a word space on every line of the table stay together in
   one cell, on every row alike.
 - A table whose text is stored column by column in the file is not rebuilt.
+- The search has a limit of work for each page (0.99.10): a page of 2,000 lines of a label and a
+  number held the server for 26 s before. Past a few hundred such lines, which hold together
+  without being a table, a table is found where they end, and not one that starts among them. A
+  table too wide for the limit (300 rows of 200 columns) stays text. The pages of documents are
+  far below it: a table of 2,400 rows and 30 columns is rebuilt, in 0.6 s.
 - Pictures and charts are not in the text. See [Pictures in PDFs](#pictures-in-pdfs).
 
 The cell marks cost about one token per cell. The rules were tuned on PDFs made by Chrome and by

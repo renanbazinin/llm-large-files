@@ -588,15 +588,15 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
   let truncatedParts = 0;
   type Note = { from: number; to: number; text: string; read: boolean };
   /**
-   * Parts that may be read as two halves. Each takes one request more than planned, and makes one
-   * part more: the parts stay within `maxMapChunks`, and the requests within `maxRequests`, with
-   * the merges of their notes priced first (`estimateMerges`, as long as the output limit allows)
-   * and the answer.
+   * Parts that may be read as two halves. Each makes one part more, and takes two requests more
+   * than planned: the one that was refused, then one for each half. The parts stay within
+   * `maxMapChunks` (`halvings`), and the requests within `maxRequests` (`spare`), with the merges of
+   * the notes priced first (`estimateMerges`, as long as the output limit allows) and the answer.
+   * Until 0.99.10 a halved part was counted as one request more: a read with room for one halving
+   * made a request too many, or had none left for its answer.
    */
-  let halvings = Math.max(0, Math.min(
-    budget.maxMapChunks - parts.length,
-    limit - parts.length - estimateMerges(parts.length, PART_OUTPUT_TOKENS, budget.mapChunkTokens).requests - 1,
-  ));
+  let halvings = Math.max(0, budget.maxMapChunks - parts.length);
+  let spare = Math.max(0, limit - parts.length - estimateMerges(parts.length, PART_OUTPUT_TOKENS, budget.mapChunkTokens).requests - 1);
   /** The note on a part that could not be read, and why. */
   const failedPart = (from: number, to: number, error: unknown, reason: string): Note[] => {
     failed++;
@@ -633,8 +633,9 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
       return [{ from, to, text, read: true }];
     } catch (error) {
       if (signal?.aborted) throw error;
-      if (!halved && to > from && modelErrorOf(error)?.kind === "context_overflow" && halvings > 0) {
+      if (!halved && to > from && modelErrorOf(error)?.kind === "context_overflow" && halvings > 0 && spare >= 2) {
         halvings--;
+        spare -= 2;
         const middle = Math.floor((from + to) / 2);
         return [
           ...await readPart(from, middle, `${where}, first half`, true, `first half of ${detail}`),
@@ -836,12 +837,15 @@ function objectsOnLine(line: string): string[] {
 /**
  * The items of an object a model wrapped them in (`{"items": [{…}, {…}]}`), as models that think in
  * JSON write a list: an object with no quote of its own and one array of objects. Any other object
- * is an item.
+ * is an item. Since 0.99.10 a wrapper around an empty list (`{"items": []}`: no quote, no line,
+ * and its one array empty) has no item: it was counted as an item that could not be checked.
  */
 function unwrapped(objects: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
   return objects.flatMap((object) => {
     if (Object.hasOwn(object, "quote")) return [object];
-    const lists = Object.values(object).filter((value): value is Array<Record<string, unknown>> => Array.isArray(value) && value.length > 0 && value.every(isObject));
+    const arrays = Object.values(object).filter((value): value is unknown[] => Array.isArray(value));
+    if (arrays.length === 1 && arrays[0]!.length === 0 && !Object.hasOwn(object, "line")) return [];
+    const lists = arrays.filter((value): value is Array<Record<string, unknown>> => value.length > 0 && value.every(isObject));
     return lists.length === 1 ? lists[0]! : [object];
   });
 }

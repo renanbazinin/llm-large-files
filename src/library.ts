@@ -1133,9 +1133,18 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       const deadline = new AbortController();
       const timer = isTimeLimit(storeTimeoutMs) ? setTimeout(() => deadline.abort(storeTimeout("delete", storeTimeoutMs)), storeTimeoutMs) : undefined;
       try {
-        if (!await metaFor(id, caller)) return false;
+        const found = await metaFor(id, caller);
+        if (!found) return false;
         forget(id);
-        return await removal(() => store.delete(id, caller.context), caller.signal, deadline.signal);
+        // The store is asked again in the removals' turn, just before its delete (0.99.10): the wait
+        // for the turn can last up to the time limit, and the document may expire meanwhile and
+        // another be stored under its ID, by another owner too. Only the document that was looked
+        // up is removed: one stored since (another `createdAt`) is left, and the answer is false.
+        return await removal(async () => {
+          const now = await metaFor(id, caller);
+          if (!now || now.createdAt !== found.createdAt) return false;
+          return store.delete(id, caller.context);
+        }, caller.signal, deadline.signal);
       } finally {
         clearTimeout(timer);
       }

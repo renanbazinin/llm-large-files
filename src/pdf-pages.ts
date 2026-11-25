@@ -9,8 +9,9 @@
  * - a wanted page gets its own resource dictionary, without the images it does not paint.
  */
 import { getHeapStatistics } from "node:v8";
+import { inflateRawSync } from "node:zlib";
 import { importPeer } from "./peers.js";
-import type { PDFContext, PDFDict, PDFObject, PDFObjectCopier, PDFPage, PDFPageLeaf, PDFRef } from "@cantoo/pdf-lib";
+import type { PDFContext, PDFDict, PDFObject, PDFObjectCopier, PDFPage, PDFPageLeaf, PDFRawStream, PDFRef } from "@cantoo/pdf-lib";
 import { TimeSlicer } from "./pause.js";
 import { formatBytes } from "./plan.js";
 
@@ -199,6 +200,12 @@ const BYTES_PER_OBJECT = 1_700;
 const MAX_OBJECTS = 1_000_000;
 /** Content streams larger than this are not read to find out which images a page paints. */
 const MAX_CONTENT_BYTES = 4 * 1024 * 1024;
+/**
+ * The content of one page, decoded, that is read for that: all its streams together. The content
+ * of real pages is packed 3 to 10 times, and Flate can pack 1,000 times: a stream of 4 MB can hold
+ * 4 GB, and one stream can be named many times over.
+ */
+const MAX_PAGE_DECODED = 8 * MAX_CONTENT_BYTES;
 /** Not needed to show a page, and able to hold a lot: editor data, article threads, actions, a thumbnail. */
 const DROPPED_PAGE_ENTRIES = ["PieceInfo", "B", "AA", "Thumb"];
 const UNREADABLE = "This PDF could not be read to cut pages from it. It may be damaged.";
@@ -213,19 +220,97 @@ export async function loadPdfLibrary(): Promise<PdfLibrary> {
 }
 
 /**
- * The content of a stream as text, one character per byte, or undefined when it cannot be had:
- * the stream is larger than `maxBytes`, uses a filter the library does not undo, or is damaged.
+ * Decoded content that may still be read, in bytes: one allowance for all the streams a reader
+ * decodes for one purpose (one page). The size of a stream as it is stored says nothing about its
+ * size decoded. `passed` is set when a stream held more than what was left: it, and every stream
+ * after it, is not read.
  */
-export function decodeContent(library: PdfLibrary, context: PDFContext, stream: PDFObject | undefined, maxBytes: number): string | undefined {
-  const { PDFArray, PDFDict, PDFName, PDFRawStream, decodePDFRawStream } = library;
-  if (!(stream instanceof PDFRawStream) || stream.contents.length > maxBytes) return undefined;
+export type DecodeAllowance = { left: number; passed?: boolean };
+
+/** A stream decodes to more than it may. */
+export class DecodedTooMuch extends Error {}
+
+/** What a decoder of pdf-lib keeps, and the decoder it reads from. Not in its types: checked before use. */
+type Decoder = { ensureBuffer?: unknown; stream?: unknown };
+
+/**
+ * Has the decoders of a stream (`decodePDFRawStream`: one for each filter, and one for the
+ * encryption of the file) refuse to make room for more than `most` bytes each: they then throw
+ * `DecodedTooMuch`. pdf-lib's decoders keep all they decode, and its Flate decoder decodes a block
+ * in one go, whatever the block holds: reading it a piece at a time does not bound it. The room of
+ * a decoder doubles as it grows, so one holds less than twice `most`; and a decoder asks for the
+ * room of a piece before it reads it, so a stream within a piece of `most` may be refused too.
+ * Returns how many decoders were limited; fewer than the stream has means a pdf-lib built
+ * otherwise, which cannot be held to a size.
+ */
+export function limitDecoders(decoder: unknown, most: number): number {
+  let limited = 0;
+  let layer = decoder as Decoder | undefined;
+  while (layer && typeof layer === "object" && typeof layer.ensureBuffer === "function" && limited < 64) {
+    const grow = layer.ensureBuffer as (this: unknown, requested: number) => unknown;
+    layer.ensureBuffer = function (this: unknown, requested: number) {
+      if (requested > most) throw new DecodedTooMuch();
+      return grow.call(this, requested);
+    };
+    limited++;
+    layer = layer.stream as Decoder | undefined;
+  }
+  return limited;
+}
+
+/**
+ * The decoded bytes of a stream that decodes to `most` bytes or fewer. Throws `DecodedTooMuch` for
+ * one that holds more, before it is decoded whole, and an error for one that cannot be decoded.
+ */
+function decodeWithin(library: PdfLibrary, context: PDFContext, stream: PDFRawStream, most: number): Uint8Array {
+  const { PDFArray, PDFName, PDFRawStream: RawStream, decodePDFRawStream } = library;
+  const filter = stream.dict.lookup(PDFName.of("Filter"));
+  const filters = filter instanceof PDFArray ? filter.asArray().map((entry) => context.lookup(entry)) : filter ? [filter] : [];
+  let decoded: Uint8Array;
+  if (filters.length === 1 && filters[0] === PDFName.of("FlateDecode")) {
+    // Nearly every content stream. zlib stops at a size, and is several times faster than pdf-lib.
+    // An encrypted file: decrypted first, with nothing else undone.
+    const packed = stream.transform ? decodePDFRawStream(RawStream.of(context.obj({}), stream.contents, stream.transform)).decode() : stream.contents;
+    // The two bytes pdf-lib checks. Like it, the checksum after the data is not read: some
+    // programs write a wrong one, or none.
+    const [method, flags] = packed;
+    if (method === undefined || flags === undefined || (method & 0x0f) !== 0x08 || ((method << 8) + flags) % 31 !== 0 || (flags & 0x20) !== 0) {
+      throw new Error("Not a Flate stream.");
+    }
+    try {
+      decoded = inflateRawSync(packed.subarray(2), { maxOutputLength: Math.max(1, most) });
+    } catch (error) {
+      throw (error as { code?: unknown } | undefined)?.code === "ERR_BUFFER_TOO_LARGE" ? new DecodedTooMuch() : error;
+    }
+  } else {
+    const decoder = decodePDFRawStream(stream);
+    const decoders = filters.length + (stream.transform ? 1 : 0);
+    if (limitDecoders(decoder, most) < decoders) throw new Error("This pdf-lib cannot be held to a size.");
+    decoded = decoder.decode();
+  }
+  if (decoded.length > most) throw new DecodedTooMuch();
+  return decoded;
+}
+
+/**
+ * The content of a stream as text, one character per byte, or undefined when it cannot be had:
+ * the stream is larger than `maxBytes` as it is stored, decodes to more than `allowance` has left,
+ * uses a filter the library does not undo, or is damaged. What it decodes to is taken from
+ * `allowance`.
+ */
+export function decodeContent(library: PdfLibrary, context: PDFContext, stream: PDFObject | undefined, maxBytes: number, allowance: DecodeAllowance): string | undefined {
+  const { PDFArray, PDFDict, PDFName, PDFRawStream } = library;
+  if (allowance.passed || !(stream instanceof PDFRawStream) || stream.contents.length > maxBytes) return undefined;
   // The library does not undo a predictor, and would hand back bytes that are not the content.
   const parameters = stream.dict.lookup(PDFName.of("DecodeParms"));
   const list = parameters instanceof PDFArray ? parameters.asArray().map((entry) => context.lookup(entry)) : [parameters];
   if (list.some((entry) => entry instanceof PDFDict && entry.has(PDFName.of("Predictor")))) return undefined;
   try {
-    return latin1(decodePDFRawStream(stream).decode());
-  } catch {
+    const decoded = decodeWithin(library, context, stream, allowance.left);
+    allowance.left -= decoded.length;
+    return latin1(decoded);
+  } catch (error) {
+    if (error instanceof DecodedTooMuch) allowance.passed = true;
     return undefined;
   }
 }
@@ -316,7 +401,8 @@ function dropUnusedImages(library: PdfLibrary, context: PDFContext, page: PDFPag
   let readable = true;
   /** Names found in content that looks them up in this page's dictionary, still to be followed. */
   const found: string[] = [];
-  const decode = (stream: PDFObject | undefined) => decodeContent(library, context, stream, MAX_CONTENT_BYTES);
+  const allowance: DecodeAllowance = { left: MAX_PAGE_DECODED };
+  const decode = (stream: PDFObject | undefined) => decodeContent(library, context, stream, MAX_CONTENT_BYTES, allowance);
   const read = (text: string) => {
     for (const match of text.matchAll(PAINTED)) {
       const name = canonicalName(match[1]!);
@@ -426,6 +512,7 @@ async function copyPages(library: PdfLibrary, source: import("@cantoo/pdf-lib").
   for (const page of pages) {
     if (!wantedReferences.has(page.ref)) context.assign(page.ref, PDFNull);
   }
+  const slicer = new TimeSlicer();
   for (const page of wanted) {
     for (const entry of DROPPED_PAGE_ENTRIES) page.node.delete(PDFName.of(entry));
     try {
@@ -433,6 +520,8 @@ async function copyPages(library: PdfLibrary, source: import("@cantoo/pdf-lib").
     } catch {
       // An unusual resource dictionary: the page is copied with everything it lists.
     }
+    // The content of a page is decoded and read in one go: other requests get a turn between pages.
+    await slicer.maybePause();
   }
   const target = await PDFDocument.create({ updateMetadata: false });
   // One copier for everything, and each page copied through its reference: an annotation's /P then

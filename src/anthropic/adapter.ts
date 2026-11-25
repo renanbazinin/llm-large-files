@@ -137,6 +137,23 @@ const STATUS_OF_TYPE: Record<string, number> = {
   invalid_request_error: 400, authentication_error: 401, billing_error: 402, permission_error: 403, not_found_error: 404, request_too_large: 413,
 };
 
+/**
+ * The error of an error event in a stream, or of a body of HTTP 200 that is an error
+ * (`{ type: "error", error }`): a gateway may answer so, where the API itself answers with the
+ * error's own status. Its status is the one of its type (`STATUS_OF_TYPE`).
+ */
+function errorOf(failed: Json | null | undefined): AnthropicRequestError {
+  const type = typeof failed?.type === "string" ? failed.type as string : undefined;
+  // Only a type of the table itself: "constructor" names no status.
+  const status = type !== undefined && Object.hasOwn(STATUS_OF_TYPE, type) ? STATUS_OF_TYPE[type]! : 500;
+  return new AnthropicRequestError(String(failed?.message ?? "Claude reported an error."), status, type ? { type } : {});
+}
+
+/** The error a body that came with HTTP 200 is, when it is one and not a message. */
+function bodyError(data: Json | null | undefined): AnthropicRequestError | undefined {
+  return data?.type === "error" && data.error && typeof data.error === "object" ? errorOf(data.error as Json) : undefined;
+}
+
 /** Blocks of a model that declined part-way must not go back: only what came after the last switch to another model does. */
 const INTERNAL_BEFORE_FALLBACK = new Set(["thinking", "redacted_thinking", "tool_use", "server_tool_use"]);
 
@@ -469,6 +486,10 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
         ...options.analysisBody?.(limit),
       }, timer.signal, stopped, lost, undefined, true);
       const data = await readJson<Json>(response, stopped, lost, timer.signal ? { pulse: () => undefined, signal: timer.signal } : undefined, (error) => notJson(response, error));
+      // An error in a body that came with 200: thrown with its own status, so that a busy server
+      // is asked again rather than read as a reply with no text.
+      const failed = bodyError(data);
+      if (failed) throw failed;
       const used = usageOf(data.usage as Json | undefined);
       onUsage?.(used);
       const content: Block[] = Array.isArray(data.content) ? data.content : [];
@@ -541,6 +562,9 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       if (!(events && response.body)) {
         // In one piece: streaming is off, or the gateway answered without it.
         const data = await readJson<Json>(response, () => Boolean(hooks.signal?.aborted), lost, watch, (error) => notJson(answer, error));
+        // An error in a body that came with 200, as a stream may send one: not an empty reply.
+        const failed = bodyError(data);
+        if (failed) throw failed;
         const content: Block[] = Array.isArray(data.content) ? data.content : [];
         const text = content.map((block) => (block?.type === "text" && typeof block.text === "string" ? block.text : "")).join("");
         if (text) hooks.onText?.(text);
@@ -560,10 +584,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
       const end = replyEnd(watch);
       try {
         for await (const event of parseSseJson<Json>(response.body, { onData: watch.pulse, signal: end.signal })) {
-          if (event.type === "error") {
-            const type = typeof event.error?.type === "string" ? event.error.type as string : undefined;
-            throw new AnthropicRequestError(String(event.error?.message ?? "Claude reported an error."), (type && STATUS_OF_TYPE[type]) || 500, type ? { type } : {});
-          }
+          if (event.type === "error") throw errorOf(event.error as Json | undefined);
           if (event.type === "message_stop") {
             end.reached();
           } else if (event.type === "message_start") {
@@ -581,6 +602,8 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
             } else if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
               block.thinking = `${block.thinking ?? ""}${delta.thinking}`;
             } else if (delta.type === "signature_delta") {
+              // The whole signature, in one event before the block's stop: it replaces, as in
+              // Anthropic's own SDKs, and is not joined to an earlier one.
               block.signature = delta.signature;
             } else if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
               inputs.set(event.index, `${inputs.get(event.index) ?? ""}${delta.partial_json}`);

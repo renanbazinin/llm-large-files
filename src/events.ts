@@ -38,7 +38,10 @@ export type EventError = {
    * A message your users may see. A model error is told by its kind and status ("The model was
    * busy (HTTP 429)."), never in the provider's own words, which can name projects, hosts or
    * keys: those stay on the error that is thrown, for your logs. A storage error is told by its
-   * code only.
+   * code only. Any other `Error` is told by its own message (the library's refusals, an abort's
+   * reason, and what your own adapter, extractor or hook throws: keep secrets out of those),
+   * without the credentials of a URL in it (since 0.99.10, `withoutCredentials`).
+   * `errorInfoOf(error).message` passes no words but the library's own.
    */
   message: string;
   /**
@@ -57,6 +60,12 @@ export type EventError = {
    * when the chat was deleted.
    */
   code?: IngestErrorCode | DocumentScopeErrorCode;
+  /**
+   * For a `DocumentStoreError`: its code ("ETIMEDOUT", "STORE_STUCK", "NEWER_VERSION", "EIO"…), when
+   * it reads as one (capitals, digits and "_"), so that `errorInfoOf` reads the event as it reads
+   * the error. New in 0.99.10.
+   */
+  storeCode?: string;
 };
 
 /**
@@ -394,6 +403,8 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
     // errorInfoOf reads, as the upload handlers tell it.
     if (own !== undefined) out.name = own;
     else if (typeof record.name === "string" && record.name) out.name = record.name;
+    // The store's code, as its message tells it: only one that reads as a code (0.99.10).
+    if (own === "DocumentStoreError" && isErrorCode(record.code)) out.storeCode = record.code;
     return out;
   } catch {
     return { message: message ?? SOMETHING_WENT_WRONG };
@@ -409,6 +420,19 @@ export function isPlainData(value: object): boolean {
 }
 
 /**
+ * A message that is passed on as it is written, without what is never meant for a user (0.99.10):
+ * a URL that holds a user name or a password ("postgres://user:password@host/db") is told by its
+ * scheme alone, and the value of a parameter named as a key, a token, a secret, a password or a
+ * signature is left out. It is a net under the rule, not the rule: an error of your own code is
+ * told in its own words, so keep secrets out of them.
+ */
+export function withoutCredentials(message: string): string {
+  return message
+    .replace(/\b([a-z][a-z0-9+.-]*):\/\/[^\s/?#@]*@[^\s"'<>)\]]*/gi, "$1://…")
+    .replace(/([?&;](?:[\w.-]*(?:key|token|secret|password|passwd|pwd|signature|sig))=)[^&;#\s"'<>)\]]+/gi, "$1…");
+}
+
+/**
  * A message for users: a model error by its kind and status, a storage error by its code, the
  * library's own errors (refusals, a stop) as they are written, and anything that is not an
  * `Error` as "Something went wrong."
@@ -417,7 +441,7 @@ function userMessageOf(error: unknown): string {
   // The library's own errors with a status (503, 404) are not model errors: their words are safe.
   if (DocumentStoreError.is(error) || DocumentsNotFoundError.is(error)) return (error as Error).message;
   if (typeof error !== "object" || error === null) return SOMETHING_WENT_WRONG;
-  const record = error as { kind?: unknown; status?: unknown; code?: unknown; syscall?: unknown; message?: unknown };
+  const record = error as { kind?: unknown; status?: unknown; code?: unknown; syscall?: unknown; errno?: unknown; message?: unknown };
   // A model error, as eventErrorOf gives it a kind: the provider's words stay on the error.
   if (typeof record.kind === "string" || (isModelStatus(record.status) && !isPlainData(record))) return modelFailureReason(error);
   // Any other status (thrown plain data, a status no model answers with) is not a model's, and the
@@ -428,8 +452,12 @@ function userMessageOf(error: unknown): string {
   if (typeof record.code === "string" && typeof record.syscall === "string") {
     return `The file could not be read from storage${isErrorCode(record.code) ? ` (${record.code})` : ""}.`;
   }
+  // A system error a client passed on under its own class, with the code and the `errno` and
+  // without the `syscall` (node-fetch's FetchError, a database driver's): its message names the
+  // URL or the host and user that were asked. Told without it (0.99.10).
+  if (typeof record.code === "string" && record.errno !== undefined) return SOMETHING_WENT_WRONG;
   if (!(error instanceof Error) && !(typeof DOMException !== "undefined" && error instanceof DOMException)) return SOMETHING_WENT_WRONG;
-  return typeof record.message === "string" && record.message ? record.message : SOMETHING_WENT_WRONG;
+  return typeof record.message === "string" && record.message ? withoutCredentials(record.message) || SOMETHING_WENT_WRONG : SOMETHING_WENT_WRONG;
 }
 
 /**

@@ -36,6 +36,233 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.99.10 — not released yet
+
+A patch from an outside review of the code. Each finding was checked against 0.99.9, and each one
+that held was reproduced in a test before it was fixed: seven in what a server exposes (a redacted
+look at pages, the environment of the isolated readers, a delete that waited, an upload that was
+refused, the size of an event of a stream, a PDF page that unpacks to gigabytes, a page that held
+the server for half a minute), and smaller ones in the loop, whole-file reads, the adapters, the
+Node handlers, the parsers, search and tables. The instructions, the tool guide and the tool
+descriptions are those of 0.99.9: a question sends the same text unless a tool result is one of
+those fixed below.
+
+### Upgrading: what you need to change
+
+Code written for 0.99.9 compiles as it is. Five changes of behavior may need a line in an
+application:
+
+- **`onToolResult`: a replaced result goes without its pages.** A hook that returns `{ result }`
+  for a `view_pages` call no longer sends the pages of the result it replaced: the model gets the
+  replacement alone. Before, a hook that returned `{ result: { note: "redacted" } }` still showed
+  the model the PDF pages. **What to do:** nothing for a hook that only masks text results. A hook
+  that changes the result of a look at pages and wants the pages sent returns
+  `{ result, keepFiles: true }` ([security](docs/security.md#tool-results-ontoolresult)).
+- **Isolated readers get a short list of environment variables**, not the server's whole
+  environment: where programs, libraries and temporary files are, the time zone and the language,
+  Node's own settings, and what Windows needs. **What to do:** nothing with the library's own child
+  script. A `childScript` of your own that reads another variable gets it through the new `env`
+  option; `env: process.env` passes everything, as before
+  ([`IsolatedExtractorOptions`](docs/reference/node.md#isolatedextractoroptions)).
+- **`uploadSpool` removes its own old files.** With `uploadSpool`, the handlers remove the files
+  named `llf-upload-<UUID>` in the spool's folder (the system's temporary folder by default) that
+  were last written more than a day ago: when they are made, and at most once an hour after that.
+  Nothing of another name is touched. **What to do:** nothing, or `uploadSpool: { sweepAfterMs: 0 }`
+  to remove none ([`UploadSpoolOptions`](docs/reference/node.md#uploadspooloptions)).
+- **The event of a store error has a new field, `storeCode`.** A test that compares the whole
+  `error` of a `run.error` or `ingest.error` with `toEqual` needs it
+  (`{ message, name: "DocumentStoreError", status: 503, storeCode: "EIO" }`).
+- **Keyword search in Hebrew ranks differently** for a query word that starts with prefix letters
+  (המשרד), and the `score` values of its passages differ: a test that pins them needs the new ones
+  ([Changed](#changed-what-works-differently)).
+
+### New: what you can add
+
+- `ToolResultContext.files`: the files a call hands the model next to its result (the pages of
+  `view_pages`: their names, types and bytes), for a check of your own; and
+  `ToolResultVerdict`'s `keepFiles` ([`onToolResult`](docs/reference/ask.md#toolresultcontext-and-toolresultverdict)).
+- `IsolatedExtractorOptions.env`: more environment variables for the isolated readers.
+- `UploadSpoolOptions.sweepAfterMs`: the age past which the spool's own files are removed (24
+  hours; 0 for none).
+- `EventError.storeCode`: the code of a `DocumentStoreError` (`"ETIMEDOUT"`, `"STORE_STUCK"`,
+  `"NEWER_VERSION"`, `"EIO"`), so that `errorInfoOf(event.error)` gives the `code` that
+  `errorInfoOf` of the thrown error gives ([events](docs/reference/events.md#errors-eventerror)).
+- `OpenAiRequestError.param` also names the field of a one-problem FastAPI `detail` (its `loc`).
+
+### Changed: what works differently
+
+- **A question planned again that then fails says why.** When the first request is refused as too
+  large, the documents are planned again; when that second plan failed before it sent anything,
+  the provider's overflow was thrown, whatever had happened. Now a stop throws the signal's reason,
+  a store that failed its `DocumentStoreError`, a document that went meanwhile
+  `DocumentsNotFoundError`, and a scope that cannot be used `DocumentScopeError`, each with what
+  the first try found (`partialResultOf`). A budget of yours that cannot work with the smaller
+  window is still reported as the overflow.
+- **`files.delete` removes only the document it looked up.** See Fixed, below: it returns `false`
+  when another document was stored under the ID while it waited.
+- **`classifyModelError`: HTTP 413, and the codes `context_length_exceeded` and
+  `request_too_large`, are a `"context_overflow"` whatever the message says.** Words of throttling
+  in the message ("please try again later", "per minute") made them `"invalid"`, and the files were
+  not planned again. Such words still decide for a message that only reads like an overflow, and
+  HTTP 429 is as before ([errors and retries](docs/reference/errors-and-retries.md)).
+- **Keyword search in Hebrew: a stem for each prefix letter.** A query word with prefix letters
+  searches a stem for each letter taken off (המשרד: משרד and שרד), where it searched the shortest
+  alone (שרד): a file that writes משרד ranked below passages with שרד inside other words. A query
+  of more than 12 terms keeps its words before the stems ([tools](docs/reference/tools.md)).
+- **An error passed on in its own words loses its credentials.** `EventError.message`, and the
+  answer of the upload handlers for an error with a `status` of its own, still tell an error of
+  your own code by its message. A URL with a user name or a password in it is now told by its
+  scheme alone (`postgres://…`), the value of a URL parameter named as a key, a token, a secret, a
+  password or a signature is left out, and an error with a `code` and an `errno` and no `syscall`
+  (node-fetch's, a database driver's) is told as "Something went wrong.". A host name or a path in
+  such a message still passes: keep them out of the errors your hooks throw, or show
+  `errorInfoOf(error).message`, which passes no words but the library's own.
+- **`writeSseEvents`: `heartbeatMs: Infinity`, or any time past 2,147,483,647 ms, sends no
+  keep-alive.** It sent one every millisecond (Node's timer took such a time for 1 ms).
+- **OpenAI-compatible: a server that refuses `stream_options` is asked again without it**, and
+  later streams of that adapter leave it out; their replies then carry no usage unless the server
+  sends it anyway. The request used to fail (Azure OpenAI before 2024-09-01, servers that take no
+  field they do not know).
+
+### Fixed
+
+- **Security.**
+  - *A redacted look at pages still showed the pages.* `onToolResult` returning `{ result }` for a
+    `view_pages` call replaced the JSON result and kept the PDF (or the page images) next to it.
+    The pages now go only with a result the hook kept, or with `keepFiles: true`; the hook is given
+    them in `files`; and no evidence of pages the model did not get is recorded.
+  - *The isolated readers had every secret of the server.* A child that parses files you do not
+    trust was given the whole environment but `NODE_OPTIONS` (134 variables on the test machine).
+    It now gets a fixed short list.
+  - *A delete that waited could remove another owner's document.* `files.delete` checked the
+    document, then waited its turn behind other deletes (up to `storeTimeoutMs`), then deleted by
+    ID. When the document expired meanwhile and another owner stored one under the same
+    application ID, that one was removed. The store is now asked again in the delete's turn, and
+    only the document that was looked up (the same `createdAt`, usable by the caller) is removed.
+  - *A refused upload could hold its connection.* After an answer sent before the body was read
+    (no name, too large, no room), a client that stopped sending, or sent a byte now and then, kept
+    the connection until Node's `requestTimeout` (5 minutes; for ever at 0). The rest of the body
+    is now dropped for `uploadIdleTimeoutMs` of silence at most, and 2 minutes in all.
+  - *An event of a stream could grow past `maxEventLength`.* White space after `data:`, arriving
+    in pieces, was not counted and was kept: 48 million spaces held about 96 MiB under any limit.
+    It is no longer kept.
+  - *A PDF page was decoded whatever it unpacked to.* A look at pages (`view_pages`) and the
+    picture marks checked only the stored size of a page's content (4 MB and 2 MB): a page of
+    33 KB that unpacks to 33 MB was decoded whole, and 4 MB can hold 4 GB. A page's content is now
+    decoded up to 32 MB for a look and 16 MB for the marks, all its streams together; past that, a
+    look keeps every image the page lists, and the page is marked as a drawing. At ingest, content
+    stored behind two filters could make `@cantoo/pdf-lib` decode one block of any size (a block
+    of 1.3 MB asked for 134 MB): each decoder is now held to 64 MB, and the file is refused as
+    before.
+  - *A page of many short lines held the server.* The search for tables in a PDF page took the
+    cube of its lines: a page of 2,000 lines of a label and a number took 26 s, and a table of
+    8,000 rows 21 s. Both take under a second, with the same text. The search now has a limit of
+    work for each page: a table that starts among several hundred such lines is not found, and a
+    page of 300 rows of 200 columns stays text
+    ([PDF tables](docs/guides/pdfs.md#pdf-tables)).
+- **The loop.**
+  - The request for the answer, replied to with a tool call that could not be read and a remark
+    before it ("Let me look at the errors."), returned the remark as the answer, `answered: true`.
+    It is asked for once more, as in a tool turn, and is not an answer when it comes again.
+  - A call that repeated an earlier one, in a turn that shortened that earlier result to make
+    room, runs after all; its room was not counted, so it shared the room made for the other calls
+    and came back cut (63 of 90 lines in the test), or was not run, while older rounds could still
+    be shortened. The room is now counted again with it.
+- **Whole-file reads.**
+  - A part read as two halves takes two requests more than planned (the one refused, and one for
+    each half), and was counted as one: a read with `maxRequests` 6 over three parts made 7 part
+    requests and had none left for its answer. It now stays within the limit and writes the answer.
+  - A part read that lists items, replied to with an empty wrapped list (`{"items": []}`), counted
+    the wrapper as an item that could not be checked (`unverified_items: 1`). It has no item.
+  - A server built on FastAPI that refuses the larger output limit of a thinking model with HTTP
+    422 was asked for it again for every part; it is remembered, as after a 400.
+- **Events and errors.** `errorInfoOf(event.error)` of a store error had no `code`, though the
+  thrown error's had (`"ETIMEDOUT"`, `"STORE_STUCK"`, `"NEWER_VERSION"`): the event now carries it
+  (`storeCode`).
+- **Adapters.**
+  - *Claude:* a body of HTTP 200 that is an error (`{ "type": "error", … }`, as a gateway may
+    answer) is thrown with the status of its type (529 for `overloaded_error`, and sent again), for
+    chat requests and part reads. It was read as an empty reply.
+  - *OpenAI-compatible:* a server that refuses the name of the output limit with HTTP 422
+    ("Extra inputs are not permitted") is sent the other name, as after a 400, and
+    `openAiResponses()` drops `include` after a 422 too. An error of `type` `insufficient_quota`
+    with `code: null` is kind `"quota"` and is not sent again; it was `"rate_limit"`, sent again
+    three times.
+  - *All three:* an error inside a stream whose type or code is a word such as `constructor` got a
+    function as its `status`. It is 500, as for any unknown word.
+  - *Gemini:* a part read with an empty system text sends no `systemInstruction`, as a chat request
+    does.
+- **Node handlers.**
+  - *Isolated readers:* a file that ran its reader out of memory could be refused as
+    `"unreadable"` where only the standard error tells it (Windows), and a warning kept from an
+    earlier file could make any later crash of that reader `"out_of_memory"`.
+  - *Upload spool:* a server killed in the middle of an upload left its temporary file for good
+    (now swept, above); the removal of a temporary file is tried again on `EACCES` too.
+  - *`prepareUpload`:* for a file saved at the root of a Windows drive with a ref, the link check
+    compared against the drive's working folder, and could refuse the upload with "Upload failed
+    (ELOOP).".
+  - *`writeSseEvents`:* a keep-alive whose `write` throws rejects the call instead of raising an
+    uncaught exception; on an HTTP/2 response it no longer sets `Connection: keep-alive`, which
+    Node dropped with a warning.
+- **Search and tables.**
+  - A keyword search for a word found 200,000 times or more (a large log, `error`) returned no
+    passage and the note that no passage contains it. It returns passages that hold the word.
+  - A regex with `\p{…}` that is not valid with the Unicode flag (`\p{Hebrew}` for
+    `\p{Script=Hebrew}`) was searched as the text `p{Hebrew}` and answered 0 matching lines. It is
+    an `Invalid regex` error.
+  - `aggregate_table` with `header_rows` of 3 to 5 took 2 rows for the header of a CSV file, and 1
+    row for a header of 2 below a title row. It takes the rows asked for.
+  - `aggregate_table` read spaced digits as a number: a date `2026 03 14` as 20,260,314, and a
+    column of phone numbers was summed. A space or an apostrophe counts only between thousands
+    (`1 234 567`). `(-100)` was read as 100; it is -100.
+- **HTML.**
+  - The parameters of an address (`?a=1&copy=2&reg=us`) were read as `©=2®=us`, in a link and in
+    text: a name without its `;` is decoded only where HTML reads one, and never before `=`. A
+    picture's alt text was decoded twice (`&amp;copy;` became ©).
+  - An end tag of a skipped element that was not opened (`</script>` inside `<noscript>`,
+    `<template>` or `<svg>`) ended the skip, and the rest of that element was read as text of the
+    page.
+- **Office files.**
+  - *XLSX:* a cell that names a shared string without a number (`<c t="s"></c>`, an empty `<v>`)
+    showed the first string of the workbook. It is empty.
+  - *DOCX, PPTX, XLSX:* half of a surrogate pair written as a character reference (`&#xD800;`) or
+    as an Excel escape (`_xD800_`) reached the stored text and the request, which Claude's API
+    refuses. It is stored as U+FFFD; two that make a pair (`&#xD83D;&#xDE00;`) stay the character.
+- **Docs.** [security](docs/security.md) said that the frame quotes a file's name as a JSON string:
+  the frame of a file sent whole does; the card of a searched file, and the requests of a
+  whole-file read, write it as it is, on one line. The page says so now.
+
+### Checked, and left as they are
+
+Findings of the review that the code already answers, or that are how the library is meant to
+work:
+
+- *Owner checks off by default:* on by default since 0.99.9.
+- *Claude's `signature_delta` replaces the signature:* the API sends one such event for a thinking
+  block, and Anthropic's own SDKs assign it too. *A part read at 32,768 output tokens is not
+  streamed:* the 10-minute rule is a check of Anthropic's SDKs, not an HTTP 400 of the API, and a
+  part read is bounded by its own time limit.
+- *An event of a stream that is not JSON is `"unreachable"`, and sent again:* a reply cut off on
+  its way is the usual cause, and it is sent again only while no text was shown (documented).
+- *The ZIP directory check can be passed with a negative size:* every case where the check gives
+  up is one where `jszip` itself throws before it reads a part (15 crafted archives and 831
+  mutated ones: none got through), and the names it does not count are read, and counted, from
+  the local headers.
+- *`@cantoo/pdf-lib` is patched in places:* each patch checks the shape it changes and falls back
+  to the library's own behavior; a new test compares a cut written through the patch with pdf-lib's
+  own, byte for byte, and fails when the pinned version moves to one that differs.
+- *Gemini's stream has no end-of-reply grace:* it has no event that says the reply is whole.
+- *`isolated.close()` can be used again:* documented, and a child started after it does not hold
+  the process.
+- *The upload handlers answer an error with a `status` in its own words:* documented, and the
+  recipes for refusals of your own rely on it; credentials are now taken out (Changed).
+- *One document larger than `cacheBytes` is kept apart for a minute:* documented since 0.10.2;
+  `wholeDocumentBytes` bounds it.
+- *`header_rows: 0` still leaves a title row out:* documented, and the row is reported in `title`.
+- *Cards have no mark, and whole-file reads put a part between `<part>` tags:* documented under
+  [The frame around a file](docs/security.md#the-frame-around-a-file). Changing it changes the text
+  every question sends, and is not part of a patch.
+
 ## 0.99.9 — 2026-11-25
 
 The candidate for 1.0, without a promise yet that the API stays as it is: versions 0.99.x keep the

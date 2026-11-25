@@ -11,7 +11,7 @@
  */
 import type { PDFContext, PDFDict, PDFDocument, PDFObject } from "@cantoo/pdf-lib";
 import { fairPause } from "./pause.js";
-import { decodeContent, loadPdf, loadPdfLibrary, tooManyObjects } from "./pdf-pages.js";
+import { decodeContent, loadPdf, loadPdfLibrary, tooManyObjects, type DecodeAllowance } from "./pdf-pages.js";
 
 type PdfLibrary = typeof import("@cantoo/pdf-lib");
 /** `[x0, y0, x1, y1]` with x0 <= x1 and y0 <= y1. */
@@ -73,10 +73,16 @@ type Reading = {
   deadline: number;
 };
 
-/** The content of a form, from the forms already decoded for this file when it is there. */
-function formContent(reading: Reading, form: PDFObject): string | undefined {
+/**
+ * The content of a form, from the forms already decoded for this file when it is there. `left`:
+ * what the page that paints it may still read. Throws `PaintsTooMuch` for a form that holds more,
+ * before it is decoded whole: a few kilobytes can be packed to hold gigabytes.
+ */
+function formContent(reading: Reading, form: PDFObject, left: number): string | undefined {
   if (reading.forms.has(form)) return reading.forms.get(form);
-  const content = decodeContent(reading.library, reading.context, form, MAX_CONTENT_BYTES);
+  const allowance: DecodeAllowance = { left };
+  const content = decodeContent(reading.library, reading.context, form, MAX_CONTENT_BYTES, allowance);
+  if (allowance.passed) throw new PaintsTooMuch();
   const size = content?.length ?? 0;
   if (reading.kept + size <= MAX_KEPT_FORMS) {
     reading.forms.set(form, content);
@@ -262,7 +268,7 @@ function run(reading: Reading, content: string, resources: PDFDict | undefined, 
           const ys = [mapY(ctm, 0, 0), mapY(ctm, 1, 0), mapY(ctm, 0, 1), mapY(ctm, 1, 1)];
           found.images.push({ id: value instanceof PDFRef ? value.objectNumber : -1, box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] });
         } else if (subtype === PDFName.of("Form") && depth < MAX_FORM_DEPTH && !open.has(object)) {
-          const inner = formContent(reading, object);
+          const inner = formContent(reading, object, MAX_PAGE_CONTENT - found.read);
           if (inner === undefined) break;
           const own = object.dict.lookup(PDFName.of("Resources"));
           const formMatrix = object.dict.lookup(PDFName.of("Matrix"));
@@ -396,7 +402,14 @@ export async function findPicturePages(
           found.tooLarge = true;
           continue;
         }
-        const parts = streams.map((stream) => decodeContent(library, context, stream, MAX_CONTENT_BYTES));
+        // The streams of a page are decoded up to what one page may read, together: packed, a
+        // stream of a few kilobytes can hold gigabytes, and a page can name one stream many times.
+        const allowance: DecodeAllowance = { left: MAX_PAGE_CONTENT };
+        const parts = streams.map((stream) => decodeContent(library, context, stream, MAX_CONTENT_BYTES, allowance));
+        if (allowance.passed) {
+          found.tooLarge = true;
+          continue;
+        }
         // Content that cannot be read is not guessed at: the page stays unmarked.
         if (!parts.includes(undefined)) run(reading, parts.join(" "), leaf.node.Resources(), IDENTITY, found, 0, new Set());
       } catch (error) {

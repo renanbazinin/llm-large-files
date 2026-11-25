@@ -3,23 +3,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { createPdfExtractor, extractText } from "../src/extract.js";
 import { layoutPageText, plainPageText, type PdfTextItem } from "../src/pdf-layout.js";
+import { line, piece } from "./pdf-layout-fixtures.js";
 
-// ---------- Text items as pdf.js reports them, built by hand ----------
-
-/** One piece of text at (x, y) in PDF units (y grows upwards). Each character is half a font size wide. */
-function piece(text: string, x: number, y: number, size = 10): PdfTextItem {
-  return { str: text, transform: [size, 0, 0, size, x, y], width: text.length * size * 0.5, height: size, hasEOL: false };
-}
-
-/** A line the way pdf.js emits it: an empty line-end marker, then the pieces with a space item between them. */
-function line(y: number, cells: Array<[x: number, text: string]>, size = 10): PdfTextItem[] {
-  const items: PdfTextItem[] = [{ str: "", transform: [size, 0, 0, size, cells[0]![0], y], width: 0, height: 0, hasEOL: true }];
-  cells.forEach(([x, text], index) => {
-    if (index > 0) items.push({ str: " ", transform: [size, 0, 0, size, x - 1, y], width: 1, height: 0, hasEOL: false });
-    items.push(piece(text, x, y, size));
-  });
-  return items;
-}
+// ---------- Text items as pdf.js reports them, built by hand (test/pdf-layout-fixtures.ts) ----------
 
 /** Rows of a table: `columns` are the left edges, an empty string leaves the cell out. */
 function rows(top: number, step: number, columns: number[], values: string[][]): PdfTextItem[] {

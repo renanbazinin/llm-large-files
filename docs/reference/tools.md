@@ -252,8 +252,12 @@ language.
   word may have one) and common English and Hebrew words are dropped; at most 12 distinct terms are
   kept. A term also matches inside longer words: "timeout" matches "timeouts".
 - A Hebrew term loses its points. One that starts with prefix letters (ו ה ב כ ל מ ש: בחוזה,
-  והחוזה) also searches its stem without them (חוזה), up to three letters off while three are
-  left, so passages with the word as written rank first. One that ends in a final letter also
+  והחוזה) also searches its stems without them, one for each letter taken off (חוזה; החוזה and
+  חוזה), up to three letters while three are left, so passages with the word as written rank
+  first. Until 0.99.10 only the shortest stem was searched: המשרד searched שרד and not משרד, and a
+  file that writes משרד ranked below every passage with שרד inside another word. When a query has
+  more than 12 terms, its words are kept before the stems (in the order found, ten Hebrew words
+  lost the last four). One that ends in a final letter also
   matches its plain form, as inside a longer word: כסף finds כספים. New in 0.8.0.
 - A passage is a run of whole lines of about 1,500 characters, or 40 lines at most. A passage that
   contains the whole query as a phrase (more than one term, up to 200 characters) is ranked higher.
@@ -262,6 +266,11 @@ language.
   the file is not always first.
   `score` is rounded to two decimals and only orders the results. Since 0.10.0 the search keeps only
   the best passages as it goes, rather than sorting every passage it scored.
+- A term is counted up to 200,000 occurrences. One found that often is left out of the ranking: it
+  is in a large share of the passages and says little about any. When no rarer term of the query is
+  found, the passages are ranked by it after all, among those where it was counted (from the start
+  of the file, or of the lines searched). Until 0.99.10 such a search returned no passage, and a
+  search of a large log for "error" was answered "No passage contains these keywords".
 - A query with no usable term, or with no hit, returns no passage and the note "No passage contains
   these keywords. Try other words, synonyms, or exact mode."
 
@@ -290,7 +299,7 @@ folds of exact search do not apply. Limits:
 |---|---|---|
 | Pattern length | 300 characters | Refused: `Regex is longer than 300 characters.` |
 | Nested quantifier, such as `(a+)+` | Refused up front, unless each repeat ends at a literal character that none of its quantified parts can match, as in `(\d{1,3}\.){3}\d{1,3}` or `(\w+\.)+com` (accepted since 0.8.0) | `Regex has a nested quantifier like (a+)+, which can hang on large files. Simplify it.` |
-| Invalid pattern | | `Invalid regex: ` and the engine's message. |
+| Invalid pattern | | `Invalid regex: ` and the engine's message. Since 0.99.10 also a pattern with `\p{…}`, `\P{…}` or `\u{…}` that is not valid with the `u` flag, such as `\p{Hebrew}` (for `\p{Script=Hebrew}`): without the flag these are the text `p{…}`, and the search answered 0 matching lines. |
 | One search | 3,000 ms of matching, or what is left of the tool set's time when that is less | The scan stops; the result has the lines found so far and the note below. |
 | A line the pattern cannot get past | Two whole slices of 250 ms on the same line | The scan stops there, the same way. |
 | All regex searches of one tool set | [`REGEX_BUDGET_MS`](#regex_budget_ms), 6,000 ms | Each later regex search fails: `The time for regex searches is used up for this answer. Search with mode "exact" or "keywords" instead.` |
@@ -506,7 +515,10 @@ A column is named as in the header (case and spaces ignored), by its letter (`C`
 or by the lower part of a joined header ("הכנסות" for "פברואר / הכנסות") when only one column has
 it. A letter or a number names a column only when no column has that name; until 0.10.0 a letter
 named one only in a sheet with no header. Numbers are read as people write them: `1,234.5`, `-12`, `(1,200)` for a negative, `₪4,750`,
-`$ 12.00`, `12%` (12), `1 234`, `12,5` (a decimal comma), `1.234,56`. A sum or average leaves out
+`$ 12.00`, `12%` (12), `1 234`, `12,5` (a decimal comma), `1.234,56`. A space, a no-break space or
+an apostrophe is read only between thousands (`1 234 567`, `1'234.5`): since 0.99.10 digits spaced
+another way, a date or a phone number (`2026 03 14`, `052 123 4567`), are not a number, and
+`(-100)` is -100 (it was 100). A sum or average leaves out
 cells that are not numbers, and says how many (`values_not_numbers`); `min` and `max` of ISO dates
 compare them as text. Up to 10,000 groups are counted one by one; rows of further groups are
 counted in `other_rows`.
@@ -698,8 +710,11 @@ no request for the answer is not made: the answer is then written from the notes
 request (`mapChunkTokens`), in the order of the file, and the result says how many parts' notes it
 left out (`notes_left_out`). When not even the answer has a request left, the notes are the answer
 (`notes_only`). A part is halved only while the requests left also cover the merges its notes may
-need, priced as long as the output limit allows, and the answer. Until 0.10.0 the merges went past
-`maxRequests`: a read of 27 parts given 32 requests made 40.
+need, priced as long as the output limit allows, and the answer. A halved part takes two requests
+more than planned: the one that was refused, then one for each half. Until 0.99.10 it was counted
+as one more, so a read with room for one halving made a request more than `maxRequests`, or had
+none left for its answer. Until 0.10.0 the merges went past `maxRequests`: a read of 27 parts given
+32 requests made 40.
 
 Each document may be read whole [`MAX_WHOLE_DOCUMENT_READS`](#max_whole_document_reads) times (1)
 by one tool set, which is one question in `askWithFiles`. Set it with `limits.wholeDocumentReads`

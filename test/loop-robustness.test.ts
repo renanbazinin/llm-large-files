@@ -371,9 +371,10 @@ describe("a request larger than the model takes", () => {
     expect(errorInfoOf(new SdkError())).toMatchObject({ category: "model", code: "context_overflow" });
   });
 
-  it("reports the provider's overflow when the document is gone, or the store fails, before the second plan", async () => {
-    // Since 0.9.0 DocumentsNotFoundError (404) and DocumentStoreError (503) have a status; neither is
-    // the model's error, so the first try's overflow is still the one reported, with its partial result.
+  it("reports that the document is gone, or that the store failed, when it happens before the second plan", async () => {
+    // Since 0.99.10 the error of the second plan is the one reported, with what the first try
+    // found: a store that failed is told as one (try again), and a document that went as missing.
+    // From 0.9.0 to 0.99.9 the first try's overflow was reported for both.
     for (const failure of ["deleted", "store"] as const) {
       const store = new MemoryDocumentStore();
       const files = createLargeFiles({ requireOwner: false, store, budget: { contextTokens: 200_000 } });
@@ -385,8 +386,11 @@ describe("a request larger than the model takes", () => {
         return overflow;
       }]);
       const error = await askWithFiles({ files, model, documentIds: [meta.id], messages: question("?") }).catch((caught: unknown) => caught);
-      expect(error, failure).toBe(overflow);
+      expect(error, failure).not.toBe(overflow);
+      expect(errorInfoOf(error), failure).toMatchObject(failure === "deleted" ? { category: "missing", code: "documents_missing" } : { category: "store", code: "EIO", retryable: true });
       expect(model.requests, failure).toHaveLength(1);
+      // What the first try paid for is kept with it.
+      expect(partialResultOf(error), failure).toMatchObject({ answered: false, text: "" });
     }
   });
 
@@ -861,10 +865,15 @@ describe("since the review of these changes", () => {
     const tight = await run(2 + 1);
     expect(tight.sent).toHaveLength(2);
     expect(tight.result.error).toMatch(/^Could not read any part of app\.log/);
-    // One request more: one part is halved.
+    // One request more is not enough for two halves (0.99.10): a halved part takes two requests
+    // more, the one that was refused and one for each half. Before, it was halved, and the read
+    // had no request left for its answer.
     const one = await run(2 + 1 + 1);
-    expect(one.sent).toHaveLength(4);
-    expect(one.result).toMatchObject({ parts_read: 3, parts_that_failed: 1 });
+    expect(one.sent).toHaveLength(2);
+    // Two more: one part is halved, and the answer is written.
+    const two = await run(2 + 1 + 2);
+    expect(two.sent).toHaveLength(4);
+    expect(two.result).toMatchObject({ parts_read: 3, parts_that_failed: 1, answer: "Answer (L97)." });
     // maxMapChunks of 2: the parts are as many as it allows, and none is halved.
     expect((await run(undefined, { maxMapChunks: 2 })).sent).toHaveLength(2);
     // No ceiling: both are halved.

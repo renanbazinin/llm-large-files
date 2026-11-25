@@ -48,6 +48,17 @@ export type IsolatedExtractorOptions = {
   /** Further Node options for the children, beside the heap limit. */
   execArgv?: string[];
   /**
+   * Environment variables for the children, besides the short list they are given of the server's
+   * own: where programs, libraries and temporary files are (`PATH`, `TMPDIR`…), the time zone and
+   * the language (`TZ`, `LANG`, `LC_*`), Node's own settings (`NODE_ENV`, `NODE_PATH`…), and what
+   * Windows needs (`SystemRoot`…). Nothing else of the server's environment reaches a child: its
+   * keys and passwords are not in a process that reads files you do not trust. A variable here is
+   * added, or replaces the server's; `undefined` takes one of the list out. `process.env` passes
+   * the whole environment, as before 0.99.10. `NODE_OPTIONS` is never passed, from here either: a
+   * heap flag there would replace the child's (`execArgv` is for Node's options). New in 0.99.10.
+   */
+  env?: Record<string, string | undefined>;
+  /**
    * The script the children run: a path, a `file:` URL, or a string of one (as
    * `import.meta.resolve("llm-large-files/node/ingest-child.js")` gives). Defaults to the one
    * shipped next to this module. For a bundler that moves files.
@@ -77,6 +88,51 @@ const BUSY_RETRY_MS = 5_000;
 const LONGEST_TIMER_MS = 2 ** 31 - 1;
 
 const DEFAULT_FORMATS: DocumentFormat[] = ["pdf", "docx", "pptx", "xlsx"];
+
+/**
+ * The server's environment variables a child is given (0.99.10), with every `LC_*`: what Node
+ * needs to start and to read a file as the server would, and nothing an application keeps a key
+ * or a password in. Before, a child had the whole environment: a parser that a file takes over
+ * would have read every secret of the server there.
+ */
+const CHILD_ENV = [
+  // Where programs, libraries and temporary files are, and how memory is given out.
+  "PATH", "HOME", "TMPDIR", "TMP", "TEMP",
+  "LD_LIBRARY_PATH", "LD_PRELOAD", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH", "LIBPATH",
+  "MALLOC_ARENA_MAX", "MALLOC_CONF", "GLIBC_TUNABLES",
+  // The time zone and the language: a child reads dates and numbers as the server does.
+  "TZ", "TZDIR", "LANG", "LANGUAGE", "ICU_DATA",
+  // Node's own settings. Never NODE_OPTIONS, whose heap flag would replace the child's.
+  "NODE_ENV", "NODE_PATH", "NODE_ICU_DATA", "NODE_PRESERVE_SYMLINKS", "NODE_COMPILE_CACHE", "NODE_DISABLE_COMPILE_CACHE",
+  "NODE_SKIP_PLATFORM_CHECK", "NODE_V8_COVERAGE", "UV_THREADPOOL_SIZE", "ELECTRON_RUN_AS_NODE",
+  // Windows, where a process without SystemRoot does not start right.
+  "SystemRoot", "SystemDrive", "windir", "COMSPEC", "PATHEXT", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+  "APPDATA", "LOCALAPPDATA", "USERNAME", "USERDOMAIN", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
+];
+
+/**
+ * The environment of a child: the short list of the server's variables (`CHILD_ENV`), then `more`
+ * (`IsolatedExtractorOptions.env`), without `NODE_OPTIONS` in any case of its name (Windows reads
+ * names whatever their case). Read when the child starts.
+ */
+function childEnvironment(more: Record<string, string | undefined> | undefined): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const name of CHILD_ENV) {
+    const value = process.env[name];
+    if (value !== undefined) env[name] = value;
+  }
+  for (const [name, value] of Object.entries(process.env)) {
+    if (name.toUpperCase().startsWith("LC_") && value !== undefined) env[name] = value;
+  }
+  for (const [name, value] of Object.entries(more ?? {})) {
+    if (value === undefined) delete env[name];
+    else env[name] = value;
+  }
+  for (const name of Object.keys(env)) {
+    if (name.toUpperCase() === "NODE_OPTIONS") delete env[name];
+  }
+  return env;
+}
 
 type Job = {
   id: number;
@@ -165,7 +221,9 @@ const MAX_HEAP_MB = 1_048_576;
  * A file costs its bytes copied to the child and its text copied back. A file ingested from a path
  * (`IngestFromSource`) is read by its child instead (`readsPath`, 0.9.0): the server reads none of
  * it, and holds none of it while it waits for a child. The children load the same
- * optional dependencies (`unpdf`, `jszip`, `@cantoo/pdf-lib`) the server would.
+ * optional dependencies (`unpdf`, `jszip`, `@cantoo/pdf-lib`) the server would. They are given a
+ * short list of the server's environment variables, without its keys and passwords (0.99.10; `env`
+ * adds to it).
  */
 export function createIsolatedExtractors(options: IsolatedExtractorOptions = {}): IsolatedExtractors {
   const maxHeapMb = Math.trunc(positive("maxHeapMb", options.maxHeapMb, 512));
@@ -180,6 +238,9 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
   const script = options.childScript ?? new URL("./ingest-child.js", import.meta.url);
   // fork() takes a path: a file URL given as a string (import.meta.resolve) would be read as a relative path.
   const scriptPath = script instanceof URL || script.startsWith("file:") ? fileURLToPath(script) : script;
+  if (options.env !== undefined && (typeof options.env !== "object" || options.env === null)) {
+    throw new TypeError(`env must be an object of environment variables, such as { TZ: "UTC" } or process.env, and is ${options.env === null ? "null" : typeof options.env}.`);
+  }
   const children: Child[] = [];
   /** Every child not yet gone, those stopped and not yet exited included: close() waits for them. */
   const alive = new Set<Child>();
@@ -187,16 +248,10 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
   let nextId = 1;
   let closed = false;
 
-  const environment = () => {
-    const env = { ...process.env };
-    delete env.NODE_OPTIONS;
-    return env;
-  };
-
   function spawn(): Child {
     const child = fork(scriptPath, [], {
       execArgv: [`--max-old-space-size=${maxHeapMb}`, ...(options.execArgv ?? [])],
-      env: environment(),
+      env: childEnvironment(options.env),
       serialization: "advanced",
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
@@ -249,11 +304,17 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
       const job = entry.job;
       entry.job = undefined;
       if (job) {
-        const reason = entry.killedFor ?? (error !== undefined ? unstarted(job, error) : entry.started ? deathOf(entry, job, code, signal) : undefined);
+        // A death that says itself why (killed here, never started, a heap that ran out by its
+        // signal or its code, or by words already read) is told at once.
+        const reason = entry.killedFor ?? (error !== undefined ? unstarted(job, error) : entry.started && ranOutOfMemory(entry, code, signal) ? deathOf(entry, job, code, signal) : undefined);
         if (reason !== undefined) job.reject(reason);
-        // A child that stopped before it was ready wrote why on its standard error, which may come
-        // after "exit": its end is waited for, a second at most.
-        else afterStderr(child, () => job.reject(notStarted(entry, job, code, signal)));
+        // Any other is told by what the child wrote on its standard error, which may come after
+        // "exit": its end is waited for, a second at most. A child that stopped before it was
+        // ready wrote there why; one that died while it read a file, whether its heap ran out
+        // (0.99.10: where a heap that ran out ends the process with a plain exit code, as on
+        // Windows, the words that came after the exit were not read, and the file was told as
+        // one that could not be read).
+        else afterStderr(child, () => job.reject(entry.started ? deathOf(entry, job, code, signal) : notStarted(entry, job, code, signal)));
       }
       pump();
     };
@@ -291,9 +352,12 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
     return Object.assign(new Error(`The server could not start a reader for ${job.input.name} (${signal ?? `exit code ${code}`}).`, { cause }), { status: 500 });
   }
 
+  /** Whether a child that died ran out of its heap: by its signal or its exit code, or by what it wrote while it read its file. */
+  const ranOutOfMemory = (entry: Child, code: number | null, signal: NodeJS.Signals | null) => signal === "SIGABRT" || code === 134 || OUT_OF_MEMORY.test(entry.stderr);
+
   /** Why a child process died while it read a file. */
   function deathOf(entry: Child, job: Job, code: number | null, signal: NodeJS.Signals | null): IngestError {
-    if (OUT_OF_MEMORY.test(entry.stderr) || signal === "SIGABRT" || code === 134) {
+    if (ranOutOfMemory(entry, code, signal)) {
       return new IngestError("out_of_memory", `${job.input.name} needed more memory than is allowed for reading one file (${maxHeapMb} MB). It may be built to exhaust the server, so it is not read. Split it, or save it as plain text, and attach that.`);
     }
     return new IngestError("unreadable", `${job.input.name} could not be read: its reader stopped (${signal ?? `exit code ${code}`}).`);
@@ -366,6 +430,10 @@ export function createIsolatedExtractors(options: IsolatedExtractorOptions = {})
     entry.idle = undefined;
     entry.job = job;
     entry.files++;
+    // What the child wrote while it read an earlier file says nothing of this one (0.99.10: a
+    // warning kept from an earlier file, "Array buffer allocation failed", told a later death of
+    // any kind as a heap that ran out).
+    entry.stderr = "";
     entry.process.ref();
     entry.process.channel?.ref();
     (entry.process.stderr as { ref?: () => void } | null)?.ref?.();

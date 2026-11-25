@@ -28,7 +28,7 @@ import {
   type ToolTurn,
   type UsageTotals,
 } from "./model.js";
-import { DocumentStoreError } from "./errors.js";
+import { DocumentScopeError, DocumentStoreError } from "./errors.js";
 import { nativeFile, nativeFilesLine, sharedDocuments } from "./native.js";
 import { canBeReadWhole, estimateParts, inlineInstruction, questionTools, REQUEST_BYTES_MARGIN } from "./plan.js";
 import { preparedHere } from "./prepare.js";
@@ -351,15 +351,20 @@ export type AskResult = {
 /**
  * What `AskOptions.onToolResult` is given: the call and its result, as the tool returned it (before
  * it is fitted to the room in the request), the document it names, who asks, and a signal that
- * aborts when the question is stopped or fails. New in 0.10.0.
+ * aborts when the question is stopped or fails. New in 0.10.0. Since 0.99.10 also `files`: the files
+ * the call hands the model next to its result (the pages of `view_pages`, as a PDF or as images),
+ * present when there is at least one.
  */
-export type ToolResultContext = { call: ToolCall; result: ToolResult; documentId?: string; owner?: string; scope?: DocumentScope; signal: AbortSignal };
+export type ToolResultContext = { call: ToolCall; result: ToolResult; files?: ToolFile[]; documentId?: string; owner?: string; scope?: DocumentScope; signal: AbortSignal };
 
 /**
  * What `AskOptions.onToolResult` returns: `{ result }` sends that result in place of the tool's,
  * and `{ reject }` sends `{ error: reject }`. Undefined keeps the tool's result. New in 0.10.0.
+ * Neither verdict sends the call's files (the pages of `view_pages`): the hook cannot mask them, so
+ * a replacement goes without them unless it says `keepFiles: true` (since 0.99.10; before, a
+ * replacement was sent with the pages of the result it replaced).
  */
-export type ToolResultVerdict = { result: ToolResult } | { reject: string };
+export type ToolResultVerdict = { result: ToolResult; keepFiles?: boolean } | { reject: string };
 
 /**
  * What `AskOptions.onMissingDocuments` says to do with the documents that are missing:
@@ -488,17 +493,20 @@ function checkedAction(action: unknown): MissingDocumentsAction {
 }
 
 /**
- * What `onToolResult` returned, checked: undefined, `{ result }` with a result that is an object,
- * or `{ reject }` with a string. A verdict with a `result` is a result, whatever else it holds.
- * Anything else ends the question: the hook is there to keep something from the model, and a
- * mistake in it must not let the result through.
+ * What `onToolResult` returned, checked: undefined, `{ result }` with a result that is an object
+ * (and `keepFiles`, when it is there, a boolean), or `{ reject }` with a string. A verdict with a
+ * `result` is a result, whatever else it holds. Anything else ends the question: the hook is there
+ * to keep something from the model, and a mistake in it must not let the result through.
  */
 function checkedVerdict(verdict: unknown): ToolResultVerdict | undefined {
   if (verdict === undefined) return undefined;
   if (verdict !== null && typeof verdict === "object") {
     if (Object.hasOwn(verdict, "result")) {
-      const { result } = verdict as { result: unknown };
-      if (result !== null && typeof result === "object" && !Array.isArray(result)) return { result: result as ToolResult };
+      const { result, keepFiles } = verdict as { result: unknown; keepFiles?: unknown };
+      if (keepFiles !== undefined && typeof keepFiles !== "boolean") {
+        throw new TypeError(`onToolResult returned keepFiles ${shownValue(keepFiles)}: it must be true or false.`);
+      }
+      if (result !== null && typeof result === "object" && !Array.isArray(result)) return { result: result as ToolResult, ...(keepFiles === true ? { keepFiles } : {}) };
     } else if (Object.hasOwn(verdict, "reject")) {
       const { reject } = verdict as { reject: unknown };
       if (typeof reject === "string") return { reject };
@@ -1052,8 +1060,14 @@ async function askPlanned(options: AskOptions, state: RunState): Promise<AskResu
       // (A store that failed, or a document gone, has a status since 0.9.0, but is not the model's.)
       const fromModel = (again as { status?: unknown } | null)?.status !== undefined && !DocumentStoreError.is(again) && !DocumentsNotFoundError.is(again);
       if (state.failed?.error !== again && !fromModel) {
-        keepPartial(error.overflow, state, error.partial);
-        throw error.overflow;
+        // Not the budget's doing (0.99.10): the question was stopped, the store failed, a document
+        // went meanwhile, or its scope cannot be used. That error is thrown as it is, with what the
+        // first try found. Before, the overflow was: a stop read as a question too large, and a
+        // store that was down for a moment as a question that cannot be asked again.
+        const own = options.signal?.aborted === true || DocumentStoreError.is(again) || DocumentsNotFoundError.is(again) || DocumentScopeError.is(again);
+        const thrown = own ? again : error.overflow;
+        keepPartial(thrown, state, error.partial);
+        throw thrown;
       }
       throw again;
     }
@@ -2034,23 +2048,33 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       }
       // The calls that return text, and the most they may return: a call that is refused, or
       // answered with a pointer to what is already shown, needs no room.
-      const sized = planned.filter((plan) => !plan.refusal && !plan.pointer && plan.call.name !== TOOL_NAMES.view);
+      const returnsText = (plan: Planned) => !plan.refusal && !plan.pointer && plan.call.name !== TOOL_NAMES.view;
       // The room is in tokens, and each result takes those of its document's characters.
       const rateOf = (call: ToolCall) => 1 / charactersPerToken(metaOf(call.args.document_id));
-      const sizedRates = sized.map((plan) => rateOf(plan.call));
-      const needed = sized.reduce((sum, plan, index) => sum + most(plan.call) * sizedRates[index]!, 0);
-      let left = room(pending, sizedRates);
+      let left = 0;
       let dropped = false;
-      for (const keep of canShrink ? ROUNDS_KEPT : []) {
-        if (left >= needed) break;
-        if (shrink(keep)) {
-          dropped = true;
-          left = room(pending, sizedRates);
+      // Older rounds are shortened, a step at a time (`ROUNDS_KEPT`), until the calls have the room
+      // they need. A result that was shortened is no longer shown in full: a call that pointed to it
+      // is run after all, and needs room of its own, so the room is counted again with it, and the
+      // shortening goes on from where it stopped. Until 0.99.10 it was not counted: such a call
+      // shared the room made for the others, and was cut, or not run, while older rounds could
+      // still be shortened.
+      let level = 0;
+      for (;;) {
+        const sized = planned.filter(returnsText);
+        const sizedRates = sized.map((plan) => rateOf(plan.call));
+        const needed = sized.reduce((sum, plan, index) => sum + most(plan.call) * sizedRates[index]!, 0);
+        left = room(pending, sizedRates);
+        let shortened = false;
+        while (canShrink && level < ROUNDS_KEPT.length && left < needed) {
+          if (shrink(ROUNDS_KEPT[level++]!)) {
+            shortened = true;
+            left = room(pending, sizedRates);
+          }
         }
-      }
-      if (dropped) {
-        step(RESULTS_SHORTENED, "results_shortened");
-        // A result that was shortened is no longer shown in full: a call that pointed to it is run after all.
+        if (!shortened) break;
+        dropped = true;
+        let unpointed = false;
         for (const plan of planned) {
           if (!plan.earlier) continue;
           const pointer = shownBefore(plan.call);
@@ -2059,10 +2083,13 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           } else {
             delete plan.pointer;
             delete plan.earlier;
+            unpointed = true;
           }
         }
+        if (!unpointed) break;
       }
-      const runsNow = planned.filter((plan) => !plan.refusal && !plan.pointer && plan.call.name !== TOOL_NAMES.view);
+      if (dropped) step(RESULTS_SHORTENED, "results_shortened");
+      const runsNow = planned.filter(returnsText);
 
       // The room is shared by those calls. A result is most often far smaller than its cap, so a call
       // that was given its whole cap first could leave none for the next ones, and a turn of small
@@ -2306,6 +2333,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               const context: ToolResultContext = {
                 call,
                 result: own.result,
+                ...(own.files.length > 0 ? { files: own.files } : {}),
                 ...(typeof call.args.document_id === "string" ? { documentId: call.args.document_id } : {}),
                 ...(options.owner !== undefined ? { owner: options.owner } : {}),
                 ...(options.scope !== undefined ? { scope: options.scope } : {}),
@@ -2319,7 +2347,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
                 halt.abort(error);
                 throw error;
               }
-              if (verdict && "result" in verdict) return { raw: own, output: { ...own, result: { ...verdict.result, redacted: true } }, judged: "redacted" };
+              // A replacement goes without the files of the result it replaces (the pages of
+              // view_pages), which the hook could not mask, unless the hook says to keep them.
+              if (verdict && "result" in verdict) return { raw: own, output: { result: { ...verdict.result, redacted: true }, files: verdict.keepFiles === true ? own.files : [] }, judged: "redacted" };
               if (verdict) return { raw: own, output: { result: { error: verdict.reject }, files: [] }, judged: "refused" };
               return { raw: own, output: own };
             });
@@ -2410,8 +2440,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
             }
           }
           const line = step(`${label}${toolResultSummary(label, output.result)}`);
-          // A copy of the first call's verdict shows nothing that the first did not.
-          const shown = copied ? undefined : evidenceOf(call, output.result);
+          // A copy of the first call's verdict shows nothing that the first did not. Nor does a
+          // look at pages whose pages the hook kept back: the model saw none of them.
+          const withheld = raw.files.length > 0 && output.files.length === 0;
+          const shown = copied || withheld ? undefined : evidenceOf(call, output.result);
           if (shown) evidence.push({ ...shown, callId: callIds[index]! });
           const sent = { ...output.result, tool_turns_left: turnsLeft };
           answers.push({ call, result: sent, files: output.files });
@@ -2474,9 +2506,12 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       // question, and may be one request past `limits.toolTurns`, which counts the answer's first
       // request.
       const calledInstead = reply.calls.length > 0 || reply.finish === "malformed_call";
+      // The text before a tool call that could not be read is a remark ("Let me look at the
+      // errors."), not the answer, here as in a tool turn (0.99.10: it was taken for the answer).
+      const answerOf = (reply: ModelReply) => wrote(reply) && reply.finish !== "malformed_call";
       const again = ceiling < Number.POSITIVE_INFINITY ? meter.current(viewFor(model)).tokens * scaleOf(model) : 0;
       const ceilingReached = spentTokens() + again > ceiling || (limits.requests !== undefined && usage.totals.requests >= limits.requests);
-      if (!wrote(reply) && !reply.blockReason && reply.finish !== "filtered" && reply.finish !== "other" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES) {
+      if (!answerOf(reply) && !reply.blockReason && reply.finish !== "filtered" && reply.finish !== "other" && (calledInstead || reply.finish !== "cut") && nudges < MOST_NUDGES) {
         if (ceilingReached) {
           budgetReached();
         } else {
@@ -2485,7 +2520,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           reply = await send(model, answerRequest(ANSWER_AGAIN_NOTE), true, { role: "answer", purpose: "answer_again" });
         }
       }
-      answered = wrote(reply);
+      answered = answerOf(reply);
     }
     return answer(answered);
   } catch (error) {

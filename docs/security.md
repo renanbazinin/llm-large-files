@@ -370,14 +370,22 @@ export function askWithDlp(options: AskOptions): Promise<AskResult> {
   call is never answered with a pointer to a masked result: it runs again, through the hook. The
   same call made twice in one turn gets the first one's verdict: the same masked copy, or the same
   error.
+- **The pages of `view_pages` go with the result, or not at all.** The pages are files next to the
+  result (one PDF, or an image of each page), and the hook cannot mask them. Since 0.99.10 it is
+  given them as `files` (their names, types and bytes, for a check of your own), and a result it
+  replaces (`{ result }`) or rejects is sent without them: the model gets your replacement and no
+  page, and no evidence of the pages is kept. To send the pages with a replacement, return
+  `{ result, keepFiles: true }`. Until 0.99.10 a replacement was sent with the pages of the result
+  it replaced, so a hook that returned `{ result: { note: "redacted" } }` for a look at pages still
+  showed the model those pages. To keep every page from the model, reject the call
+  (`call.name === "view_pages"`), or ask without `viewPages`.
 - **It sees tool results only.** The model gets other text of the files that no tool returns, and
   the hook does not see it:
   - a document small enough to be sent whole goes into the prompt as it is;
   - the card of a searched document holds its first 25 lines, up to 40 outline headings, and for a
     log up to 8 message templates;
   - the parts of a whole-file read (`analyze_whole_document`) go to the model that reads them, in
-    full, through `generateText`; only the read's answer is a tool result;
-  - the pages of `view_pages` are a PDF next to the result.
+    full, through `generateText`; only the read's answer is a tool result.
 
   For data that must never reach a model, redact it before you ingest the file (or keep it out of
   the documents), and use the hook for what a search or a read brings back. To keep whole-file
@@ -410,8 +418,9 @@ What limits the damage:
   in other ways is not ([Hidden text in Word, PowerPoint and HTML](#hidden-text-in-word-powerpoint-and-html)).
 - **A file name cannot add lines to the instruction.** At ingest it is reduced to one printable line
   without most characters that show nothing (see [Uploads](#uploads)), and the system instruction
-  and the frame quote it as a JSON string. It is still text the model reads, like the file's
-  content.
+  and the frame of a file sent whole quote it as a JSON string (a card, and the requests of a
+  whole-file read, write it as it is: [The frame around a file](#the-frame-around-a-file)). It is
+  still text the model reads, like the file's content.
 
 What a hostile file can still do:
 
@@ -478,7 +487,10 @@ What the mark does not do:
   instruction and in your URLs ([Ownership](#ownership)).
 - **Cards have no mark.** A file too large to send whole is shown as a card between
   `--- Large attached file: … ---` lines, with its first lines numbered and indented by two spaces,
-  and the tools return lines as JSON. A line separator (U+2028) inside a line of the file, which a
+  and the tools return lines as JSON. The card writes the file's name as it is, on its one line,
+  not as a JSON string. So do the requests of a whole-file read, which put each part between
+  `<part>` and `</part>` with its lines numbered, and tell the reading model that what is inside
+  is the file's content. A line separator (U+2028) inside a line of the file, which a
   model may read as a line break, can make text look like the start of a line in a card.
 
 ### Characters that show nothing
@@ -743,6 +755,14 @@ What bounds them:
   stream inside it that declares more. `@cantoo/pdf-lib` makes an entry for each object such a
   stream declares, whatever it holds: in a file of 8.7 KB, a million of them took 0.7 s, and four
   million ran a heap of 512 MB out of memory.
+- **The content of a page.** The drawing instructions of a page are packed, and a few kilobytes
+  can unpack to gigabytes. Since 0.99.10 what one page unpacks to is bounded, all its streams
+  together: 32 MB for a look at pages (past it, the cut keeps every image the page lists, without
+  reading which ones it paints), 16 MB for the picture marks (past it, the page is marked as a
+  drawing), and 64 MB for each decoder of the page check (past it, the file is refused as one
+  whose content cannot be checked). Before, only the stored size was checked (4 MB and 2 MB): a
+  page of 33 KB that unpacks to 33 MB was decoded whole. The object streams of the paragraph
+  above are not page content, and are not bounded by this.
 - **Memory kept.** `@cantoo/pdf-lib` keeps every name and every reference it reads, for the life of
   the process: in the server that ingests, and in the one that answers `view_pages`. After the
   document was dropped, 2 MB of different names still took 37 MB of heap, and the million entries
@@ -815,6 +835,12 @@ server that memory is the server's heap. Choose the isolation with care:
   as `createIsolatedExtractors` starts its children, or a service of its own, with its own
   `--max-old-space-size`, stops alone, and your server goes on. `createIsolatedExtractors` does not
   pass the server's `NODE_OPTIONS` to its children, so a heap flag there does not replace theirs.
+  Since 0.99.10 it does not pass the rest of the server's environment either, but a short list of
+  variables Node needs (paths, the time zone and the language, Node's own settings:
+  [The environment](./reference/node.md#createisolatedextractorsoptions)): a parser that a file
+  takes over finds no key or password of the server in its environment. Before, a child had every
+  variable but `NODE_OPTIONS`. A child still runs as the server's user, and reads the files that
+  user reads: for more, run the ingest in a container of its own.
   That flag bounds the heap only. What a parser unpacks is held outside it: a PDF of 1.6 KB took 1.6
   GB of memory at ingest with 20 MB of heap ([Objects of a PDF](#uploads)). Give that process a
   memory limit of its own too, such as a container or a cgroup of its own.
@@ -1131,8 +1157,11 @@ New in 0.9.0. `createDocumentHandlers` writes no file unless it is asked to: by 
   a client that left, a full disk, a disk that does not answer, a file refused, an ID taken,
   `onUploaded` throwing), and is yours once its document is stored: the library never removes it,
   even when the document is deleted or expires.
-  A removal that fails (a file another process holds open, on Windows) is tried three times, then
-  left. A server that stops in the middle of an upload leaves its file. Empty the spool when the
+  A removal that fails (a file another process holds open, on Windows) is tried four times, then
+  left. A server that stops in the middle of an upload leaves its file. Since 0.99.10 the handlers
+  remove the spool's files that are a day old (`uploadSpool.sweepAfterMs`) when they are made, and
+  at most once an hour as uploads arrive: only files named `llf-upload-<UUID>`, never a folder, a
+  link or a file of another user. To have them gone sooner, empty the spool yourself when the
   server starts: give each server process a spool folder of its own (an `emptyDir` or
   `os.hostname()` gives one a pod: [Deployment](./guides/deployment.md#uploads-and-ingest) says how
   to give one to each process), and let each empty only its own. Never empty a folder that several

@@ -402,10 +402,12 @@ export function classifyModelError(status: number, message: string, signals: { c
   // Larger than the provider lets through in a minute: a context overflow, though it comes as 429,
   // and though its words are those of a rate limit.
   if ((status === 429 || status === 413) && RATE_TOO_SMALL.test(message)) return overflowOf(message);
-  const throttled = THROTTLE_WORDING.test(message);
-  const overflow = !throttled && status !== 429 && status < 500 && (
-    status === 413 || code === "context_length_exceeded" || code === "request_too_large" || OVERFLOW_WORDING.some((pattern) => pattern.test(message))
-  );
+  // The status and the provider's own word say it outright. The words of the message say it only
+  // when they are not those of throttling too ("too many tokens, please wait"): a 413 that ends
+  // with "please try again later" is still a request too large.
+  const named = status === 413 || code === "context_length_exceeded" || code === "request_too_large";
+  const worded = () => !THROTTLE_WORDING.test(message) && OVERFLOW_WORDING.some((pattern) => pattern.test(message));
+  const overflow = status !== 429 && status < 500 && (named || worded());
   if (overflow) return overflowOf(message);
   if (status === 429) return { kind: "rate_limit" };
   if (status === 408) return { kind: "timeout" };

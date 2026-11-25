@@ -89,7 +89,7 @@ The constructor options (`kind`, `code` and `details` are new in 0.6.0):
 `classifyModelError` also reads the failure (its status, message and code) as an overflow, by the
 checks of the [`ModelErrorKind`](#modelerrorkind) table. A `kind: "context_overflow"` you give gets
 no numbers when the classifier reads the failure as another kind: status 0, a quota, a status of
-500 and more, throttling wording, or none of the signs of an overflow. The constructor throws
+500 and more, throttling wording beside overflow wording alone, or none of the signs of an overflow. The constructor throws
 nothing.
 
 ```ts
@@ -154,7 +154,7 @@ table, and the first that matches gives the kind:
 |---|---|---|---|
 | `"unreachable"` | No answer at all: the connection failed, a stream ended before it was complete, or a reply of HTTP 200 came with an empty body. | Status 0. | Sends it again, up to `retries` times. |
 | `"quota"` | A quota that does not come back soon: a daily cap, no credit left, a spending limit reached. | The code `insufficient_quota` (OpenAI), at any status but 0. Status 402. Status 429 with a Gemini `details` entry whose `violations` name a quota per day (a `quotaId` or `quotaMetric` that matches "per day": "PerDay", "per_day"), or with [quota-per-day wording](#classifymodelerrorstatus-message-signals) in the message. A status below 500 with [no-credit wording](#classifymodelerrorstatus-message-signals). | Never. |
-| `"context_overflow"` | The request was larger than the model takes: its context window, the size of the body, or the tokens a minute (or a day) that the provider allows. | Status 429 or 413 with [allowance wording](#classifymodelerrorstatus-message-signals) (OpenAI's and Groq's "Request too large … on tokens per min (TPM)"). Otherwise a status below 500 and not 429, a message without [throttling wording](#classifymodelerrorstatus-message-signals), and one of: status 413; the code `context_length_exceeded` or `request_too_large`; [overflow wording](#classifymodelerrorstatus-message-signals) in the message. | Never, whatever its status: only a smaller request can pass. `askWithFiles` makes room instead: see [`askWithFiles`](./ask.md#askwithfilesoptions). |
+| `"context_overflow"` | The request was larger than the model takes: its context window, the size of the body, or the tokens a minute (or a day) that the provider allows. | Status 429 or 413 with [allowance wording](#classifymodelerrorstatus-message-signals) (OpenAI's and Groq's "Request too large … on tokens per min (TPM)"). Otherwise a status below 500 and not 429, and one of: status 413; the code `context_length_exceeded` or `request_too_large`; [overflow wording](#classifymodelerrorstatus-message-signals) in a message without [throttling wording](#classifymodelerrorstatus-message-signals). (Until 0.99.10, throttling wording undid the status and the codes too: a 413 that said "please try again later" was `"invalid"`.) | Never, whatever its status: only a smaller request can pass. `askWithFiles` makes room instead: see [`askWithFiles`](./ask.md#askwithfilesoptions). |
 | `"rate_limit"` | Too many requests or tokens for now, a Gemini quota per minute among them. | Any other status 429. | Sends it again, up to `retries` times, after the wait the provider asked for or a wait that doubles. Not when the provider asks for more than `maxDelayMs`. |
 | `"timeout"` | Nothing came from the model for the adapter's wait, or the provider or a gateway said the request timed out. | Status 408. The classifier never gives it for status 0: the adapters pass `kind: "timeout"` when their own wait runs out. | Status 0: once. Status 408: up to `retries` times. |
 | `"server"` | The provider failed on its side. | Status 500 or more. | Sends it again, up to `retries` times. |
@@ -223,9 +223,11 @@ The wording is matched without regard to case.
   gpt-4o in organization org-… on tokens per min (TPM): Limit 30000, Requested 45237." and Groq's
   "… on tokens per minute (TPM): Limit 6000, Requested 6438". It is an overflow whatever else the
   message says.
-- **Throttling wording**, which keeps any other message from being an overflow even when it talks
-  of tokens: "rate limit" (or "rate-limit", "ratelimit"), "too many requests", "please wait",
-  "please try again later", "per minute", "per second", "per day", "TPM", "RPM", "throttl…".
+- **Throttling wording**, which keeps the overflow wording of any other message from making it an
+  overflow, even when it talks of tokens: "rate limit" (or "rate-limit", "ratelimit"), "too many
+  requests", "please wait", "please try again later", "per minute", "per second", "per day", "TPM",
+  "RPM", "throttl…". Since 0.99.10 it does not undo status 413, nor the codes
+  `context_length_exceeded` and `request_too_large`, which say it outright.
 - **Overflow wording**:
   - "context_length_exceeded" (or "context length exceeded"), "request_too_large";
   - "maximum context length", "maximum context size", "maximum context window";
@@ -263,8 +265,11 @@ classifyModelError(429, "Request too large for gpt-4o in organization org-1 on t
 // Any other 429 is a rate limit, even one that speaks of tokens: { kind: "rate_limit" }
 classifyModelError(429, "Rate limit reached for gpt-4o on tokens per min (TPM): Limit 30000, Used 29000, Requested 2000.");
 
-// Throttling wording keeps a message from being an overflow at any status: { kind: "invalid" }
+// Throttling wording keeps the words of a message from making it an overflow: { kind: "invalid" }
 classifyModelError(400, "Input tokens exceed the limit. Please try again later.");
+
+// Status 413 says it outright, whatever the message adds (since 0.99.10): { kind: "context_overflow" }
+classifyModelError(413, "Request body too large. Please try again later with a smaller request.");
 
 // No credit left: { kind: "quota" }
 classifyModelError(402, "Insufficient Balance");

@@ -78,7 +78,8 @@ describe("DocumentsNotFoundError and IngestError", () => {
       status: 404,
       name: "DocumentsNotFoundError",
     });
-    expect(eventErrorOf(new DocumentStoreError(eio()))).toEqual({ message: "The document store could not be read (EIO). Try again.", status: 503, name: "DocumentStoreError" });
+    // With the store's code, since 0.99.10 (`storeCode`).
+    expect(eventErrorOf(new DocumentStoreError(eio()))).toEqual({ message: "The document store could not be read (EIO). Try again.", status: 503, name: "DocumentStoreError", storeCode: "EIO" });
     expect(eventErrorOf(new IngestError("exists", "a.txt: a document with this ID already exists."))).toEqual({
       message: "a.txt: a document with this ID already exists.",
       name: "IngestError",

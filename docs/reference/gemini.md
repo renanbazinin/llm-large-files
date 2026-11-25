@@ -745,7 +745,8 @@ completion a whole-file read uses for each part. `gemini()` builds one on its en
 | `refreshable` | `boolean` | `false` | A request refused with HTTP 401 is sent once more with the headers of `headers({ refresh: true })`. A second 401 is the error. New in 0.10.0. |
 
 Each request posts `contents: [{ role: "user", parts: [{ text: prompt }] }]`, the system
-instruction, the `generationConfig` and the fields of `body`. The text it returns is the reply's text parts without the
+instruction when it is not empty (since 0.99.10; before, an empty one was sent as a text part with
+no text), the `generationConfig` and the fields of `body`. The text it returns is the reply's text parts without the
 thoughts, joined. `onUsage` gets the usage of every request that was answered
 ([`usageOfGemini()`](#usageofgeminiusage)). `onTruncated` is called when the reply stopped at
 `MAX_TOKENS`, a filter stopped it, or, since 0.10.0, it ended for a reason whose `finish` is

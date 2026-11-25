@@ -102,7 +102,8 @@ export type AggregateResult = {
  * A number as a person writes it in a table: "1,234.5", "-12", "(1,200)" for a negative, "₪4,750",
  * "$ 12.00", "12%" (12), "1.5e3", "1 234" with a space or a no-break space between thousands.
  * A value with a comma and no dot is taken for thousands when the comma is followed by three digits
- * ("4,750"), and for a decimal comma otherwise ("12,5"). Undefined for anything else.
+ * ("4,750"), and for a decimal comma otherwise ("12,5"). Undefined for anything else: digits spaced
+ * another way are a date or a phone number ("2026 03 14", "052 123 4567"), not a number.
  */
 export function parseNumber(raw: string): number | undefined {
   let text = raw.trim();
@@ -116,12 +117,19 @@ export function parseNumber(raw: string): number | undefined {
   text = text.replace(/^[-+]?\s*(?:[$€£¥₪₹]|USD|EUR|GBP|ILS|NIS|ש"ח|ש״ח)\s*/i, (found) => (found.trim().startsWith("-") ? "-" : ""))
     .replace(/\s*(?:[$€£¥₪₹%]|USD|EUR|GBP|ILS|NIS|ש"ח|ש״ח)$/i, "");
   if (text.startsWith("-")) {
-    negative = !negative;
+    // A minus sign inside brackets says the same as the brackets: "(-100)" is -100, not 100.
+    negative = true;
     text = text.slice(1).trim();
   } else if (text.startsWith("+")) {
     text = text.slice(1).trim();
   }
-  text = text.replace(/[\s  ']/g, "");
+  // A space (a no-break or a thin one too) or an apostrophe is read only between thousands: after
+  // one to three digits, before each group of three. Taken out wherever it was, "2026 03 14" was
+  // the number 20260314, and a column of phone numbers was summed.
+  if (/[\s']/.test(text)) {
+    if (!/^\d{1,3}(?:[\s']\d{3})+(?:[.,]\d+)?$/.test(text)) return undefined;
+    text = text.replace(/[\s']/g, "");
+  }
   if (/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(text)) text = text.replace(/,/g, "");
   else if (/^\d{1,3}(?:\.\d{3})+,\d+$/.test(text)) text = text.replace(/\./g, "").replace(",", ".");
   else if (/^\d+,\d+$/.test(text)) text = text.replace(",", ".");
@@ -371,6 +379,8 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
   const wantedTable = request.table;
   const metricsGiven = request.metrics && request.metrics.length > 0 ? request.metrics : ["count"];
   const limit = Math.min(MAX_SHOWN_GROUPS, Math.max(1, Math.trunc(request.limit ?? 50)));
+  /** `header_rows` as given, from 0 to 5; a value that is not a number counts as 0. */
+  const givenHeaderRows = request.headerRows === undefined ? undefined : Math.min(5, Math.max(0, Math.trunc(request.headerRows) || 0));
   if ((request.groupBy?.length ?? 0) > 3) throw new Error("group_by takes at most 3 columns.");
 
   // The table being read: its number, its title, its header, and what the request resolved against it.
@@ -475,8 +485,8 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
       title = pending[0]!.row.find((cell) => cell.trim() !== "")!.trim();
       start = 1;
     }
-    if (request.headerRows !== undefined) {
-      headerCount = Math.min(5, Math.max(0, Math.trunc(request.headerRows)));
+    if (givenHeaderRows !== undefined) {
+      headerCount = givenHeaderRows;
     } else if (kind === "csv") {
       headerCount = 1;
     } else {
@@ -513,10 +523,18 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
   const addRow = (row: string[], line: number) => {
     if (!header) {
       pending.push({ row, line });
+      if (givenHeaderRows !== undefined) {
+        // header_rows given: its rows are held, and one more, as a title row may be above them (it is
+        // told by the row after it, so at least two rows are held). Decided at the first row of data,
+        // or at the second row of a CSV file, a header of 3 rows was cut to the 2 rows held, and a
+        // header of 2 rows below a title to 1.
+        if (pending.length >= Math.max(2, givenHeaderRows + 1)) decideHeader();
+        return;
+      }
       // The header is known once a row of data is seen, or enough rows are held to say there is none.
-      // A title row is told by the row after it, so at least two rows are held, also when header_rows is given.
+      // A title row is told by the row after it, so at least two rows of a CSV file are held.
       if ((kind !== "csv" && hasNumber(row, pending.length === 1)) || kind === "csv" || pending.length >= 20) {
-        if (pending.length < 2 && (kind === "csv" || request.headerRows !== undefined)) return;
+        if (pending.length < 2 && kind === "csv") return;
         decideHeader();
       }
       return;
@@ -598,11 +616,18 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
     });
   };
 
+  // The table chosen ended before its header was decided (it has fewer rows than are held for it):
+  // it is decided from the rows it has, so that no row of a later table is taken for one of its own.
+  const endTable = () => {
+    if (chosen && !header && pending.length > 0) decideHeader();
+  };
+
   // Every table is gone through, to count them; only the one asked for is read.
   const pipeLine = (text: string, line: number) => {
     const trimmed = text.trim();
     const isRow = trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.length > 1;
     if (!isRow) {
+      endTable();
       inPipeTable = false;
       chosen = false;
       return;
@@ -620,6 +645,7 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
   const sheetLine = (text: string, line: number) => {
     const sheet = /^## Sheet (\d+): (.*?)(?: \(hidden sheet\))?$/.exec(text);
     if (sheet) {
+      endTable();
       tableNumber = Number(sheet[1]);
       tableTitle = `Sheet ${tableNumber}: ${sheet[2]}`;
       chosen = !header && isWanted(tableNumber, sheet[2]!);

@@ -5,7 +5,7 @@ import { PASSAGE_CHARACTERS, PASSAGE_MAX_LINES, positionOf } from "./text-index.
 import { composed, foldCase, LineIndex, sliceWhole } from "./text.js";
 import type { DocumentMeta, StoredDocument } from "./types.js";
 
-const MAX_OCCURRENCES_PER_TERM = 200_000;
+export const MAX_OCCURRENCES_PER_TERM = 200_000;
 /**
  * Past this many matching lines, an exact search goes on counting them within the time of a regex
  * search (`REGEX_TIME_LIMIT_MS`, or the search's own `timeLimitMs`), and stops when that is up. It
@@ -431,10 +431,24 @@ export function unsafeRegexReason(given: string): string | null {
   }
   try {
     new RegExp(pattern);
+    // \p{…}, \P{…} and \u{…} mean a property or a code point only with the `u` flag. Without it
+    // they are the text "p{…}", and `compileRegex` runs a pattern that is not valid with the flag
+    // without it: \p{Hebrew} (for \p{Script=Hebrew}) then matched no line of a file of Hebrew, and
+    // the search answered 0 matching lines. Such a pattern is refused, with the error of the flag.
+    if (hasUnicodeEscape(pattern)) new RegExp(pattern, "u");
   } catch (error) {
     return `Invalid regex: ${error instanceof Error ? error.message : String(error)}`;
   }
   return null;
+}
+
+/** Whether a pattern has an escape that only the `u` flag reads: `\p{`, `\P{` or `\u{`, also inside a class. Not `\\p{`, an escaped backslash before the text "p{". */
+function hasUnicodeEscape(pattern: string): boolean {
+  for (let at = pattern.indexOf("\\"); at !== -1 && at + 2 < pattern.length; at = pattern.indexOf("\\", at + 2)) {
+    const next = pattern[at + 1]!;
+    if ((next === "p" || next === "P" || next === "u") && pattern[at + 2] === "{") return true;
+  }
+  return false;
 }
 
 /** A letter, a mark or a digit of any script, or "_": as a class, what `\w` means inside a class of a pattern compiled here. */
@@ -756,7 +770,9 @@ class LineSearch {
     };
     if (this.groups) return { totalMatchingLines: this.total, stoppedEarly: this.stoppedEarly, matches: [], groups: this.groups.result() };
     if (this.lastOnes) {
-      const first = this.firstHit && this.firstHit.line < (this.hits[0]?.line ?? 0) ? { first: show(this.firstHit) } : {};
+      // The first match comes without the lines around it, which were not read: shown as the matches
+      // are, it came with a blank line for each of them ("2| "), as if the file had blank lines there.
+      const first = this.firstHit && this.firstHit.line < (this.hits[0]?.line ?? 0) ? { first: { line: this.firstHit.line, text: clip(this.firstHit.text, this.firstHit.column) } } : {};
       return { totalMatchingLines: this.total, stoppedEarly: this.stoppedEarly, matches: this.hits.map(show), ...first };
     }
     const last = this.last && !this.stoppedEarly ? { last: show(this.last) } : {};
@@ -1056,6 +1072,8 @@ const codePoints = (text: string) => {
 const HEBREW_WORD = new RegExp(`^[${HEBREW_LETTER}${HEBREW_POINT}'"]+$`, "u");
 const HEBREW_POINTS = new RegExp(`[${HEBREW_POINT}]`, "gu");
 const HAS_HEBREW_LETTER = new RegExp(`[${HEBREW_LETTER}]`, "u");
+/** A keyword search keeps this many terms of its query, at most. */
+const MAX_TERMS = 12;
 /** Letters that Hebrew writes before a word: and, the, in, as, to, from, that (ו ה ב כ ל מ ש). */
 const HEBREW_PREFIXES = "והבכלמש";
 /** Final letters, and the form each takes inside a longer word: כסף, כספים. */
@@ -1078,15 +1096,24 @@ function hebrewVariants(word: string): string[] {
 /**
  * The terms of a keyword search: the words of the query, folded as the text is searched, without
  * stop words and words of one letter (a Han or kana word can be one character). A Hebrew word that
- * starts with prefix letters (בחוזה, והחוזה) also gives its stem without them (חוזה) as a term of its
- * own, while at least 3 letters are left: the stem finds the word with any prefix, and passages
- * with the word as written still rank first, as they hold both terms. The letter before the
- * geresh or gershayim of an acronym is never a prefix: בש״ח gives ש״ח, and ב״ש stays as it is.
+ * starts with prefix letters (בחוזה, והחוזה) also gives its stems without them (חוזה; החוזה and
+ * חוזה) as terms of their own, one for each letter taken off, up to three, while at least 3 letters
+ * are left: a stem finds the word with any prefix, and passages with the word as written still rank
+ * first, as they hold every term. The letter before the geresh or gershayim of an acronym is never
+ * a prefix: בש״ח gives ש״ח, and ב״ש stays as it is. At most `MAX_TERMS` terms are kept: all in the
+ * order of the query when they fit, the words before the stems when they do not.
  */
 export function searchTerms(query: string): QueryTerm[] {
   const terms = new Map<string, QueryTerm>();
-  const add = (term: string, variants: string[], hebrew = false) => {
-    if (!terms.has(term)) terms.set(term, { term, variants, ...(hebrew ? { hebrew } : {}) });
+  /** The terms that are only stems of words of the query, not words of it: how many prefix letters each has lost. */
+  const stems = new Map<string, number>();
+  const add = (term: string, variants: string[], hebrew = false, stripped = 0) => {
+    if (!terms.has(term)) {
+      terms.set(term, { term, variants, ...(hebrew ? { hebrew } : {}) });
+      if (stripped > 0) stems.set(term, stripped);
+    } else if (stripped === 0) {
+      stems.delete(term);
+    }
   };
   for (const word of foldCase(composed(query)).replace(DOUBLE_GERESH, "\"").split(QUERY_SPLIT)) {
     for (const piece of WITHOUT_SPACES.test(word) ? segmentWords(word) : [word]) {
@@ -1107,12 +1134,24 @@ export function searchTerms(query: string): QueryTerm[] {
       }
       // Prefix letters are stripped while at least 3 letters are left (בש"ח gives ש"ח). An acronym
       // whose first letter is one (מע"מ) also gives a stem (ע"מ): its own term ranks its passages first.
+      // Each letter taken off gives a stem. With only the shortest one, המשרד gave שרד alone: the
+      // letter after the prefix is often the word's own (משרד, שכירות, מחיר), and a text that
+      // writes משרד then ranked below every passage with שרד in another word.
       let stem = bare;
-      for (let stripped = 0; stripped < 3 && stem.length > 3 && HEBREW_PREFIXES.includes(stem[0]!) && !"'\"".includes(stem[1]!); stripped++) stem = stem.slice(1);
-      if (stem !== bare) add(stem, hebrewVariants(stem), true);
+      for (let stripped = 1; stripped <= 3 && stem.length > 3 && HEBREW_PREFIXES.includes(stem[0]!) && !"'\"".includes(stem[1]!); stripped++) {
+        stem = stem.slice(1);
+        add(stem, hebrewVariants(stem), true, stripped);
+      }
     }
   }
-  return [...terms.values()].slice(0, 12);
+  const all = [...terms.values()];
+  if (all.length <= MAX_TERMS) return all;
+  // More than the terms kept: the words of the query come first, then the stems, those that lost
+  // fewer letters first. In the order they were found, a stem after each word, a query of ten
+  // Hebrew words lost its last four words.
+  const words = all.filter(({ term }) => !stems.has(term));
+  const others = all.filter(({ term }) => stems.has(term)).sort((left, right) => stems.get(left.term)! - stems.get(right.term)!);
+  return [...words, ...others].slice(0, MAX_TERMS);
 }
 
 /**
@@ -1163,6 +1202,13 @@ export function queryTerms(query: string): string[] {
 export type RankedPassage = { from: number; to: number; score: number };
 
 /**
+ * What a ranking says besides its passages, in an object of the caller's (as `regexClock` is):
+ * `terms`, the query terms the passages were ranked by though each was found `MAX_OCCURRENCES_PER_TERM`
+ * times or more, as no rarer term of the query was found (see `PassageRank.result`). Empty otherwise.
+ */
+export type CommonTerms = { terms: string[] };
+
+/**
  * The `count` entries of `scores` with the highest score, best first, of those `keep` keeps: what a
  * stable sort by score, then a slice, gives (of two equal scores, the one met first comes first),
  * with a heap of `count` entries in place of a sort of all of them. A keyword search of a large
@@ -1211,13 +1257,16 @@ export function topScored<K>(scores: Iterable<readonly [K, number]>, count: numb
   return heap.sort((left, right) => right.score - left.score || left.order - right.order).map(({ key, score }) => [key, score]);
 }
 
+/** A term of a ranking: how it is found, how many of its occurrences were counted, and in which passages. */
+type RankedTerm = { term: string; finders: Finder[]; seen: number; frequency: Map<number, number> };
+
 /**
  * BM25 over fixed passages, computed at query time from substring hits, over a document fed a
  * piece at a time (pieces start at passage starts). No index to build or store, works for any
  * language, and a term also matches longer words ("timeout" → "timeouts").
  */
 class PassageRank {
-  private readonly terms: Array<{ finders: Finder[]; seen: number; frequency: Map<number, number> }>;
+  private readonly terms: RankedTerm[];
   /** Passage lengths in characters, for the passages that have a hit. */
   private readonly lengths = new Map<number, number>();
   private readonly phrase?: { finder: Finder; newlines: number; passages: Set<number>; nextAllowed: number };
@@ -1228,7 +1277,8 @@ class PassageRank {
    * has some keeps all its lines. Only the hits on its lines count, phrases included.
    */
   constructor(query: string, private readonly source: Pick<DocumentSource, "passageStarts" | "lineCount" | "characters">, private readonly range?: { from: number; to: number }) {
-    this.terms = searchTerms(query).map(({ variants, hebrew }) => ({
+    this.terms = searchTerms(query).map(({ term, variants, hebrew }) => ({
+      term,
       finders: variants.map((variant) => new Finder(variant, hebrew ? pointedPattern(variant) : undefined)),
       seen: 0,
       frequency: new Map(),
@@ -1315,23 +1365,34 @@ class PassageRank {
     this.recent = remember(this.recent, chunk, phrase.newlines);
   }
 
-  result(topK: number): RankedPassage[] {
+  result(topK: number, common?: CommonTerms): RankedPassage[] {
     if (this.empty) return [];
     const passageCount = this.source.passageStarts.length;
     const averageLength = Math.max(1, this.source.characters / passageCount);
     const scores = new Map<number, number>();
-    for (const { frequency, seen } of this.terms) {
-      const df = frequency.size;
-      // A term found this often is in a large share of the passages, and tells little about any of
-      // them; and it was counted only up to the cap, in the passages before it. Scored, it pushed
-      // passages from the start of the file above better ones.
-      if (df === 0 || seen >= MAX_OCCURRENCES_PER_TERM) continue;
-      const idf = Math.log(1 + (passageCount - df + 0.5) / (df + 0.5));
-      for (const [passage, tf] of frequency) {
-        const length = this.lengths.get(passage)!;
-        const score = idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * (length / averageLength)));
-        scores.set(passage, (scores.get(passage) ?? 0) + score);
+    const score = (terms: RankedTerm[]) => {
+      for (const { frequency } of terms) {
+        const df = frequency.size;
+        if (df === 0) continue;
+        const idf = Math.log(1 + (passageCount - df + 0.5) / (df + 0.5));
+        for (const [passage, tf] of frequency) {
+          const length = this.lengths.get(passage)!;
+          const value = idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * (length / averageLength)));
+          scores.set(passage, (scores.get(passage) ?? 0) + value);
+        }
       }
+    };
+    // A term found this often is in a large share of the passages, and tells little about any of
+    // them; and it was counted only up to the cap, in the passages before it. Scored, it pushed
+    // passages from the start of the file above better ones.
+    const tooCommon = this.terms.filter(({ seen }) => seen >= MAX_OCCURRENCES_PER_TERM);
+    score(this.terms.filter(({ seen }) => seen < MAX_OCCURRENCES_PER_TERM));
+    // No rarer term was found: the passages are ranked by the common ones after all, in the part of
+    // the file where they were counted. With no passage, a search of a large log for "error" was
+    // answered as if the word were not in the file.
+    if (scores.size === 0 && tooCommon.length > 0) {
+      score(tooCommon);
+      if (common) common.terms = tooCommon.map(({ term }) => term);
     }
     if (this.phrase) for (const passage of this.phrase.passages) scores.set(passage, (scores.get(passage) ?? 0) * 1.5 + 1);
     const range = this.range;
@@ -1362,19 +1423,19 @@ class PassageRank {
 }
 
 /** BM25 passage ranking over a document held in memory. `range`: only passages with lines in it. */
-export function rankPassages(document: SearchableDocument, query: string, topK: number, range?: { from: number; to: number }): RankedPassage[] {
+export function rankPassages(document: SearchableDocument, query: string, topK: number, range?: { from: number; to: number }, common?: CommonTerms): RankedPassage[] {
   const rank = new PassageRank(query, document, range);
   for (const chunk of document.pieces()) if (rank.add(chunk)) break;
-  return rank.result(topK);
+  return rank.result(topK, common);
 }
 
 /**
  * `rankPassages` over any document: one held in memory, or one read from the store a piece at a
  * time. Other work gets a turn between two pieces, and nothing past the lines ranked is read.
  */
-export async function rankSource(source: DocumentSource, query: string, topK: number, signal?: AbortSignal, range?: { from: number; to: number }): Promise<RankedPassage[]> {
+export async function rankSource(source: DocumentSource, query: string, topK: number, signal?: AbortSignal, range?: { from: number; to: number }, common?: CommonTerms): Promise<RankedPassage[]> {
   const rank = new PassageRank(query, source, range);
   if (rank.empty) return [];
   await scanSource(source, (chunk) => rank.add(chunk), signal);
-  return rank.result(topK);
+  return rank.result(topK, common);
 }

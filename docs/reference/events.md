@@ -463,6 +463,7 @@ An error in an event is plain data, safe to send to a browser:
 | `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also 503 for a `DocumentStoreError` and 404 for a `DocumentsNotFoundError`. |
 | `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"DocumentScopeError"`, `"IngestError"`… Since 0.9.0 a subclass of `DocumentStoreError` or of `IngestError` with a name of its own is named `"DocumentStoreError"` or `"IngestError"` here, so that `errorInfoOf` reads it as its class. |
 | `code` | `IngestErrorCode` or `DocumentScopeErrorCode`, optional | For a file `ingest` could not read: why, as [`IngestError.code`](./library.md#ingesterror) (`"too_large"`, `"no_text"`, `"hostile"`, `"busy"`…), so that a page can say it in its own words. New in 0.8.0. Since 0.9.0 also the code of a [`DocumentScopeError`](./library.md#documentscopeerror), with `name` `"DocumentScopeError"`: `"scope_missing"` when the chat was deleted. |
+| `storeCode` | `string`, optional | For a `DocumentStoreError`: its code (`"ETIMEDOUT"`, `"STORE_STUCK"`, `"NEWER_VERSION"`, `"EIO"`…), when it reads as one (capitals, digits and `_`). With it `errorInfoOf(event.error)` gives the same `code` as `errorInfoOf` of the error that was thrown; before, the event had lost it. New in 0.99.10. |
 
 How `message` is written:
 
@@ -480,8 +481,16 @@ How `message` is written:
   New in 0.9.0: such an error was told in a model's words ("The model was busy (HTTP 429).").
 - **Any other `Error`** is told by its message as it is written: the library's own refusals and
   messages ("app.log is empty."), and the reason of an abort. That includes errors your own code
-  throws: an adapter, an extractor or a listener of your own. Keep secrets out of their messages,
-  or give them a `status`.
+  throws: an adapter, an extractor, a hook or a listener of your own. Keep secrets out of their
+  messages, or give them a `status`. Since 0.99.10 there is a net under that rule, for what is
+  never meant for a user: a URL with a user name or a password in it is told by its scheme alone
+  (`postgres://admin:…@db.internal/app` becomes `postgres://…`), the value of a URL parameter
+  named as a key, a token, a secret, a password or a signature is left out (`?key=…`), and an
+  error with a `code` and an `errno` and no `syscall` (a system error that a client such as
+  node-fetch, or a database driver, passed on under its own class) is told as "Something went
+  wrong.". Other words of your own errors still pass: a host name, a table, a file path.
+  `errorInfoOf(event.error).message` passes none of them: it tells an error it does not know as
+  "Something went wrong.".
 - **Anything that is not an `Error`** is told as "Something went wrong.".
 
 An [`IngestError`](./library.md#ingesterror) is told by its message, with `name: "IngestError"` and
@@ -712,7 +721,8 @@ envelope included, on one line (U+2028 and U+2029 are written escaped). What it 
 
 1. Writes a `200` with these headers, when no headers are sent yet: `Content-Type:
    text/event-stream; charset=utf-8`, `Cache-Control: no-cache, no-transform`, `Connection:
-   keep-alive` and `X-Accel-Buffering: no` (which tells nginx not to buffer).
+   keep-alive` (not on HTTP/2, since 0.99.10) and `X-Accel-Buffering: no` (which tells nginx not
+   to buffer).
 2. Writes each event as it comes, and waits whenever the client reads slower than events come.
    Every `heartbeatMs` it sends a `: keep-alive` comment, which keeps proxies from closing a
    quiet stream.
@@ -720,7 +730,7 @@ envelope included, on one line (U+2028 and U+2029 are written escaped). What it 
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `heartbeatMs` | `number` | `15_000` | Milliseconds between two `: keep-alive` comments. 0 sends none. |
+| `heartbeatMs` | `number` | `15_000` | Milliseconds between two `: keep-alive` comments. 0 sends none, and so does a time past what a timer can wait, `Infinity` included (since 0.99.10). |
 | `headers` | `Record<string, string \| number \| string[]>` | none | Headers to send besides the event-stream ones, or in their place: a name matches whatever its case. Used only when the headers are not sent yet. |
 | `map` | `(event: E) => SseMessage \| undefined` | [`sseMessageOf`](#ssemessageofevent) | What to send for an event: `{ event?, data, id? }`, with `event` and `id` taken from the event when left out. Return `undefined` to skip the event. |
 | `end` | `boolean` | `true` | `false` keeps the response open after the last event. |

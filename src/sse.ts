@@ -116,15 +116,21 @@ export async function* parseSseJson<T>(stream: ReadableStream<Uint8Array> | Asyn
         at = 0;
       }
     }
+    /** What is kept of the rest: all of it, but for the white space between `data:` and the value. */
+    let kept = rest;
     if (partialKind === "field") {
       const value = rest.slice(at).search(/\S/);
       if (value >= 0) partialKind = "value";
-      at = value >= 0 ? at + value : rest.length;
+      const begins = value >= 0 ? at + value : rest.length;
+      // The white space after `data:` is not counted, as `take` drops it, so it is not kept either:
+      // a line of nothing else, cut into pieces, would grow without end under any limit.
+      kept = rest.slice(0, at) + rest.slice(begins);
+      at = begins;
     }
     // What counts starts at `at`: at the end of the rest while the line may still be a data line,
     // or while the value of one has not begun.
     partialHeld += rest.length - at;
-    partial += rest;
+    partial += kept;
     if (held + partialHeld > most) throw new SseEventTooLongError(most);
   };
   // The events that end in this text, one at a time: a line that does not end in it waits for more.

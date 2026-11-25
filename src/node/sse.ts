@@ -12,7 +12,12 @@ export type SseMessage = {
 };
 
 export type SseWriteOptions<E> = {
-  /** Milliseconds between two `: keep-alive` comments, which keep proxies from closing a quiet stream. Defaults to 15,000; 0 sends none. */
+  /**
+   * Milliseconds between two `: keep-alive` comments, which keep proxies from closing a quiet
+   * stream. Defaults to 15,000; 0 sends none, and so does a time past what a timer can wait
+   * (2,147,483,647 ms), `Infinity` included (since 0.99.10: Node's timer took such a time for 1 ms,
+   * and a comment went out every millisecond).
+   */
   heartbeatMs?: number;
   /**
    * Headers to send besides the event-stream ones, or in their place: a name matches whatever its
@@ -26,6 +31,8 @@ export type SseWriteOptions<E> = {
 };
 
 const DEFAULT_HEARTBEAT_MS = 15_000;
+/** The longest a Node.js timer waits: a longer one fires after 1 ms. */
+const LONGEST_TIMER_MS = 2 ** 31 - 1;
 const GONE = Symbol("gone");
 const EVENT_STREAM_HEADERS = {
   "Content-Type": "text/event-stream; charset=utf-8",
@@ -33,6 +40,19 @@ const EVENT_STREAM_HEADERS = {
   Connection: "keep-alive",
   "X-Accel-Buffering": "no",
 };
+
+/**
+ * Whether the response is one of HTTP/2 (Node's `Http2ServerResponse`, which has the methods used
+ * here). HTTP/2 has no `Connection` header: Node drops one given to it, with a warning.
+ */
+function isHttp2(response: ServerResponse): boolean {
+  try {
+    const major = (response as { req?: { httpVersionMajor?: unknown } }).req?.httpVersionMajor;
+    return typeof major === "number" && major >= 2;
+  } catch {
+    return false;
+  }
+}
 
 /** A field of one line: a line break in an event name or id would end the field early. */
 const oneLine = (value: string | number) => String(value).replace(/[\r\n]+/g, " ");
@@ -129,7 +149,11 @@ export async function writeSseEvents<E extends { type: string; seq: number }>(
   if (!gone && !response.headersSent) {
     try {
       // setHeader replaces a header whatever the case of its name: a caller's own takes the place of ours.
-      for (const [name, value] of Object.entries(EVENT_STREAM_HEADERS)) response.setHeader(name, value);
+      const http2 = isHttp2(response);
+      for (const [name, value] of Object.entries(EVENT_STREAM_HEADERS)) {
+        // Not on HTTP/2, which forbids the header (0.99.10: Node dropped it, and warned once a process).
+        if (!(http2 && name === "Connection")) response.setHeader(name, value);
+      }
       for (const [name, value] of Object.entries(options.headers ?? {})) response.setHeader(name, value);
       response.writeHead(200);
       response.flushHeaders();
@@ -158,16 +182,30 @@ export async function writeSseEvents<E extends { type: string; seq: number }>(
     response.on("finish", done);
   });
 
-  const heartbeat = heartbeatMs > 0
+  // Whether the iterator itself failed: it is then not asked to return.
+  let iteratorFailed = false;
+  let failure: { error: unknown } | undefined;
+  /** Settled when a keep-alive could not be written: the stream is over, as when an event cannot be. */
+  let onBroken!: () => void;
+  const broken = new Promise<typeof GONE>((resolve) => (onBroken = () => resolve(GONE)));
+
+  // A time no timer can wait (Infinity, to send none) is none: Node's timer would take it for 1 ms.
+  const heartbeat = heartbeatMs > 0 && heartbeatMs <= LONGEST_TIMER_MS
     ? setInterval(() => {
-        if (!gone && !waiting && !response.destroyed && !response.writableEnded) response.write(": keep-alive\n\n");
+        if (gone || waiting || failure || response.destroyed || response.writableEnded) return;
+        try {
+          response.write(": keep-alive\n\n");
+        } catch (error) {
+          // A response whose write throws (one a middleware wraps): thrown here, in a timer, it
+          // would be an uncaught exception of the process. It ends the stream, and is the
+          // caller's, as the error of an event's write is.
+          failure = { error };
+          onBroken();
+        }
       }, heartbeatMs)
     : undefined;
   heartbeat?.unref();
 
-  // Whether the iterator itself failed: it is then not asked to return.
-  let iteratorFailed = false;
-  let failure: { error: unknown } | undefined;
   try {
     while (!gone) {
       const next = iterator.next();
@@ -175,12 +213,12 @@ export async function writeSseEvents<E extends { type: string; seq: number }>(
       next.catch(() => undefined);
       let step: IteratorResult<E> | typeof GONE;
       try {
-        step = await Promise.race([next, goneNow]);
+        step = await Promise.race([next, goneNow, broken]);
       } catch (error) {
         iteratorFailed = true;
         throw error;
       }
-      if (step === GONE || step.done) break;
+      if (step === GONE || step.done || failure) break;
       const message = map(step.value);
       if (!message) continue;
       const id = message.id ?? step.value.seq;
@@ -192,7 +230,7 @@ export async function writeSseEvents<E extends { type: string; seq: number }>(
       if (!response.write(chunk)) await drained();
     }
   } catch (error) {
-    failure = { error };
+    failure ??= { error };
   } finally {
     if (heartbeat) clearInterval(heartbeat);
     unwatch();

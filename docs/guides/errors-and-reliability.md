@@ -117,8 +117,9 @@ requested model.") and vLLM's newer "your request has 40000 input tokens". An Op
 server's message is read from `error`, from a `message` at the top of the body (vLLM before its
 OpenAI-shaped errors, SGLang, FastChat) or from FastAPI's `detail`. Throttling that shares words
 with a request too large ("tokens per minute") is not taken for one, except the TPM refusal of a
-single request larger than the minute's allowance. A message the classifier does not know is
-`invalid`, and the loop does not recover from it.
+single request larger than the minute's allowance, and, since 0.99.10, an error that says it
+outright: HTTP 413, or the code `context_length_exceeded` or `request_too_large`. A message the
+classifier does not know is `invalid`, and the loop does not recover from it.
 `classifyModelError(status, message, { code, details })` shows how a message is read. An adapter
 of your own, or a wrapper around a gateway, can set the kind itself:
 `new ModelRequestError(message, 400, { kind: "context_overflow" })`. See
@@ -428,7 +429,9 @@ of answering: it was asked again for the answer". It is one of the two second tr
 question, and it can be one request past `limits.toolTurns`. It is not made after a refusal, a
 filter, another reason that asking again does not mend (`"other"`), or a reply cut off at the
 output limit with nothing in it, nor once `limits.requests` or the ceiling of input tokens is
-reached. When its reply has no text either, `answered` is false. So a reply that Gemini ends with
+reached. When its reply has no text either, `answered` is false. Since 0.99.10 the text before a
+tool call that could not be read (`finish: "malformed_call"`) is a remark, not an answer, here as in
+a tool turn: such a reply is asked for again, and is not an answer when it comes twice. So a reply that Gemini ends with
 `MODEL_ARMOR`, `OTHER` or `LANGUAGE` costs 2 requests, not 4 (once the adapter maps them).
 
 A single call that cannot be run is not a broken turn: arguments that are not a JSON object, a call

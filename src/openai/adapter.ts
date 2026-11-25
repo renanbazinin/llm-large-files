@@ -11,7 +11,10 @@ import type { DocumentsCapability, GenerateText, GenerateUsage, ToolDeclaration,
 
 /** The endpoint answered with an HTTP error, or could not be reached (`status` 0). */
 export class OpenAiRequestError extends ModelRequestError {
-  /** The request field the error is about, when the server named it (`error.param`): "max_tokens". */
+  /**
+   * The request field the error is about, when the server named it (`error.param`): "max_tokens".
+   * Since 0.99.10, also the place of the one problem of a FastAPI `detail` (its `loc`).
+   */
   readonly param?: string;
   /** The server's own word for the error (`error.code`): "unsupported_parameter". */
   readonly code?: string;
@@ -49,7 +52,7 @@ export type OpenAiCompatibleOptions = {
    * Azure OpenAI (`*.openai.azure.com`, and the `/openai/` paths of `*.cognitiveservices.azure.com`
    * and `*.services.ai.azure.com`), whose newer models refuse the other; `max_tokens` anywhere
    * else, where it is the one every server knows. Left out, a server that refuses the one sent
-   * (HTTP 400 naming it) is sent the other, which is then kept for this adapter.
+   * (HTTP 400, or 422 since 0.99.10, naming it) is sent the other, which is then kept for this adapter.
    */
   maxTokensField?: "max_tokens" | "max_completion_tokens" | undefined;
   /** "system" (the default), or "developer" for an endpoint that wants the newer name. */
@@ -152,7 +155,8 @@ export function streamErrorStatus(failed: unknown): number {
     const { code, type } = failed as { code?: unknown; type?: unknown };
     const numeric = typeof code === "number" ? code : typeof code === "string" && /^\d{3}$/.test(code) ? Number(code) : Number.NaN;
     if (numeric >= 400 && numeric <= 599) return numeric;
-    for (const word of [type, code]) if (typeof word === "string" && STATUS_OF_ERROR[word] !== undefined) return STATUS_OF_ERROR[word]!;
+    // Only a word of the table itself: "constructor" names no status.
+    for (const word of [type, code]) if (typeof word === "string" && Object.hasOwn(STATUS_OF_ERROR, word)) return STATUS_OF_ERROR[word]!;
   }
   return 500;
 }
@@ -164,7 +168,7 @@ export function streamErrorStatus(failed: unknown): number {
  * too large", which can name the other field too.
  */
 function refusesField(error: unknown, field: string): boolean {
-  if (!(error instanceof OpenAiRequestError) || error.status !== 400) return false;
+  if (!(error instanceof OpenAiRequestError) || !isRefusal(error.status)) return false;
   // A server that names the field it refuses says it plainly.
   if (error.param !== undefined) return error.param === field && (error.code === "unsupported_parameter" || REFUSED.test(error.message));
   const message = error.message;
@@ -178,6 +182,23 @@ function refusesField(error: unknown, field: string): boolean {
 
 /** Words of a server that refuses a field of the request, rather than its value. */
 const REFUSED = /unsupported|unrecognized|not supported|unknown (parameter|field|argument)|not permitted|not allowed|extra (inputs|fields)/i;
+
+/**
+ * The statuses a server refuses a request it does not take with: 400, and 422, with which a server
+ * built on FastAPI answers a field it does not know ("Extra inputs are not permitted").
+ */
+export const isRefusal = (status: number): boolean => status === 400 || status === 422;
+
+/**
+ * Whether a server refused `stream_options`, the field that asks a stream for its usage: Azure
+ * OpenAI before its 2024-09-01 preview ("Unrecognized request argument supplied: stream_options"),
+ * and servers that take no field they do not know.
+ */
+function refusesStreamOptions(error: unknown): boolean {
+  if (!(error instanceof OpenAiRequestError) || !isRefusal(error.status)) return false;
+  if (error.param !== undefined) return /^stream_options\b/.test(error.param) && (error.code === "unsupported_parameter" || REFUSED.test(error.message));
+  return /\bstream_options\b/.test(error.message) && REFUSED.test(error.message);
+}
 
 /**
  * Adds a piece of OpenRouter's streamed `reasoning_details` to those of the turn. Pieces of one
@@ -213,20 +234,40 @@ export async function failure(response: Response): Promise<OpenAiRequestError> {
     .find((text): text is string => typeof text === "string" && text.length > 0);
   const wait = retryAfterMs(response.headers, body);
   const own = nested ?? (body && typeof body === "object" ? body : undefined);
-  const param = typeof own?.param === "string" ? own.param as string : undefined;
+  const param = typeof own?.param === "string" ? own.param as string : detailParam(body?.detail);
   const code = typeof own?.code === "string" ? own.code as string : undefined;
   return new OpenAiRequestError(message ?? `The model returned HTTP ${response.status}.`, response.status, {
     ...(wait === undefined ? {} : { retryAfterMs: wait }),
     ...(param ? { param } : {}),
     ...(code ? { code } : {}),
+    ...(quotaByType(own) ? { kind: "quota" as const } : {}),
   });
 }
+
+/**
+ * Whether an error names a quota that ran out in its `type` alone: OpenAI's own errors did, with
+ * `code: null`, and servers that copy them still do. No wait mends it, and it is not sent again.
+ */
+const quotaByType = (error: Json | undefined): boolean => error?.type === "insufficient_quota";
 
 /** FastAPI's `detail`: a message, or a list of problems, each with its own `msg`. */
 function detailText(detail: unknown): string | undefined {
   if (typeof detail === "string") return detail;
   if (!Array.isArray(detail)) return undefined;
   return detail.map((problem) => (typeof (problem as Json | null)?.msg === "string" ? (problem as Json).msg as string : "")).filter(Boolean).join("; ") || undefined;
+}
+
+/**
+ * The request field FastAPI's `detail` is about, when it lists one problem and its place (`loc`):
+ * `["body", "max_tokens"]` is "max_tokens". The message alone ("Extra inputs are not permitted")
+ * does not name it.
+ */
+function detailParam(detail: unknown): string | undefined {
+  if (!Array.isArray(detail) || detail.length !== 1) return undefined;
+  const loc: unknown = (detail[0] as Json | null)?.loc;
+  if (!Array.isArray(loc)) return undefined;
+  const path = (loc[0] === "body" ? loc.slice(1) : loc).filter((step) => typeof step === "string" || typeof step === "number");
+  return path.length > 0 ? path.join(".") : undefined;
 }
 
 /** The error a reply that came with 200 holds instead of choices, when it holds one. */
@@ -244,6 +285,7 @@ export function streamFailure(failed: unknown, status: number = streamErrorStatu
   return new OpenAiRequestError(typeof failed === "string" ? failed : String(named.message ?? "The model reported an error."), status, {
     ...(typeof named.code === "string" && named.code ? { code: named.code } : {}),
     ...(typeof named.param === "string" && named.param ? { param: named.param } : {}),
+    ...(quotaByType(named) ? { kind: "quota" as const } : {}),
   });
 }
 
@@ -393,6 +435,11 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
   const pdfInput = options.pdfInput === true;
   const imageInput = options.imageInput === true;
   const documents = documentsOption("openAiCompatible()", options.documents, ["pdf"]);
+  /**
+   * Whether a streamed request asks for its usage (`stream_options`): changed once, when the server
+   * refuses the field. A `stream_options` of `body` is the application's own, and is left as it is.
+   */
+  let usageInStream = !(options.body && "stream_options" in options.body);
 
   const headersNow = async (): Promise<Record<string, string>> => {
     const key = await resolveSecret(options.apiKey);
@@ -413,14 +460,14 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       return known.messages;
     }));
   };
-  const bodyOf = (request: ModelRequest, stream: boolean): Json => {
+  const bodyOf = (request: ModelRequest, stream: boolean, usage = false): Json => {
     const mustAnswer = request.toolChoice === "none";
     const listTools = Boolean(request.tools?.length) && !(mustAnswer && options.answerWithoutTools === "omit");
     return {
       model: options.model,
       messages: [...(request.system ? [{ role: systemRole, content: request.system }] : []), ...toMessages(request.messages)],
       ...(listTools ? { tools: request.tools!.map(asFunction), ...(mustAnswer ? { tool_choice: "none" } : {}) } : {}),
-      ...(stream ? { stream: true, stream_options: { include_usage: true } } : {}),
+      ...(stream ? { stream: true, ...(usage ? { stream_options: { include_usage: true } } : {}) } : {}),
       ...options.body,
     };
   };
@@ -517,9 +564,21 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
       const watch = idleWatch(hooks.signal, { firstByteTimeoutMs: options.firstByteTimeoutMs, idleTimeoutMs: options.idleTimeoutMs });
       // A request the watch aborted got nothing back for the whole wait: that is no failed connection.
       const lost = (error: unknown) => (watch.expired ? silent(watch.waitedMs) : unreachable(error));
+      const stopped = () => Boolean(hooks.signal?.aborted);
       try {
-        // The headers are no piece of the reply: a server may send them at once and then think.
-        const response = await post(bodyOf(request, stream), watch.signal, () => Boolean(hooks.signal?.aborted), lost, headers);
+        // Whether this request asks for its usage: another request may learn meanwhile that the server refuses the field.
+        const sent = stream && usageInStream;
+        let response: Response;
+        try {
+          // The headers are no piece of the reply: a server may send them at once and then think.
+          response = await post(bodyOf(request, stream, sent), watch.signal, stopped, lost, headers);
+        } catch (error) {
+          // A server that does not know `stream_options`: the request is sent without it, now and
+          // from now on. Its replies then come without their usage, unless the server sends it anyway.
+          if (!sent || !refusesStreamOptions(error)) throw error;
+          response = await post(bodyOf(request, stream, false), watch.signal, stopped, lost, headers);
+          usageInStream = false;
+        }
         return await readReply(response, stream, hooks, watch, lost);
       } finally {
         watch.stop();
