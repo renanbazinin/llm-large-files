@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.99.12 — not released yet
+## 0.99.12 — 2026-11-25
 
 Citations the user does not see. A chatbot can now show answers without their line citations, in
 the headings and in the text, while the model still writes them and the result keeps them. What
