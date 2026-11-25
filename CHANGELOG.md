@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.99.9 — not released yet
+## 0.99.9 — 2026-11-25
 
 The candidate for 1.0, without a promise yet that the API stays as it is: versions 0.99.x keep the
 rules of 0.x versions. Every call names its owner by default, the options 0.10.0 kept for one
