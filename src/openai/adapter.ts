@@ -189,7 +189,7 @@ function addReasoningDetail(details: Json[], detail: unknown): void {
  * put it in `error`; vLLM before its OpenAI-shaped errors, SGLang and FastChat put `message`, and
  * servers built on FastAPI `detail`, at the top of the body.
  */
-async function failure(response: Response): Promise<OpenAiRequestError> {
+export async function failure(response: Response): Promise<OpenAiRequestError> {
   const data = await response.json().catch(() => null) as Json | Json[] | null;
   const body = Array.isArray(data) ? data[0] : data;
   const nested = body?.error && typeof body.error === "object" ? body.error as Json : undefined;
@@ -219,16 +219,20 @@ function bodyError(data: unknown): unknown {
   return body && typeof body === "object" && body.error ? body.error : undefined;
 }
 
-/** An error event inside a stream, or a body, that began with 200, with the server's own word for it. */
-function streamFailure(failed: unknown): OpenAiRequestError {
+/**
+ * An error event inside a stream, or a body, that began with 200, with the server's own word for it.
+ * `status` is that of `streamErrorStatus`, unless the caller tells it apart in its own way.
+ */
+export function streamFailure(failed: unknown, status: number = streamErrorStatus(failed)): OpenAiRequestError {
   const named = failed && typeof failed === "object" ? failed as Json : {};
-  return new OpenAiRequestError(typeof failed === "string" ? failed : String(named.message ?? "The model reported an error."), streamErrorStatus(failed), {
+  return new OpenAiRequestError(typeof failed === "string" ? failed : String(named.message ?? "The model reported an error."), status, {
     ...(typeof named.code === "string" && named.code ? { code: named.code } : {}),
     ...(typeof named.param === "string" && named.param ? { param: named.param } : {}),
   });
 }
 
-const textOf = (message: ModelTextMessage): string => message.parts.map((part) => part.text ?? "").filter(Boolean).join("\n\n");
+/** The text parts of a turn, the empty ones left out, joined by a blank line. */
+export const textOf = (message: ModelTextMessage): string => message.parts.map((part) => part.text ?? "").filter(Boolean).join("\n\n");
 
 /** A turn of text. One with nothing but text is a string, which every server takes; native parts make it a list. */
 function textMessage(message: ModelTextMessage): OpenAiMessage {
@@ -317,7 +321,7 @@ export function fromOpenAiMessages(history: OpenAiMessage[]): { system: string; 
 }
 
 /** An ID for a call that came without one: no round of another question has it. */
-const newCallId = (): string => `call_${randomUUID().replaceAll("-", "").slice(0, 24)}`;
+export const newCallId = (): string => `call_${randomUUID().replaceAll("-", "").slice(0, 24)}`;
 
 /**
  * The tool rounds a question returned (`AskResult.toolTurns`) as Chat Completions messages, for an
@@ -643,17 +647,17 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
 }
 
 /** A request that got no answer: the reason, without the stack of the HTTP client. */
-function unreachable(error: unknown): OpenAiRequestError {
+export function unreachable(error: unknown): OpenAiRequestError {
   return new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error });
 }
 
 /** A request that got nothing back for the whole wait of its `IdleWatch`. */
-function silent(waitMs: number): OpenAiRequestError {
+export function silent(waitMs: number): OpenAiRequestError {
   return new OpenAiRequestError(`The model sent nothing for ${Math.round(waitMs / 1_000)} s.`, 0, { kind: "timeout" });
 }
 
 /** A part read whose whole reply did not come within its time limit (`timeoutMs`). */
-function tooSlow(limitMs: number): OpenAiRequestError {
+export function tooSlow(limitMs: number): OpenAiRequestError {
   return new OpenAiRequestError(`The model took longer than ${waitText(limitMs)} to answer.`, 0, { kind: "timeout" });
 }
 

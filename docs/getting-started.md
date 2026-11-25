@@ -140,7 +140,9 @@ const result = await askGemini({
 
 `askGemini` is `askWithFiles` with a Gemini model. With any other model, call `askWithFiles` and
 pass the model as an adapter. `openAiCompatible()` speaks Chat Completions: OpenAI, Azure OpenAI,
-DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp.
+DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. For OpenAI's reasoning models that call
+tools, `openAiResponses()` speaks the Responses API
+([OpenAI's Responses API](./guides/openai-compatible.md#openais-responses-api)).
 
 ```ts
 import { askWithFiles } from "llm-large-files";

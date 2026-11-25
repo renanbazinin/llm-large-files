@@ -821,7 +821,8 @@ on, each version reads at least the shape of the version before it (H7;
 An adapter turns the loop's neutral request into a provider's, sends it, and reads the reply back.
 Everything else (planning, tools, limits, retries, usage, the request for the answer) is the
 loop's, once, for every provider. The built-in adapters are `gemini()` ([gemini](./gemini.md)),
-`openAiCompatible()` ([openai](./openai.md)) and `anthropic()` ([anthropic](./anthropic.md)).
+`openAiCompatible()` and `openAiResponses()` ([openai](./openai.md)) and `anthropic()`
+([anthropic](./anthropic.md)).
 
 ### `ModelAdapter`
 
@@ -1017,7 +1018,7 @@ type SendHooks = { onText?: (delta: string) => void; signal?: AbortSignal };
 
 | Field | What it holds |
 |---|---|
-| `onText` | Called with the reply's text as it arrives. The loop gives it only for a reply that is shown (never an explorer's) and only when the text is asked for as it is written: `streamText`, on by default with `onText` and in `askStream` (until 0.7.0, whenever the application gave `onText`). An adapter streams when it is given and it can; one that does not stream calls it once the reply is in: `openAiCompatible()` and `anthropic()` once with the whole text, `gemini()` once for each text part. The text is in `reply.text` either way, and the loop passes on what the adapter did not. The deltas must add up to the start of `reply.text`: the loop passes on the rest of `reply.text` only when it starts with what was streamed, and `result.text` is what was passed on. |
+| `onText` | Called with the reply's text as it arrives. The loop gives it only for a reply that is shown (never an explorer's) and only when the text is asked for as it is written: `streamText`, on by default with `onText` and in `askStream` (until 0.7.0, whenever the application gave `onText`). An adapter streams when it is given and it can; one that does not stream calls it once the reply is in: `openAiCompatible()`, `openAiResponses()` and `anthropic()` once with the whole text, `gemini()` once for each text part. The text is in `reply.text` either way, and the loop passes on what the adapter did not. The deltas must add up to the start of `reply.text`: the loop passes on the rest of `reply.text` only when it starts with what was streamed, and `result.text` is what was passed on. |
 | `signal` | The question's signal. Pass it to the request. |
 
 ### `ModelReply`
@@ -1045,8 +1046,8 @@ type ModelReply = {
 | `finishReason` | Why the reply ended, in the provider's own word (`"STOP"`, `"length"`, `"end_turn"`). It becomes `result.finishReason`. |
 | `finish` | How the reply ended, in terms every adapter maps its own to: `"complete"`; `"cut"` at the output limit; `"filtered"` by the provider's safety filters; `"malformed_call"`, a tool call the model tried to make that could not be read (Gemini's `MALFORMED_FUNCTION_CALL`); `"other"`, a known reason that is none of these and that asking again does not mend (new in 0.10.0: `gemini()` gives it for Gemini's `OTHER`, `LANGUAGE`, `FINISH_REASON_UNSPECIFIED`, `NO_IMAGE`, `TOO_MANY_TOOL_CALLS` and `MISSING_THOUGHT_SIGNATURE`). Unset when the adapter does not know. The loop asks once more, with a note, after a reply with no calls that is `"malformed_call"`, or that is empty before any tool ran and is none of `"cut"`, `"filtered"` and `"other"`, while a tool turn is left before the answer. It also asks once more for the answer when its reply has no text and is neither `"filtered"` nor `"other"`: empty and not `"cut"`, or with calls, or `"malformed_call"`. At most two such second tries a question, the answer's included, and none for a reply with `blockReason` or once `limits.requests` or the ceiling of input tokens is reached. A reply `"malformed_call"` with text is not the answer (since 0.10.0). It becomes `result.finish` when it is the last reply. |
 | `blockReason` | Why the provider refused the prompt, when it did. A reply with `blockReason` and no calls ends the question: no request for the answer follows, and the result has `answered: false` and this `blockReason`. |
-| `responseId` | The provider's ID of this response (Gemini's `responseId`, the `id` of OpenAI and Claude), when it gives one. `gemini()`, `openAiCompatible()` and `anthropic()` set it. New in 0.10.0. |
-| `responseModel` | The model that wrote this response, as the provider names it (Gemini's `modelVersion`, the `model` of OpenAI and Claude). `gemini()`, `openAiCompatible()` and `anthropic()` set it. New in 0.10.0. |
+| `responseId` | The provider's ID of this response (Gemini's `responseId`, the `id` of OpenAI and Claude), when it gives one. `gemini()`, `openAiCompatible()`, `openAiResponses()` and `anthropic()` set it. New in 0.10.0. |
+| `responseModel` | The model that wrote this response, as the provider names it (Gemini's `modelVersion`, the `model` of OpenAI and Claude). `gemini()`, `openAiCompatible()`, `openAiResponses()` and `anthropic()` set it. New in 0.10.0. |
 | `usage` | The tokens of this request ([`ModelUsage`](#modelusage)), as far as the provider says. `inputTokens` must count every token of the prompt, cached ones included, and `outputTokens` the thoughts. The loop adds it to `result.usage`, and uses `inputTokens` to correct its own estimate of the request's size. |
 | `providerUsage` | The provider's own usage object, as it came. It becomes `result.lastUsage`. |
 

@@ -588,8 +588,9 @@ The options of this page, and where each is explained:
 | `tables`, `pictures` (`createPdfExtractor`) | `true` | Rebuild tables; write the line that marks a page with a picture ([PDF tables](#pdf-tables), [The line that marks a page](#the-line-that-marks-a-page)). |
 | `viewPages` (`askGemini`, `askWithFiles`) | `true` | Offer `view_pages` for the PDFs whose file is kept ([Limits and cost](#limits-and-cost)). |
 | `toolFilePlacement` (`gemini()`, `askGemini`, `anthropic()`) | `"inside"` | Where the pages go in the request ([Where the pages go](#where-the-pages-go-toolfileplacement)). |
+| `toolFilePlacement` (`openAiResponses()`) | `"none"` | Where the pages go, or nowhere, which turns `view_pages` off ([Which models can see pages](#which-models-can-see-pages)). New in 0.99.9. |
 | `pdfInput` (`openAiCompatible()`) | `false` | Send the pages as a `file` part; without it, no `view_pages` ([Which models can see pages](#which-models-can-see-pages)). |
-| `pageTokens` (`gemini()`, `openAiCompatible()`, `anthropic()`) | 530, 1,000, 3,500 | What a page costs in input tokens ([Limits and cost](#limits-and-cost)). |
+| `pageTokens` (`gemini()`, `openAiCompatible()`, `openAiResponses()`, `anthropic()`) | 530, 1,000, 1,000, 3,500 | What a page costs in input tokens ([Limits and cost](#limits-and-cost)). |
 
 A PDF small enough to send whole can also go to the model as a file in your own message, in the
 provider's own form ([Conversations](./conversations.md)). The model then sees every page.
@@ -835,7 +836,8 @@ export function ingestSaved(userId: string, chatId: string, uploadId: string, na
 | Pages per question | Half of `reservedTokens`, divided by what a page costs: 60 on Gemini, 32 on an OpenAI-compatible model with `pdfInput`, 12 on Claude, with the default budget | `No more pages can be looked at for this question. Answer from the pages and the text you already have.` |
 
 What a page costs is what the adapter declares as `pageTokens`, in input tokens: 530 for `gemini()`
-(Gemini bills 520 to 532 a page, whatever is on it), 1,000 for `openAiCompatible()`, and 3,500 for
+(Gemini bills 520 to 532 a page, whatever is on it), 1,000 for `openAiCompatible()` and
+`openAiResponses()`, and 3,500 for
 `anthropic()`, a page's text and its picture, which the loop counts at Claude's `tokenScale` of 1.35.
 Set `pageTokens` on the adapter (`gemini(endpoint, { pageTokens })`, `openAiCompatible({ pageTokens })`,
 `anthropic({ pageTokens })`) when your model bills otherwise. `askGemini` has no such option: use
@@ -860,6 +862,7 @@ answering model reads the same pages.
 | `gemini()`, `askGemini` | Inside the function response (default), or in a user turn after it | `toolFilePlacement`: `"inside"` or `"beside"` | 530 |
 | `anthropic()` | A `document` block inside the `tool_result` (default), or after the tool results in the same user turn, or not at all | `toolFilePlacement`: `"inside"`, `"beside"` or `"none"` | 3,500 |
 | `openAiCompatible()` | Not at all (default), or a `file` part in a user message after the tool messages | `pdfInput: true` | 1,000 |
+| `openAiResponses()` | Not at all (default), as an `input_file` part inside the `function_call_output`, or in a user message after the outputs | `toolFilePlacement`: `"inside"`, `"beside"` or `"none"` | 1,000 |
 | An adapter of your own | As its `capabilities.toolFiles` says | `"inside"`, `"beside"` or `"none"` | `capabilities.pageTokens` |
 
 ```ts
@@ -957,7 +960,7 @@ The model gets `view_pages` for a PDF only when all of these hold:
   `FileDocumentStore` and `MemoryDocumentStore` have both. Documents ingested before you turned it
   on have no file kept: upload them again. `meta.originalKept` says whether a document has one.
 - Every model of the question can be sent a file: not `openAiCompatible()` without `pdfInput`, not
-  `anthropic({ toolFilePlacement: "none" })`.
+  `openAiResponses()` without `toolFilePlacement`, not `anthropic({ toolFilePlacement: "none" })`.
 - The question does not set `viewPages: false`.
 - In a loop of your own, you asked for it ([Your own tool loop](#your-own-tool-loop)).
 

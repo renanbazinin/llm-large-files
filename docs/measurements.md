@@ -45,6 +45,7 @@ rely on a number, check it on your own files ([Measuring your own setup](#measur
 | Vertex AI: `vertexAi()` | 0.3.0: pages of PDFs, in the locations `global` and `eu`. 0.3.5: explorer pairs. Main (see above): a count, a repeated search, the error of a request too large, and in the 0.6 review a production log of 3 MB | Everything of 0.10.0, among it Model Armor, `LANGUAGE` and labels |
 | OpenAI-compatible: `openAiCompatible()` | 0.5.0: Gemini's OpenAI layer only. 0.10.0: a streamed tool call on Gemini's OpenAI layer | Every other server: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. The adapter is tested against fake servers. `pdfInput` was never run to an answer: Gemini's OpenAI layer refuses its `file` part (HTTP 400), it was not run against OpenAI itself, and it follows OpenAI's documented shape untested |
 | Claude: `anthropic()` | None | The whole adapter. It is tested against the request and response shapes of the Messages API documentation |
+| OpenAI Responses API: `openAiResponses()` | None | The whole adapter (new in 0.99.9), against OpenAI and Azure OpenAI: no key was at hand. It is tested against fake servers that replay the shapes of OpenAI's API reference and guides, Azure OpenAI's Responses page and the types of the `openai` SDK 7.64.0 |
 
 Also live on Gemini, with the record not saying whether on the Gemini API or on Vertex AI: Gemini
 ignoring `mode: "NONE"` (0.1.0), counting and listing (0.2.0), PDF tables (0.2.0), the prompt cache

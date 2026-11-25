@@ -2,15 +2,17 @@
 // missing-document, Gemini, OpenAI and Claude fixtures below, kept in test/request-bodies/*.json.
 // Recorded on 0.9.0, before the first change of 0.10.0 to src/. A change to src/ that is not meant
 // to change what a model is sent must leave every body equal, byte for byte. The whole-file reads of
-// the OpenAI and Claude fixtures came later, and were recorded on the source of 0.9.0 too.
+// the OpenAI and Claude fixtures came later, and were recorded on the source of 0.9.0 too. The
+// openai-responses fixture came with 0.99.9 and was recorded on its source, with an owner on every
+// question.
 //
 // What is recorded:
 // - for a fake model (`fakeModel` of llm-large-files/testing): each `ModelRequest` given to `send`,
 //   and each request given to `generateText` (its system, prompt and maxOutputTokens), as
 //   JSON.stringify makes them at the moment they are sent. A field set to undefined is left out,
 //   as in JSON;
-// - for a real adapter (`gemini()`, `openAiCompatible()`, `anthropic()`) over `fakeFetch`: each body
-//   as the bytes it posted, and the URL it posted to.
+// - for a real adapter (`gemini()`, `openAiCompatible()`, `openAiResponses()`, `anthropic()`) over
+//   `fakeFetch`: each body as the bytes it posted, and the URL it posted to.
 // Each file keeps the bodies as parsed JSON, so that a change reads as a diff. The test checks that
 // each body is JSON.stringify of what the file keeps: nothing is lost in between.
 //
@@ -41,7 +43,7 @@ import {
 } from "llm-large-files";
 import { anthropic } from "llm-large-files/anthropic";
 import { askGemini, geminiApi } from "llm-large-files/gemini";
-import { openAiCompatible } from "llm-large-files/openai";
+import { openAiCompatible, openAiResponses } from "llm-large-files/openai";
 import { calls, fakeFetch, fakeModel, says, serviceLog, sse, utf8, type FakeModel, type FakeReply } from "llm-large-files/testing";
 
 /** Set to "1" to write the files from this run instead of comparing with them. */
@@ -125,11 +127,15 @@ type ReadBody = {
   max_tokens?: number;
   max_completion_tokens?: number;
   stream?: boolean;
+  instructions?: string;
+  max_output_tokens?: number;
 };
 
 /** The system text of a request posted to `to`, when it is one of a whole-file read. */
 function readSystemOf(to: string, body: ReadBody): string | undefined {
   if (to === "generateText") return body.system;
+  // The part reads of OpenAI's Responses API set an output limit and send their system text as instructions; its chat requests here do neither.
+  if (to === "https://api.openai.com/v1/responses") return body.max_output_tokens !== undefined && typeof body.instructions === "string" ? body.instructions : undefined;
   // OpenAI's requests of a whole-file read (its generateText) set an output limit; its chat requests here do not.
   if (to.startsWith("https://api.openai.com/")) {
     const system = body.messages?.[0]?.content;
@@ -341,6 +347,50 @@ async function openAiCases(): Promise<Case[]> {
   return cases;
 }
 
+/** A response of OpenAI's Responses API, not streamed, with these output items. */
+const responsesReply = (output: unknown[], status = "completed") => Response.json({
+  id: "resp_1", object: "response", model: "gpt-test", status, error: null, incomplete_details: null, output,
+  usage: { input_tokens: 900, input_tokens_details: { cached_tokens: 0 }, output_tokens: 30, output_tokens_details: { reasoning_tokens: 0 }, total_tokens: 930 },
+});
+/** A response whose output is one message of text. */
+const responsesText = (text: string) => responsesReply([{ type: "message", id: "msg_9", role: "assistant", status: "completed", content: [{ type: "output_text", text, annotations: [] }] }]);
+
+/**
+ * openAiResponses: a tool turn with a reasoning item, a follow-up on its stored rounds, a whole-file
+ * read. New in 0.99.9: every question names its owner.
+ */
+async function openAiResponsesCases(): Promise<Case[]> {
+  const cases: Case[] = [];
+  const files = await library();
+  const asked = "How many errors are in the log?";
+  const log: Sent[] = [];
+  const reasoning = { type: "reasoning", id: "rs_1", summary: [], encrypted_content: "encrypted-1" };
+  const checking = { type: "message", id: "msg_1", role: "assistant", status: "completed", content: [{ type: "output_text", text: "Checking.", annotations: [] }] };
+  const search = { type: "function_call", id: "fc_1", call_id: "call_1", name: "search_document", arguments: JSON.stringify({ document_id: "log-1", query: "ERROR", mode: "exact", max_results: 3 }), status: "completed" };
+  const model = openAiResponses({ model: "gpt-test", apiKey: "test-key", fetch: recordingFetch([responsesReply([reasoning, checking, search]), responsesText("51 errors (app.log L97).")], log) });
+  const first = await askWithFiles({ files, model, owner: "user-1", documentIds: ["notes-1", "log-1", "sales-1"], system: "Be brief.", messages: [question(asked)] });
+  cases.push({ name: "a tool turn with a reasoning item, then the answer", requests: log });
+
+  const again: Sent[] = [];
+  const next = openAiResponses({ model: "gpt-test", apiKey: "test-key", fetch: recordingFetch([responsesText("Yes, 51.")], again) });
+  await askWithFiles({ files, model: next, owner: "user-1", documentIds: ["notes-1", "log-1", "sales-1"], system: "Be brief.", messages: followUp(asked, first, "Are you sure?") });
+  cases.push({ name: "a follow-up on the stored rounds", requests: again });
+
+  // Parts of about 8,000 tokens: three part reads, a merge of their long notes, the read's answer.
+  const small = await library({ mapChunkTokens: 8_000 });
+  const read: Sent[] = [];
+  const analyze = { type: "function_call", id: "fc_1", call_id: "call_1", name: "analyze_whole_document", arguments: JSON.stringify({ document_id: "short-log-1", task: "Summarize the log." }), status: "completed" };
+  const reads = openAiResponses({ model: "gpt-test", apiKey: "test-key", fetch: recordingFetch([(sent) => {
+    const system = readSystemOf(sent.url, sent.body);
+    if (system !== undefined) return responsesText(readReply(system));
+    const called = (sent.body.input as Array<{ type?: string }>).some((item) => item.type === "function_call_output");
+    return called ? responsesText("All in time.") : responsesReply([analyze]);
+  }], read) });
+  await askWithFiles({ files: small, model: reads, owner: "user-1", documentIds: ["short-log-1"], messages: [question("Summarize short.log.")] });
+  cases.push({ name: "a whole-file read: parts, a merge, the read's answer, then the answer", requests: settled(read) });
+  return cases;
+}
+
 /** A streamed Claude message, as the Messages API sends it: text and tool input in one piece each. */
 function claudeStream(content: Array<{ type: "text"; text: string } | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }>, stop: string): Response {
   const events: unknown[] = [{ type: "message_start", message: { id: "msg_1", type: "message", role: "assistant", model: "claude-test", content: [], usage: { input_tokens: 900, output_tokens: 1 } } }];
@@ -398,6 +448,7 @@ const FIXTURES: Array<[name: string, run: () => Promise<Case[]>]> = [
   ["missing-documents", missingCases],
   ["gemini", geminiCases],
   ["openai", openAiCases],
+  ["openai-responses", openAiResponsesCases],
   ["anthropic", anthropicCases],
 ];
 

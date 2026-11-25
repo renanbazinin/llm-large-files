@@ -284,8 +284,41 @@ converted it as a round of version 1. No round that 0.99.9 or an earlier version
 - **`handlers.list`**: the files of a chat at a `GET` route ([Upload handlers](#upload-handlers)).
 - **`prepareUpload` returning `dedupe` and `appData`**, and **`UploadedContext.reused`**
   ([Upload handlers](#upload-handlers)).
-<!-- responses: openAiResponses() (#the-openai-responses-api), not run live. -->
+- **`openAiResponses()`**: OpenAI's Responses API, for reasoning models that call the document
+  tools ([The OpenAI Responses API](#the-openai-responses-api)).
 <!-- visual: page images for models without PDF input; small visual files sent as themselves. -->
 <!-- questions: question IDs (AskOptions.questionId, createQuestionRegistry). -->
 <!-- aisdk: llm-large-files/ai-sdk; examples for LangChain.js/LangGraph, the OpenAI Agents SDK, Google ADK. -->
 <!-- MCP (removable): llm-large-files/mcp, one entry. -->
+
+### The OpenAI Responses API
+
+Nothing to change: `openAiCompatible()` sends what it sent in 0.10.2. If you call GPT-5.4 or later
+through it with `reasoning_effort: "none"` so that tool calls work, `openAiResponses()` lets the
+model reason while it calls the tools:
+
+```ts
+import { openAiCompatible, openAiResponses } from "llm-large-files/openai";
+
+const apiKey = process.env.OPENAI_API_KEY!;
+// 0.10.x: Chat Completions, tool calls without reasoning.
+const before = openAiCompatible({ apiKey, model: "gpt-5.5", contextTokens: 1_050_000,
+  body: { reasoning_effort: "none" }, analysisBody: () => ({ reasoning_effort: "low" }) });
+// 0.99.9: the Responses API, which reasons while it calls the tools.
+const after = openAiResponses({ apiKey, model: "gpt-5.5", contextTokens: 1_050_000,
+  body: { reasoning: { effort: "medium" } }, analysisBody: () => ({ reasoning: { effort: "low" } }) });
+```
+
+- `body` and `analysisBody` take fields of the Responses API: `reasoning: { effort }` for
+  `reasoning_effort`, `max_output_tokens` for `max_completion_tokens`.
+- `maxTokensField`, `systemRole`, `answerWithoutTools` and `pdfInput` are not options of
+  `openAiResponses()`: part reads send `max_output_tokens`, the system text goes in
+  `instructions`, the request for the answer sends `tool_choice: "none"`, and pages go where
+  `toolFilePlacement` says (`"none"` by default).
+- Errors are `OpenAiRequestError`, as before, and usage fills the same fields.
+- Stored rounds (`toolTurns`) need no change: they hold no provider's form, and the rounds of one
+  adapter go to the other.
+- Azure OpenAI: `baseUrl: "https://{resource}.openai.azure.com/openai/v1"`, `headers: { "api-key": key }`
+  or an Entra ID token as `apiKey`, and `model` is the deployment name.
+- It has not been run live. Try it on a staging deployment before you move traffic to it
+  ([OpenAI's Responses API](./guides/openai-compatible.md#openais-responses-api)).
