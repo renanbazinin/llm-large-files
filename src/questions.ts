@@ -387,6 +387,16 @@ export function createQuestionRegistry(options: QuestionRegistryOptions = {}): Q
   };
 }
 
+/**
+ * The bytes of a file in the messages (`ModelTextMessage.files`), as their SHA-256 in the
+ * fingerprint: JSON would write each byte as a key of its own, many times the file's size.
+ */
+function bytesHashed(_key: string, value: unknown): unknown {
+  if (!ArrayBuffer.isView(value)) return value;
+  const bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  return { sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.byteLength };
+}
+
 /** The key of a question: who asks, in which scope, and the client's ID. */
 function keyOf(owner: unknown, scope: unknown, questionId: string): string {
   return JSON.stringify([owner ?? null, scope ?? null, questionId]);
@@ -401,7 +411,7 @@ function identify(asked: QuestionAskOptions): Identity {
   try {
     const { model, explorer } = asked;
     const key = keyOf(asked.owner, asked.scope, asked.questionId);
-    const json = JSON.stringify([asked.messages, asked.documentIds, asked.system ?? null, model?.id ?? null, explorer && explorer !== model ? explorer.id : null]);
+    const json = JSON.stringify([asked.messages, asked.documentIds, asked.system ?? null, model?.id ?? null, explorer && explorer !== model ? explorer.id : null], bytesHashed);
     return { key, fingerprint: createHash("sha256").update(json).digest("hex") };
   } catch (error) {
     throw new TypeError(`questionId needs messages, documentIds and system that JSON can hold: ${reasonOf(error)}.`);

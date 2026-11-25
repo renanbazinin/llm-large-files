@@ -226,6 +226,27 @@ describe("createQuestionRegistry", () => {
     expect(model.requests).toHaveLength(1);
   });
 
+  it("tells files in the messages apart by their bytes, without writing each byte into the fingerprint", async () => {
+    const { files, meta } = await smallNote();
+    const model = fakeModel([says("On Tuesday.")]);
+    const registry = createQuestionRegistry();
+    const big = new Uint8Array(4 * 1024 * 1024).fill(7);
+    const withFile = (bytes: Uint8Array): QuestionAskOptions => ({
+      files, model, owner: OWNER, documentIds: [meta.id], questionId: "q-1",
+      messages: [{ role: "user", parts: [{ text: "When is the meeting?" }], files: [{ name: "plan.pdf", mimeType: "application/pdf", bytes }] }],
+    });
+    const started = performance.now();
+    const first = await registry.ask(withFile(big));
+    // The same bytes in another array: the same question, answered from what was kept.
+    expect(await registry.ask(withFile(big.slice()))).toEqual(first);
+    expect(model.requests).toHaveLength(1);
+    // Other bytes under the same ID: another question.
+    const other = big.slice();
+    other[123] = 8;
+    await expect(registry.ask(withFile(other))).rejects.toBeInstanceOf(QuestionConflictError);
+    expect(performance.now() - started).toBeLessThan(5_000);
+  });
+
   it("a listener that changes run.finish changes neither another caller's event nor the kept answer", async () => {
     const { files, meta } = await smallNote();
     const gate = held();
