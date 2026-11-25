@@ -444,12 +444,12 @@ keep these 0.x rules: a minor (0.99.9 to 0.100.0) may need changes in the user's
 
 These are public, and a change to them can need a change in someone's code:
 
-- Everything exported from the seven entry points (`llm-large-files`, `llm-large-files/gemini`,
+- Everything exported from the six entry points (`llm-large-files`, `llm-large-files/gemini`,
   `llm-large-files/openai`, `llm-large-files/anthropic`, `llm-large-files/node`,
-  `llm-large-files/testing`, `llm-large-files/mcp`): names, signatures, options and their
-  defaults. That includes the types an app implements: `ModelAdapter`, `DocumentStore` and
-  `Extractor`. A new required member or argument breaks every adapter, store or extractor written
-  for the previous version, so make new members optional.
+  `llm-large-files/testing`): names, signatures, options and their defaults. That includes the
+  types an app implements: `ModelAdapter`, `DocumentStore` and `Extractor`. A new required member
+  or argument breaks every adapter, store or extractor written for the previous version, so make
+  new members optional.
 - The tools the model sees: their names, arguments and result fields. The rest of the text the
   model is sent (tool descriptions, the tool guide, the instructions) breaks no code but changes
   answers: it goes under **Upgrading** (the cache miss) and **Changed** (what models do
@@ -460,4 +460,4 @@ These are public, and a change to them can need a change in someone's code:
   it. A shape newer than the reader knows is refused with an error that says so. (0.4.0 gave
   documents stored by older versions their line index the first time they were used.)
 - The supported Node versions (`engines`: 22.12 or later) and the version ranges of the optional
-  peers `jszip`, `unpdf`, `@cantoo/pdf-lib`, `@napi-rs/canvas` and `@modelcontextprotocol/server`.
+  peers `jszip`, `unpdf`, `@cantoo/pdf-lib` and `@napi-rs/canvas`.
