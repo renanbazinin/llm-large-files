@@ -5,25 +5,12 @@ import { formatBytes } from "./plan.js";
 import { MAX_LINE_CHARACTERS, sliceWhole } from "./text.js";
 import type { ExtractInput, Extractor } from "./types.js";
 import { WordNumbering, type ParagraphStyle } from "./word-styles.js";
-import { parseAttributes, readRelationships, readXml } from "./xml-stream.js";
+import { decodeEntities, parseAttributes, readRelationships, readXml } from "./xml-stream.js";
 import { readZipDirectory } from "./zip-directory.js";
 
 // Office files are ZIP archives of XML: Word (DOCX) and PowerPoint (PPTX) are read here, and the
 // parts are streamed for the spreadsheet reader (xlsx.ts) too. No XML parser is used: each part is
 // read a piece at a time as it is unpacked, under limits a hostile file cannot get past.
-
-function decodeXmlEntities(value: string): string {
-  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
-    const lower = entity.toLowerCase();
-    if (lower === "amp") return "&";
-    if (lower === "lt") return "<";
-    if (lower === "gt") return ">";
-    if (lower === "quot") return "\"";
-    if (lower === "apos") return "'";
-    const code = lower.startsWith("#x") ? Number.parseInt(lower.slice(2), 16) : Number.parseInt(lower.slice(1), 10);
-    return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
-  });
-}
 
 /** A tag name is read up to this many characters: the names that matter here are short. */
 const MAX_TAG_NAME = 64;
@@ -349,7 +336,7 @@ class OfficeText {
     const paragraph = this.open.pop();
     if (!paragraph) return;
     this.pending -= paragraph.length;
-    let shown = decodeXmlEntities(paragraph.pieces.join(""));
+    let shown = decodeEntities(paragraph.pieces.join(""));
     if (this.numbering && paragraph.style) {
       // An empty paragraph is counted in its list too, as Word shows its number there. The number
       // is written only before text: empty paragraphs count toward no limit, and a file of them
@@ -361,7 +348,7 @@ class OfficeText {
         shown = `${level ? `${"#".repeat(level)} ` : ""}${label ? `${label} ` : ""}${shown}`;
       }
     }
-    const text = paragraph.hidden ? this.withHiddenText(shown, decodeXmlEntities(paragraph.hidden.join(""))) : shown;
+    const text = paragraph.hidden ? this.withHiddenText(shown, decodeEntities(paragraph.hidden.join(""))) : shown;
     if (paragraph.slot === -1) {
       // A paragraph of a table cell: its text goes into the cell, counted as any paragraph's.
       if (text.trim()) {

@@ -187,12 +187,13 @@ function scopeInfo(code: unknown): ErrorInfo {
  * the library made from an error with words safe to show. It is read by its `name` and `code`;
  * a model error by its `kind`, below, as any error with one. Undefined for other data.
  */
-function eventInfoOf(record: { name?: unknown; code?: unknown; kind?: unknown; status?: unknown; message?: unknown }): ErrorInfo | undefined {
-  const { name, code, kind, status, message } = record;
+function eventInfoOf(record: { name?: unknown; code?: unknown; storeCode?: unknown; kind?: unknown; status?: unknown; message?: unknown }): ErrorInfo | undefined {
+  const { name, code, storeCode, kind, status, message } = record;
   if (typeof message !== "string" || kind !== undefined) return undefined;
   // `ingest.error` of the upload handler has no name for a refused file.
   if (typeof code === "string" && Object.hasOwn(INGEST_CODES, code) && (name === undefined || name === "IngestError")) return ingestInfo(code, status, undefined, message);
-  if (name === "DocumentStoreError") return storeInfo(undefined, message || "The document store could not be used. Try again.");
+  // The store's code is in `storeCode` since 0.99.10: an event of an earlier version has none.
+  if (name === "DocumentStoreError") return storeInfo(storeCode, message || "The document store could not be used. Try again.");
   if (name === "DocumentsNotFoundError") return { category: "missing", code: "documents_missing", status: 404, retryable: false, message: message || "A document is no longer available. Upload it again." };
   if (name === "DocumentScopeError") return scopeInfo(code);
   // A mistake in the call, as the error itself is read (`ingest.error` of a TypeError of ingest).

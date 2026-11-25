@@ -23,7 +23,8 @@ export type PdfTextItem = {
 
 type Piece = { index: number; group: number; text: string; x0: number; x1: number; y: number; size: number };
 type Segment = { x0: number; x1: number; pieces: Piece[] };
-type Line = { y: number; size: number; segments: Segment[] };
+/** `letters`: how many of its letters read right to left and left to right, once they have been counted. */
+type Line = { y: number; size: number; segments: Segment[]; letters?: [rightToLeft: number, leftToRight: number] };
 type Column = { x0: number; x1: number };
 /** grid[line][column]: the pieces of each cell, one line of text at a time. */
 type Grid = Piece[][][];
@@ -194,8 +195,36 @@ const tooFarBelow = (line: Line, previous: Line): boolean => line.y - previous.y
 
 // ---------- Finding a table: lines whose pieces keep to the same columns ----------
 
+/**
+ * What the search for tables has done on the page being laid out: about one for each time a cell
+ * is held against a column, or against another cell. `layoutPage` runs to its end in one go, so
+ * one count serves it.
+ */
+let searchWork = 0;
+/** The part of `searchWork` done on lines that held together and were not a table. */
+let refusedWork = 0;
+/**
+ * Up to this much work on them, lines that held together and are not a table are searched again
+ * from each of them: a table may start at any. That takes the square of their count: 100 lines of
+ * a label and a number, as an index or a list of prices has them, take 0.1 million, and the pages
+ * of the documents tested stay far below this. Past it, the search goes on after such lines
+ * instead. In 0.99.9 a page of 2,000 such lines held the server for 26 s, and one of 4,000 for
+ * minutes; now each takes about 0.25 s.
+ */
+const SEARCH_AGAIN_WORK = 1_000_000;
+/**
+ * Past this much work, a table stops growing and no more tables are looked for on the page: the
+ * tables found stay, and the rest of its text is left in the order of the file. A cell is held
+ * against every column, so a table takes its cells times its columns: one of 2,400 rows and 30
+ * columns takes a little over half of this, and so does one of 300 rows and 85 columns. Only a
+ * page with hundreds of columns, or thousands of cells that almost line up, comes here: after a
+ * fraction of a second (0.2 s for 300 rows of 200 columns, which took 0.99.9 2.8 s to write).
+ */
+const MAX_SEARCH_WORK = 4_000_000;
+
 /** Where a cell goes: the column it lies in, "across" if it lies in several, else a column it nearly touches. */
 function placeCell<T extends Column>(columns: T[], cell: Segment, touch: number): T | "across" | undefined {
+  searchWork += columns.length + 1;
   const under = columns.filter((column) => cell.x0 < column.x1 && cell.x1 > column.x0);
   if (under.length > 1) return "across";
   if (under.length === 1) return under[0];
@@ -215,53 +244,78 @@ function placeCell<T extends Column>(columns: T[], cell: Segment, touch: number)
 type GrowingColumn = Column & { cells: Column[] };
 
 /**
- * The columns after adding a line, or undefined if the line is not a row of this table: its text
- * runs across two columns, or its cells do not line up with the cells above them. Cells of a
- * column share a left edge, a right edge or a centre; words of a sentence under a table sit in
- * the same columns by chance, but not on those edges.
+ * Adds a line to the columns of a growing region, and says whether it is a row of this table. It
+ * is not when its text runs across two columns, or its cells do not line up with the cells above
+ * them: the columns are then left as they were. Cells of a column share a left edge, a right edge
+ * or a centre; words of a sentence under a table sit in the same columns by chance, but not on
+ * those edges.
+ *
+ * The columns are changed in place, and put back when the line is not a row. Before 0.99.10 each
+ * line was tried on a copy of every cell seen so far: the time of a region grew with the square of
+ * its lines.
  */
-function addLine(columns: GrowingColumn[], line: Line): GrowingColumn[] | undefined {
+function addLine(columns: GrowingColumn[], line: Line): boolean {
   const touch = COLUMN_TOUCH * line.size;
   const tolerance = ROW_ALIGNMENT * line.size;
-  const next = columns.map((column) => ({ ...column, cells: [...column.cells] }));
+  const columnsBefore = columns.length;
+  /** Each column a cell was put in, as it was before: its edges, and how many cells it had. */
+  const changed: Array<[column: GrowingColumn, x0: number, x1: number, cells: number]> = [];
   let placed = 0;
   let aligned = 0;
   const put = (cell: Segment, mayAddColumn: boolean): boolean => {
-    const column = placeCell(next, cell, touch);
+    const column = placeCell(columns, cell, touch);
     if (column === "across" || (!column && !mayAddColumn)) return false;
     if (column) {
       placed++;
       const centre = (cell.x0 + cell.x1) / 2;
-      if (column.cells.some((other) => Math.abs(other.x0 - cell.x0) <= tolerance || Math.abs(other.x1 - cell.x1) <= tolerance
-        || Math.abs((other.x0 + other.x1) / 2 - centre) <= tolerance)) aligned++;
+      // Usually the first cell looked at lines up; the cells looked at are counted for the page's limit.
+      const found = column.cells.findIndex((other) => Math.abs(other.x0 - cell.x0) <= tolerance || Math.abs(other.x1 - cell.x1) <= tolerance
+        || Math.abs((other.x0 + other.x1) / 2 - centre) <= tolerance);
+      searchWork += found === -1 ? column.cells.length : found + 1;
+      if (found !== -1) aligned++;
+      changed.push([column, column.x0, column.x1, column.cells.length]);
       column.x0 = Math.min(column.x0, cell.x0);
       column.x1 = Math.max(column.x1, cell.x1);
       column.cells.push({ x0: cell.x0, x1: cell.x1 });
     } else {
-      next.push({ x0: cell.x0, x1: cell.x1, cells: [{ x0: cell.x0, x1: cell.x1 }] });
+      columns.push({ x0: cell.x0, x1: cell.x1, cells: [{ x0: cell.x0, x1: cell.x1 }] });
     }
     return true;
   };
-  for (const segment of line.segments) {
-    if (put(segment, true)) continue;
-    // Text across two columns may be two cells that sit close together: then each of its parts
-    // lies in a column that is already there.
-    const parts = partsOf(segment, line.size);
-    if (parts.length < 2 || !parts.every((part) => put(part, false))) return undefined;
+  const isRow = (): boolean => {
+    for (const segment of line.segments) {
+      if (put(segment, true)) continue;
+      // Text across two columns may be two cells that sit close together: then each of its parts
+      // lies in a column that is already there.
+      const parts = partsOf(segment, line.size);
+      if (parts.length < 2 || !parts.every((part) => put(part, false))) return false;
+    }
+    return aligned * 2 >= placed;
+  };
+  if (isRow()) {
+    columns.sort((left, right) => left.x0 - right.x0);
+    return true;
   }
-  if (aligned * 2 < placed) return undefined;
-  return next.sort((left, right) => left.x0 - right.x0);
+  // Not a row: the columns it added go, and the others get back their edges and lose its cells.
+  columns.length = columnsBefore;
+  for (let index = changed.length - 1; index >= 0; index--) {
+    const [column, x0, x1, cells] = changed[index]!;
+    column.x0 = x0;
+    column.x1 = x1;
+    column.cells.length = cells;
+  }
+  return false;
 }
 
 /** Grows a table downwards from a line with at least two cells, while the columns hold. */
 function growRegion(lines: Line[], start: number): number {
-  let columns: GrowingColumn[] = lines[start]!.segments.map((segment) => ({ x0: segment.x0, x1: segment.x1, cells: [{ x0: segment.x0, x1: segment.x1 }] }));
+  const columns: GrowingColumn[] = lines[start]!.segments.map((segment) => ({ x0: segment.x0, x1: segment.x1, cells: [{ x0: segment.x0, x1: segment.x1 }] }));
   let end = start;
   let index = start + 1;
-  while (index < lines.length) {
+  while (index < lines.length && searchWork <= MAX_SEARCH_WORK) {
     // A line that crosses columns is accepted only if a normal row follows it closely.
     let probe = index;
-    let added: GrowingColumn[] | undefined;
+    let added = false;
     while (probe < lines.length && probe - index <= SPANNING_LINES) {
       if (tooFarBelow(lines[probe]!, lines[probe - 1]!)) break;
       added = addLine(columns, lines[probe]!);
@@ -270,7 +324,6 @@ function growRegion(lines: Line[], start: number): number {
     }
     if (!added) break;
     if (probe > index && lines[probe]!.segments.length < 2) break;
-    columns = added;
     end = probe;
     index = probe + 1;
   }
@@ -459,12 +512,18 @@ function isRightToLeft(lines: Line[]): boolean {
   let rightToLeft = 0;
   let leftToRight = 0;
   for (const line of lines) {
-    for (const segment of line.segments) {
-      for (const piece of segment.pieces) {
-        rightToLeft += piece.text.match(RIGHT_TO_LEFT)?.length ?? 0;
-        leftToRight += piece.text.match(LEFT_TO_RIGHT)?.length ?? 0;
+    // Counted once for a line: the search looks at the same lines from each line it starts at.
+    if (!line.letters) {
+      line.letters = [0, 0];
+      for (const segment of line.segments) {
+        for (const piece of segment.pieces) {
+          line.letters[0] += piece.text.match(RIGHT_TO_LEFT)?.length ?? 0;
+          line.letters[1] += piece.text.match(LEFT_TO_RIGHT)?.length ?? 0;
+        }
       }
     }
+    rightToLeft += line.letters[0];
+    leftToRight += line.letters[1];
   }
   return rightToLeft > leftToRight;
 }
@@ -549,25 +608,64 @@ function joinPieces(pieces: Piece[], rightToLeft: boolean): string {
   return parts.join("");
 }
 
+/**
+ * How long `joinPieces` makes the text of `pieces`, without making it: their characters, and a
+ * space for each gap that shows. The search asks for the length of every cell of a region, from
+ * each line it starts at.
+ */
+function joinedLength(pieces: Piece[]): number {
+  let length = pieces[0]?.text.length ?? 0;
+  if (pieces.length < 2) return length;
+  const byX = [...pieces].sort((left, right) => left.x0 - right.x0);
+  for (let index = 1; index < byX.length; index++) {
+    const piece = byX[index]!;
+    const before = byX[index - 1]!;
+    length += piece.text.length + (piece.x0 - before.x1 > VISIBLE_GAP * Math.max(piece.size, before.size) ? 1 : 0);
+  }
+  return length;
+}
+
 /** Columns that are their own run of whole sentences in file order: page columns, not table columns. */
-function proseColumns(grid: Grid, rightToLeft: boolean): number[] {
+function proseColumns(grid: Grid): number[] {
   const order = grid.flatMap((row) => row.flatMap((cell) => cell.map((piece) => piece.index))).sort((left, right) => left - right);
   const rank = new Map(order.map((index, position) => [index, position]));
   const result: number[] = [];
   for (let column = 0; column < grid[0]!.length; column++) {
     const cells = grid.map((row) => row[column]!).filter((cell) => cell.length > 0);
     if (cells.length < 3) continue;
-    if (median(cells.map((cell) => joinPieces(cell, rightToLeft).length)) < PROSE_CELL_CHARACTERS) continue;
+    if (median(cells.map(joinedLength)) < PROSE_CELL_CHARACTERS) continue;
     const ranks = cells.flatMap((cell) => cell.map((piece) => rank.get(piece.index)!));
     if (Math.max(...ranks) - Math.min(...ranks) + 1 === ranks.length) result.push(column);
   }
   return result;
 }
 
-/** How many of `values` lie within `tolerance` of the most common value. */
+/**
+ * How many of `values` lie within `tolerance` of the most common value. In order, the values
+ * within reach of one are next to each other: one pass after a sort. Held against each other one
+ * by one, the 2,000 rows of a long table took 12 million steps a column.
+ */
 function largestCluster(values: number[], tolerance: number): number {
+  searchWork += values.length;
+  if (!values.every(Number.isFinite)) {
+    // Not a position on a page. As before 0.99.10, one by one: nothing is within reach of these.
+    searchWork += values.length * values.length;
+    let most = 0;
+    for (const value of values) most = Math.max(most, values.filter((other) => Math.abs(other - value) <= tolerance).length);
+    return most;
+  }
+  const sorted = [...values].sort((left, right) => left - right);
   let best = 0;
-  for (const value of values) best = Math.max(best, values.filter((other) => Math.abs(other - value) <= tolerance).length);
+  let first = 0;
+  let last = 0;
+  for (let index = 0; index < sorted.length; index++) {
+    const value = sorted[index]!;
+    while (Math.abs(sorted[first]! - value) > tolerance) first++;
+    if (last < index) last = index;
+    while (last + 1 < sorted.length && Math.abs(sorted[last + 1]! - value) <= tolerance) last++;
+    // With a tolerance that is not a number, nothing is within reach, the value itself included.
+    if (Math.abs(value - value) <= tolerance) best = Math.max(best, last - first + 1);
+  }
   return best;
 }
 
@@ -699,12 +797,14 @@ function tablesInLines(lines: Line[], depth: number): Table[] {
   const tables: Table[] = [];
   const taken = new Set<Line>();
   let start = 0;
-  while (start < lines.length) {
+  while (start < lines.length && searchWork <= MAX_SEARCH_WORK) {
     if (lines[start]!.segments.length < 2) {
       start++;
       continue;
     }
+    const workBefore = searchWork;
     let end = growRegion(lines, start);
+    if (searchWork > MAX_SEARCH_WORK) break;
     let region: Line[] = [];
     let rightToLeft = false;
     let grid: Grid = [];
@@ -733,7 +833,7 @@ function tablesInLines(lines: Line[], depth: number): Table[] {
     }
     grid = absorbLoneColumns(grid, rightToLeft);
 
-    const prose = proseColumns(grid, rightToLeft);
+    const prose = proseColumns(grid);
     if (prose.length > 0) {
       // Set the page columns aside and look again at what is left on these lines.
       if (depth < 4) {
@@ -745,7 +845,10 @@ function tablesInLines(lines: Line[], depth: number): Table[] {
     }
     // A note or a heading may run across the columns of a table; running text does on most lines.
     if (spanning > Math.max(1, Math.floor(region.length / 5)) || !looksLikeTable(grid, region)) {
-      start++;
+      // A table may start at any of these lines: look again from the next one, while such lines
+      // have not taken too much work on this page.
+      refusedWork += searchWork - workBefore;
+      start = refusedWork > SEARCH_AGAIN_WORK ? end + 1 : start + 1;
       continue;
     }
     // Heading lines right above, whose cells sit so close together that each line read as one
@@ -821,6 +924,8 @@ export function layoutPageText(items: readonly PdfTextItem[], viewportTransform:
 
 /** As `layoutPageText`, and also where the tables it found lie on the page. */
 export function layoutPage(items: readonly PdfTextItem[], viewportTransform: readonly number[] = FLIP_Y): { text: string; tables: LayoutBox[] } {
+  searchWork = 0;
+  refusedWork = 0;
   const tableOf = new Map<number, Table>();
   const pieceOf = new Map<number, Piece>();
   for (const group of toPieces(items, viewportTransform)) {

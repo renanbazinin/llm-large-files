@@ -1,5 +1,5 @@
 import { officeReader, openOffice, type OfficeParts } from "./office.js";
-import { sliceWhole } from "./text.js";
+import { sliceWhole, wellFormed } from "./text.js";
 import type { Extractor } from "./types.js";
 import { readRelationships, readXml, XmlStream, type XmlAttributes } from "./xml-stream.js";
 
@@ -124,15 +124,20 @@ function decodeEscapes(text: string): string {
   // each of millions of escapes, and a 405 KB workbook took 890 MB.
   const pieces: string[] = [];
   let kept = 0;
+  let halves = false;
   for (; at !== -1; at = text.indexOf("_x", at + 1)) {
     if (at < kept || text.charCodeAt(at + 6) !== 95 || !HEX4.test(text.slice(at + 2, at + 6))) continue;
-    pieces.push(text.slice(kept, at), String.fromCharCode(Number.parseInt(text.slice(at + 2, at + 6), 16)));
+    const code = Number.parseInt(text.slice(at + 2, at + 6), 16);
+    if (code >= 0xd800 && code <= 0xdfff) halves = true;
+    pieces.push(text.slice(kept, at), String.fromCharCode(code));
     kept = at + 7;
     at = kept - 1;
   }
   if (pieces.length === 0) return text;
   pieces.push(text.slice(kept));
-  return pieces.join("");
+  // Two escapes make a character outside the basic plane ("_xD83D__xDE00_"). Half of one alone
+  // is not a character: U+FFFD, as for a character reference to it (`decodeEntities`).
+  return halves ? wellFormed(pieces.join("")) : pieces.join("");
 }
 
 const HEX4 = /^[0-9A-Fa-f]{4}$/;
@@ -400,7 +405,10 @@ function sheetReader(workbook: Workbook, strings: string[], line: (text: string)
           // A shared string counts at its length each time a cell names it, before the row keeps
           // it: in a few bytes each, one row can name a string of a million characters thousands
           // of times. It was made a cell's text when it was read, and is kept, not copied.
-          text = strings[Number(cell.value.join(""))] ?? "";
+          // The cell names it by its number, in digits. A cell without one (`<c t="s"></c>`, an
+          // empty `<v>`) is empty: read as a number, no digits are 0, the first string.
+          const index = cell.value.join("").trim();
+          text = /^\d+$/.test(index) ? strings[Number(index)] ?? "" : "";
           hold(text.length);
         } else {
           text = cellText(valueOf(cell));

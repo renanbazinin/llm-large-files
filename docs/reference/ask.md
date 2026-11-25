@@ -553,8 +553,8 @@ whole-file reads added (see [the default ceiling](#asklimits)). New in 0.10.0.
 ### `ToolResultContext` and `ToolResultVerdict`
 
 ```ts
-type ToolResultContext = { call: ToolCall; result: ToolResult; documentId?: string; owner?: string; scope?: DocumentScope; signal: AbortSignal };
-type ToolResultVerdict = { result: ToolResult } | { reject: string };
+type ToolResultContext = { call: ToolCall; result: ToolResult; files?: ToolFile[]; documentId?: string; owner?: string; scope?: DocumentScope; signal: AbortSignal };
+type ToolResultVerdict = { result: ToolResult; keepFiles?: boolean } | { reject: string };
 ```
 
 What `AskOptions.onToolResult` is given, and what it returns. New in 0.10.0.
@@ -577,6 +577,7 @@ waiting for the hooks of the other calls.
 |---|---|---|
 | `call` | [`ToolCall`](#toolcall) | The tool call, as the model made it. |
 | `result` | [`ToolResult`](./tools.md#toolresult) | What the tool returned, before it is fitted to the room in the request. An error result (`{ error }`) is passed too. |
+| `files` | `ToolFile[]`, optional | The files the call hands the model next to its result: the pages of `view_pages`, as one PDF or an image of each page (`name`, `mimeType`, `bytes`). Present when there is at least one. New in 0.99.10. |
 | `documentId` | `string`, optional | The document the call names (`args.document_id`), when it names one. |
 | `owner` | `string`, optional | The question's `owner`. |
 | `scope` | [`DocumentScope`](./library.md#documentscope), optional | The question's `scope`. |
@@ -584,8 +585,9 @@ waiting for the hooks of the other calls.
 
 | Verdict | What the model is sent | `tool.end` outcome |
 |---|---|---|
-| `{ result }` | That result in place of the tool's, with `redacted: true` added, fitted to the room in the request. A later call is never answered with a pointer to it ("already shown above"): it runs again, through the hook. The same call made again in the same turn gets the same replacement. | `"redacted"` |
-| `{ reject: "why" }` | `{ error: "why" }`. No evidence. | `"refused"` |
+| `{ result }` | That result in place of the tool's, with `redacted: true` added, fitted to the room in the request. A later call is never answered with a pointer to it ("already shown above"): it runs again, through the hook. The same call made again in the same turn gets the same replacement. Since 0.99.10 the call's `files` (the pages of `view_pages`) are not sent with it, and no evidence of those pages is kept: before, the pages of the replaced result still went to the model. | `"redacted"` |
+| `{ result, keepFiles: true }` | The same, with the call's `files`. `keepFiles` must be a boolean when it is there: anything else ends the question with a `TypeError`. New in 0.99.10. | `"redacted"` |
+| `{ reject: "why" }` | `{ error: "why" }`, without the call's `files`. No evidence. | `"refused"` |
 | `undefined` | The tool's result. | as without the hook |
 
 A verdict with a `result` key is a result, whatever else it holds: `{ result: { reject: "x" } }`

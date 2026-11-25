@@ -267,9 +267,10 @@ describe("a store that fails during an ingest", () => {
     const files = createLargeFiles({ requireOwner: false, store: new FailingStore() });
     const { thrown, event } = await failed(files, { name: "notes.md", id: "upload-1", bytes: utf8("# Notes") });
     expect(thrown).toBeInstanceOf(BucketStoreError);
-    expect(event).toEqual({ message: "The document store could not be read (EIO). Try again.", name: "DocumentStoreError", status: 503 });
-    expect(errorInfoOf(event)).toEqual({ category: "store", status: 503, retryable: true, retryAfterMs: 5_000, message: "The document store could not be read (EIO). Try again." });
-    expect(errorInfoOf(thrown)).toEqual({ ...errorInfoOf(event), code: "EIO" });
+    expect(event).toEqual({ message: "The document store could not be read (EIO). Try again.", name: "DocumentStoreError", status: 503, storeCode: "EIO" });
+    // The event keeps the store's code since 0.99.10 (`storeCode`): it reads as the error does.
+    expect(errorInfoOf(event)).toEqual({ category: "store", code: "EIO", status: 503, retryable: true, retryAfterMs: 5_000, message: "The document store could not be read (EIO). Try again." });
+    expect(errorInfoOf(thrown)).toEqual(errorInfoOf(event));
   });
 });
 

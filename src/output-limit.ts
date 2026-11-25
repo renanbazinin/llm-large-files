@@ -106,7 +106,8 @@ export async function completeWithinLimit(model: string, maxOutputTokens: number
         reply = await send(THINKING_OUTPUT_TOKENS);
       } catch (error) {
         if (signal?.aborted) throw error;
-        // A model or a gateway that refuses the larger limit (HTTP 400) is not asked for it again.
+        // A model or a gateway that refuses the larger limit (HTTP 400, or 422 as a server built on
+        // FastAPI answers a value it does not take, since 0.99.10) is not asked for it again.
         // A refusal of this request as too large for the window with that limit is no such refusal,
         // unless the window is no larger than the limit itself: a smaller part may fit. Nothing is
         // learned from it, and the next request starts as this one did. A request too large for
@@ -115,7 +116,7 @@ export async function completeWithinLimit(model: string, maxOutputTokens: number
         // about the limit: the next request starts with it. What the first reply had is kept; with
         // nothing in it, this error is the one to report.
         const { status, kind, limitTokens } = (error ?? {}) as { status?: unknown; kind?: unknown; limitTokens?: unknown };
-        if (status === 400 || kind === "context_overflow") {
+        if (status === 400 || status === 422 || kind === "context_overflow") {
           const tooLarge = kind === "context_overflow" && !(typeof limitTokens === "number" && limitTokens <= THINKING_OUTPUT_TOKENS);
           if (!tooLarge) remember(model, 0);
           else if (learnedLimits.get(model) === THINKING_OUTPUT_TOKENS) learnedLimits.delete(model);

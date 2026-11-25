@@ -140,9 +140,14 @@ describe("a whole-file read with maxRequests", () => {
     const { result } = await files.tools([meta], { generate, retry: { retries: 0 } }).executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "list every failure" }, { maxRequests: count + merges + 1 });
     expect(tooLarge).toBe(1);
     expect(result.parts_that_failed).toBe(1);
-    // One more request than that: the part is read as two halves.
+    // One more request than that is not enough for two halves (0.99.10: a halved part takes two
+    // requests more, the one that was refused and one for each half).
     tooLarge = 0;
     await files.tools([meta], { generate, retry: { retries: 0 } }).executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "list every failure" }, { maxRequests: count + merges + 2 });
+    expect(tooLarge).toBe(1);
+    // Two more: the part is read as two halves.
+    tooLarge = 0;
+    await files.tools([meta], { generate, retry: { retries: 0 } }).executeWithFiles("analyze_whole_document", { document_id: meta.id, task: "list every failure" }, { maxRequests: count + merges + 3 });
     expect(tooLarge).toBe(3);
   });
 });

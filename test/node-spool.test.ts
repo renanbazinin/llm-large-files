@@ -436,7 +436,7 @@ describe("uploadSpool", () => {
 
   it("checks its options when the handlers are made", () => {
     const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
-    expect(() => createDocumentHandlers(files, { uploadSpool: "yes" as never })).toThrow("uploadSpool must be true, false, or { directory?, minBytes? }.");
+    expect(() => createDocumentHandlers(files, { uploadSpool: "yes" as never })).toThrow("uploadSpool must be true, false, or { directory?, minBytes?, sweepAfterMs? }.");
     expect(() => createDocumentHandlers(files, { uploadSpool: { directory: "" } })).toThrow("uploadSpool.directory must be the path of a folder: a string that is not empty.");
     expect(() => createDocumentHandlers(files, { uploadSpool: { minBytes: -1 } })).toThrow("uploadSpool.minBytes must be a number of 0 or more, and is -1. Leave it out for the default.");
     expect(() => createDocumentHandlers(files, { maxSpooledUploadBytes: 0 })).toThrow("maxSpooledUploadBytes must be a number above 0, and is 0. Leave it out for the default.");

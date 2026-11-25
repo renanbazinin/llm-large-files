@@ -88,7 +88,8 @@ The fields of a chat request and of a part read, in their order, are in the refe
 
 - **`body` is spread last**, so a field there replaces the adapter's own. Leave `model`,
   `messages`, `tools`, `tool_choice` and `stream_options` to the adapter, and use the `stream`
-  option instead of a `stream` field.
+  option instead of a `stream` field. A server that refuses `stream_options` is sent the request
+  again without it, and later streams leave it out (since 0.99.10).
 - **A chat request has no output limit** unless `body` gives one: the server's default applies. If
   you set one there, name it as your server wants. `maxTokensField` is not used for chat requests.
 - **`body` is not sent with part reads** of `analyze_whole_document`, which take `analysisBody`
@@ -134,7 +135,8 @@ const openai = openAiCompatible({
   `usage.thoughtTokens`, and a part read that spent its limit on reasoning is asked again with a
   larger one ([below](#the-name-of-the-output-limit)).
 - `insufficient_quota` (no credit left) is of kind `"quota"`, and is not sent again, in an HTTP
-  error or inside a stream.
+  error or inside a stream: as the error's `code`, or, since 0.99.10, as its `type` with
+  `code: null`.
 - OpenAI reports a failure inside a stream that began with HTTP 200 as
   `{ type: "server_error", code: null }`. The adapter takes it for HTTP 500, which is sent again
   when no text of the reply was shown.
@@ -388,7 +390,9 @@ It is then learned. A part read that gets HTTP 400 refusing the name it was sent
 once with the other name, and the adapter keeps that name for every later part read. A refusal is
 an error whose `param` is that name with the code `unsupported_parameter` or words that refuse it,
 or, without a `param`, a message such as "Unsupported parameter: 'max_tokens' … Use
-'max_completion_tokens' instead", where the refused name comes first. Part reads refused at the
+'max_completion_tokens' instead", where the refused name comes first. Since 0.99.10 a refusal may
+come as HTTP 422 too, as a server built on FastAPI sends it: `detail` with "Extra inputs are not
+permitted" at `loc: ["body", "max_tokens"]`, which the error's `param` then names. Part reads refused at the
 same time learn it once. An error that only mentions a name ("max_tokens or model output limit was
 reached", "max_tokens is too large") changes nothing. When you set `maxTokensField`, that name is
 always sent and nothing is learned.

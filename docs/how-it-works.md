@@ -652,8 +652,10 @@ the part reader (`generateText`) of the model that explores.
      provider's prompt cache can reuse. Until 0.10.0 the task came first (M8).
    - A part the model refuses as larger than it takes (an error of kind `context_overflow`: its
      window is smaller than the budget says) is read as two halves, once, while `maxMapChunks` and
-     the requests the question has left allow it, with room kept for the merges and the answer. A
-     half that is still too large is a part that could not be read.
+     the requests the question has left allow it, with room kept for the merges and the answer: a
+     halved part takes two requests more, the one that was refused and one for each half (it was
+     counted as one more until 0.99.10). A half that is still too large is a part that could not
+     be read.
    - A part that still fails is reported in the answer (`parts_that_failed`) rather than failing
      the whole read. When no part could be read, the read fails with the reason and is not tried
      again in the question. When none could even be read from the store, no model request was
@@ -891,7 +893,10 @@ Three more cases run the call again:
   reply cut off at the output limit with nothing in it, nor once `limits.requests` or
   `limits.inputTokens` is reached. `steps` says "The model's answer was empty: it was asked again"
   or "The model called a tool instead of answering: it was asked again for the answer". With an
-  explorer, this note goes to the answering model.
+  explorer, this note goes to the answering model. Since 0.99.10 a reply whose tool call could not
+  be read (`finish: "malformed_call"`) counts as one without text here too, whatever it wrote
+  before the call: the remark ("Let me look at the errors.") is not the answer, the reply is asked
+  for once more, and `answered` is false when it comes again. Before, the remark was the answer.
 
 Gemini is the one adapter that reports a broken call as a turn of its own (`finish:
 "malformed_call"`). The OpenAI-compatible and Claude adapters mark the call itself, which the
@@ -921,7 +926,12 @@ end the question:
   the budget assumed when it named none, divided by how much more than the estimate the provider
   counted (by 1.25 when it named a window but gave no count). A result that is not smaller than the
   assumed window becomes seven tenths of it. This applies to any model, Claude included. What the first try paid
-  for, the tool turns it took and its steps are carried over, and `steps` says why.
+  for, the tool turns it took and its steps are carried over, and `steps` says why. When the second
+  plan fails before it sends anything, the error thrown says why: a budget of yours that cannot
+  work with the smaller window is reported as the provider's overflow, and, since 0.99.10, a stop
+  (the signal's reason), a store that failed (`DocumentStoreError`), a document that went meanwhile
+  (`DocumentsNotFoundError`) or a scope that cannot be used is thrown as it is, with what the first
+  try found (`partialResultOf`). From 0.9.0 to 0.99.9 all of them were reported as the overflow.
 - **Otherwise** the error is thrown, with `kind: "context_overflow"` and the provider's
   `limitTokens` and `requestedTokens` when its message gives them.
 

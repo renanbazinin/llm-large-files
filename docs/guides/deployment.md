@@ -331,8 +331,11 @@ const documents = createDocumentHandlers(files, {
   `directory` at a disk-backed `emptyDir` (no `medium`), or at a folder on the shared volume, with
   room for `maxSpooledUploadBytes`.
 - **Give each server process a spool folder of its own.** A server that stops in the middle of an
-  upload leaves its file (named `llf-upload-` and a UUID). The name does not say which server
-  wrote it. So each server empties its own folder when it starts, and no other. A disk-backed
+  upload leaves its file (named `llf-upload-` and a UUID). Since 0.99.10 the handlers remove such
+  files once they are a day old, when they are made and at most once an hour as uploads arrive
+  (`sweepAfterMs` of `uploadSpool`): a day, because the name does not say which server wrote a
+  file, and a younger one may be an upload another process is still ingesting. To have them gone
+  at once, each server empties its own folder when it starts, and no other. A disk-backed
   `emptyDir` is one pod's already, and goes with the pod: the simplest choice. On the shared
   volume, make a folder for each pod, such as `path.join("/data/spool", os.hostname())` (a pod's
   hostname is its name). A pod that is replaced gets a new name, and leaves its folder behind:
@@ -867,7 +870,9 @@ leave files of three kinds:
 - **The spool's.** A server empties its own spool folder when it starts. A container restarted in
   its pod (after an OOM kill, say) has the same hostname and folder, and empties it. A pod that is
   replaced gets a new hostname, so its folder on the shared volume stays until you remove it. An
-  `emptyDir` goes with its pod ([Uploads and ingest](#uploads-and-ingest)).
+  `emptyDir` goes with its pod ([Uploads and ingest](#uploads-and-ingest)). Without any of that,
+  the handlers remove a file the spool left once it is a day old, the next time they are made over
+  that folder or an upload is spooled there (since 0.99.10).
 - **The partial file at the `path` of `prepareUpload`.** Nothing removes it: the sweep removes only
   the store's files, and no document refers to it. A record of your own that `prepareUpload` wrote
   for it stays too. Remove such files with a job of your own, now and then: each file of `uploads/`

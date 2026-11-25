@@ -22,7 +22,7 @@
 import { createInflate, inflateSync } from "node:zlib";
 import type { PDFDict, PDFDocument, PDFObject, PDFRawStream } from "@cantoo/pdf-lib";
 import { TimeSlicer } from "./pause.js";
-import { canonicalName, latin1 } from "./pdf-pages.js";
+import { canonicalName, DecodedTooMuch, latin1, limitDecoders } from "./pdf-pages.js";
 
 type PdfLibrary = typeof import("@cantoo/pdf-lib");
 type Mode = "text" | "glyph";
@@ -419,13 +419,20 @@ class PageWork {
       if (error instanceof UnsupportedEncodingError) throw new HeavyPage("unreadable");
       return;
     }
+    // Read a piece at a time, pdf-lib's Flate decoder still decodes a block in one go, whatever
+    // the block holds: behind a second filter, one block of 2 MB filled 320 MB before the count
+    // below was looked at. Each decoder is held to what one stream may keep.
+    const limited = limitDecoders(decoder, MAX_KEPT);
+    const flateInside = filters.some((name) => name === PDFName.of("FlateDecode") || name === PDFName.of("Fl"));
+    if (flateInside && limited < filters.length + (stream.transform ? 1 : 0)) throw new HeavyPage("unreadable");
     let kept = 0;
     for (;;) {
       let piece: Uint8Array;
       try {
         const bytes = decoder.getBytes(PIECE);
         piece = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      } catch {
+      } catch (error) {
+        if (error instanceof DecodedTooMuch) throw new HeavyPage("unreadable");
         // Damaged on the way: what was decoded before it, as pdf.js runs it.
         const state = decoder as unknown as { buffer?: Uint8Array; bufferLength?: number; pos?: number };
         if (state.buffer && typeof state.bufferLength === "number" && typeof state.pos === "number" && state.bufferLength > state.pos) {

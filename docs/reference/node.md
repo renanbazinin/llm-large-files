@@ -147,7 +147,7 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 | `maxSpooledUploadBytes` | `number` | ten times `files.maxUploadBytes` (1 GB by default) | New in 0.9.0. The most bytes of the spool's files at once, counted as `maxPendingUploadBytes` counts memory. An upload that would pass it is answered `503` with `Retry-After: 5` before its body is read. `Infinity` for no limit. A value that is not a number above 0 throws a `RangeError`. |
 | `uploadFileMode` | `number` | `0o600` | New in 0.9.0. The mode of the files saved to the `path` of `prepareUpload`, minus the umask of the process. `0o640` lets a group read them: pods of another user that share the volume through a group (`fsGroup`). The spool's files are always `0o600`. |
 | `maxPendingUploadBytes` | `number` | twice `files.maxUploadBytes` (200 MB by default) | The most bytes of uploads these handlers hold in memory at once. Since 0.9.0 a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`) does not count. An upload is held whole in memory from the moment its body is read until its ingest ends (on the event-stream path too, also after its client went away). Since 0.9.0 its room is given back, and the body the handler read is freed, before `onUploaded` runs: a hook that waits on your database holds neither. Its room is taken before its body is read: its `Content-Length`, or, when it declares none, `maxUploadBytes` (at most this limit) until the body is read, then its size. One that would bring the uploads held past the limit, while another is held, is answered `503` with `Retry-After: 5` before its body is read (the body is drained as for a `413`); one upload alone is always taken. A client that sends its headers and then nothing holds its room until `uploadIdleTimeoutMs` ends it. `Infinity` for no limit, as before 0.8.2. A value that is not a number above 0 throws a `RangeError` when the handlers are made. New in 0.8.2. |
-| `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. Since 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`), it also bounds each call to the disk: the check of its folders for a link (a `path` with a ref), the opening of the file, each write, and its closing. A volume that stops answering then fails the upload with `503` `{ "error": "Upload failed (ETIMEDOUT)." }` and `Retry-After: 5` (since 0.10.0; a `500` before), and its room is given back. A call to the disk past this time counts as stuck in the process until it ends, as a store call past `storeTimeoutMs` does ([`files.stats().stuckStoreCalls`](./library.md#largefilesstats), new in 0.10.0). The removal of the file is waited for no longer either: past it, the removal goes on alone, and the upload is answered all the same. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
+| `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. Since 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`), it also bounds each call to the disk: the check of its folders for a link (a `path` with a ref), the opening of the file, each write, and its closing. A volume that stops answering then fails the upload with `503` `{ "error": "Upload failed (ETIMEDOUT)." }` and `Retry-After: 5` (since 0.10.0; a `500` before), and its room is given back. A call to the disk past this time counts as stuck in the process until it ends, as a store call past `storeTimeoutMs` does ([`files.stats().stuckStoreCalls`](./library.md#largefilesstats), new in 0.10.0). The removal of the file is waited for no longer either: past it, the removal goes on alone, and the upload is answered all the same. Since 0.99.10 it also bounds the rest of a body that is read and dropped after an answer sent before the body was read to its end ([upload](#uploadrequest-response), step 6): when nothing comes for this long, the answer ends and the connection is closed. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
 
 What `getOwner` returns decides what each handler does:
 
@@ -444,14 +444,20 @@ const documents = createDocumentHandlers(files, {
   or failed. A body that fails while it is written (`413`, `408`, a client that leaves) is removed
   then. `onUploaded` runs after the removal, and is not told the path. A removal is waited for no
   longer than `uploadIdleTimeoutMs`: on a volume that stops answering, the upload is answered and
-  gives its room back, and the removal goes on alone. A server that stops in the middle of an
-  upload leaves its file. So the folder belongs to one server process: a disk-backed `emptyDir`,
-  or a folder of its own on the shared volume, such as `path.join("/data/spool", os.hostname())`.
-  Both are one folder a pod or a host: with several server processes on one, add a number of each
-  process ([Deployment](../guides/deployment.md#uploads-and-ingest)). Each server empties its own
-  folder when it starts, and no other. Never empty a folder that several servers share: the
-  uploads still arriving or waiting for their turn would lose their files, and fail with `500`
-  "Upload failed (ENOENT).".
+  gives its room back, and the removal goes on alone. A removal that fails for a moment (another
+  process holds the file open, on Windows) is tried four times, then left. A server that stops in
+  the middle of an upload leaves its file. Since 0.99.10 the handlers remove such files
+  themselves once they are a day old (`sweepAfterMs`): when the handlers are made, and at most once
+  an hour after that, when an upload is spooled. Only files named as the spool names them
+  (`llf-upload-` and a UUID) and last written more than a day ago are removed, so a folder that
+  several server processes share is safe, the default `os.tmpdir()` included; nothing else in the
+  folder is touched. To have them gone sooner, give each server process a folder of its own, and
+  empty it yourself when the server starts: a disk-backed `emptyDir`, or a folder on the shared
+  volume, such as `path.join("/data/spool", os.hostname())`. Both are one folder a pod or a host:
+  with several server processes on one, add a number of each process
+  ([Deployment](../guides/deployment.md#uploads-and-ingest)). Never empty a folder that several
+  servers share: the uploads still arriving or waiting for their turn would lose their files, and
+  fail with `500` "Upload failed (ENOENT).".
 - **Room.** `maxSpooledUploadBytes` (ten times `maxUploadBytes`) bounds the bytes of the spool's
   files at once, as `maxPendingUploadBytes` bounds memory: an upload takes its `Content-Length`, or
   `maxUploadBytes` without one, before its body is read, then its size once written, until its file
@@ -499,13 +505,14 @@ type PreparedUpload = { id?: string; path?: string; original?: { ref: string }; 
 ##### `UploadSpoolOptions`
 
 ```ts
-type UploadSpoolOptions = { directory?: string; minBytes?: number };
+type UploadSpoolOptions = { directory?: string; minBytes?: number; sweepAfterMs?: number }; // sweepAfterMs: new in 0.99.10
 ```
 
 | Field | Default | What it does |
 |---|---|---|
 | `directory` | `os.tmpdir()` | The folder of the temporary files. It must exist; a relative path is resolved when the handlers are made. |
 | `minBytes` | 1 MiB (1,048,576) | Bodies whose `Content-Length` is this many bytes or fewer are held in memory. Larger ones, and those without a `Content-Length`, are spooled. `0` spools every body with bytes; `Infinity` only those without a `Content-Length`. |
+| `sweepAfterMs` | 24 hours (86,400,000) | The spool's files in `directory` (`llf-upload-` and a UUID) last written more than this many milliseconds ago are removed when the handlers are made, and at most once an hour after that, when an upload is spooled: what a server killed in the middle of an upload left, and what could not be removed. Keep it longer than any upload takes. A folder, a link, a file of another name, and (on Linux and macOS) a file of another user are never removed. `0` or `Infinity` removes none; a value below 0 throws a `RangeError`. New in 0.99.10. |
 
 ### `DocumentHandlers`
 
@@ -590,7 +597,11 @@ What it does, in order:
      answer ends when the body does: a client that is still sending reads the `413`, and can send
      its next request on the same keep-alive connection. A body that goes on more than 8 MB past
      that is cut off: the connection is closed, and a client still sending may then get a reset
-     (`ECONNRESET`) instead of the answer. Closing the connection at once was not chosen: some
+     (`ECONNRESET`) instead of the answer. Since 0.99.10 so is a rest that is too slow: nothing
+     comes for `uploadIdleTimeoutMs` (30 s), or it takes more than two minutes, whatever that
+     limit. Before, a client that stopped sending, or sent a byte now and then, kept such a
+     connection open until Node's `server.requestTimeout` (5 minutes by default) closed it, and
+     for ever on a server that sets that to 0. Closing the connection at once was not chosen: some
      systems (Windows) reset a connection closed while data is still arriving, and the client
      never reads the answer. The same holds for every answer sent before the body was read to its
      end (no name, or a `Content-Length` over the limit, whose body Node would otherwise read
@@ -881,7 +892,7 @@ type UploadAnswer = { status: number; error: string; code?: IngestErrorCode; ret
 | Field | What it holds |
 |---|---|
 | `status` | The HTTP status: 400 to 599. |
-| `error` | The message of the JSON body, `{ "error": … }`. Safe to show: it never holds a path, a host or a provider's words. An `"unreadable"` file is told in fixed words, as `errorInfoOf` tells it (new in 0.9.0). What it does hold is the message of an error that has a `status` (one your hooks threw) and of an `IngestError` of another code: keep hosts out of those. |
+| `error` | The message of the JSON body, `{ "error": … }`. Safe to show: it never holds a path, a host or a provider's words. An `"unreadable"` file is told in fixed words, as `errorInfoOf` tells it (new in 0.9.0). What it does hold is the message of an error that has a `status` (one your hooks threw) and of an `IngestError` of another code: keep hosts out of those. Since 0.99.10 the message of an error with a `status` of its own goes without the user name and password of a URL in it (`https://…`), and without the value of a URL parameter named as a key, a token, a secret, a password or a signature: an SDK's error that escapes a hook can hold them. |
 | `code` | For an `IngestError`: its code (`"too_large"`, `"busy"`…). |
 | `retryAfterMs` | How long to wait before trying again, for the `Retry-After` header: 5,000 for a store that failed or a transient system error (30,000 for a full disk, since 0.10.0), an `IngestError`'s own for `"busy"`, a model's for a rate limit. |
 
@@ -967,7 +978,7 @@ numbers in its message:
 
 | `code` | Message | When |
 |---|---|---|
-| `"out_of_memory"` | `report.pdf needed more memory than is allowed for reading one file (512 MB). It may be built to exhaust the server, so it is not read. Split it, or save it as plain text, and attach that.` | The child ran out of its heap, `maxHeapMb`: its standard error says so, or it ended with `SIGABRT` or exit code 134. |
+| `"out_of_memory"` | `report.pdf needed more memory than is allowed for reading one file (512 MB). It may be built to exhaust the server, so it is not read. Split it, or save it as plain text, and attach that.` | The child ran out of its heap, `maxHeapMb`: it ended with `SIGABRT` or exit code 134, or its standard error says so. Since 0.99.10 the standard error is read to its end first (a second at most), and only what the child wrote while it read this file counts: before, words that came after the exit were missed (on Windows, where the exit code alone does not tell), and a warning kept from an earlier file could tell a later death of any kind as this one. |
 | `"timeout"` | `report.pdf took too long to read (more than 2 min). Split it, or save it as plain text, and attach that.` | The file took longer than `timeoutMs`. The child is killed, even in the middle of a PDF page that pdf.js reads in one block, which `ingestTimeoutMs` cannot cut short. |
 | `"busy"` | `The server is reading other files right now. Try again in a moment.` | `concurrency` files are being read and `maxQueue` wait. `retryAfterMs` is 5,000: the upload handler answers `503` with `Retry-After: 5` ([upload](#uploadrequest-response)). |
 | `"busy"` | `The server is shutting down. Try again in a moment.` | `close()` was called while the file waited or was read, or before it was sent. |
@@ -1006,10 +1017,29 @@ PDF without text `"no_text"`, and so on ([`IngestError`](./library.md#ingesterro
 its young generation above it: with 512, a heap limit of 560 MB on Node 22, 704 MB on Node
 24 and 608 MB on Node 26 ([Deployment](../guides/deployment.md#memory-on-each-server)). The
 server's own `NODE_OPTIONS` are not passed to the children: a `--max-old-space-size` there would
-replace this one. The rest of its environment is. The limit bounds the heap only: what a parser
+replace this one. The limit bounds the heap only: what a parser
 unpacks outside it, such as a stream of a PDF, is not bounded by it. For uploads you do not trust,
 give the server a memory limit of its own too, such as that of its container
 ([Security](../security.md#uploads)).
+
+**The environment.** Since 0.99.10 a child is given a short list of the server's environment
+variables, and no other: the server's keys and passwords (`DATABASE_URL`, `AWS_SECRET_ACCESS_KEY`,
+a model's API key) are not in a process that reads files you do not trust. Before, a child had the
+whole environment but `NODE_OPTIONS`. The list:
+
+| What for | Variables |
+|---|---|
+| Where programs, libraries and temporary files are, and how memory is given out | `PATH`, `HOME`, `TMPDIR`, `TMP`, `TEMP`, `LD_LIBRARY_PATH`, `LD_PRELOAD`, `DYLD_LIBRARY_PATH`, `DYLD_FALLBACK_LIBRARY_PATH`, `LIBPATH`, `MALLOC_ARENA_MAX`, `MALLOC_CONF`, `GLIBC_TUNABLES` |
+| The time zone and the language, so that a child reads dates and numbers as the server does | `TZ`, `TZDIR`, `LANG`, `LANGUAGE`, every `LC_*`, `ICU_DATA` |
+| Node's own settings | `NODE_ENV`, `NODE_PATH`, `NODE_ICU_DATA`, `NODE_PRESERVE_SYMLINKS`, `NODE_COMPILE_CACHE`, `NODE_DISABLE_COMPILE_CACHE`, `NODE_SKIP_PLATFORM_CHECK`, `NODE_V8_COVERAGE`, `UV_THREADPOOL_SIZE`, `ELECTRON_RUN_AS_NODE` |
+| Windows | `SystemRoot`, `SystemDrive`, `windir`, `COMSPEC`, `PATHEXT`, `USERPROFILE`, `HOMEDRIVE`, `HOMEPATH`, `APPDATA`, `LOCALAPPDATA`, `USERNAME`, `USERDOMAIN`, `NUMBER_OF_PROCESSORS`, `PROCESSOR_ARCHITECTURE`, `OS` |
+
+The built-in extractors read none of the others. A child that needs one more (a runtime that does
+not start without a variable of its own, a `childScript` of yours that reads its settings from the
+environment) gets it from `env`, which adds to the list: `env: { MY_SETTING: "1" }`, or
+`env: process.env` for the whole environment, as before. `undefined` takes a variable out of the
+list. `NODE_OPTIONS` is never passed, from `env` either: give Node's options in `execArgv`. The
+environment is read when a child starts.
 
 ### `IsolatedExtractorOptions`
 
@@ -1024,6 +1054,7 @@ type IsolatedExtractorOptions = {
   maxFilesPerChild?: number;
   idleMs?: number;
   execArgv?: string[];
+  env?: Record<string, string | undefined>; // new in 0.99.10
   childScript?: string | URL;
 };
 ```
@@ -1039,6 +1070,7 @@ type IsolatedExtractorOptions = {
 | `maxFilesPerChild` | `number` | 50 | How many files one child reads before it is replaced by a new one. At least 1. |
 | `idleMs` | `number` | 30,000 | A child with nothing to read is stopped after this many milliseconds. 0, or a value past what a timer can wait (`Infinity` included), keeps the children until `close()`. Either way an idle child does not keep your process alive. |
 | `execArgv` | `string[]` | `[]` | Further Node options for the children, after the heap limit. |
+| `env` | `Record<string, string \| undefined>` | none | Environment variables for the children, added to the short list of the server's own they are given ([The environment](#createisolatedextractorsoptions)): a variable here is added or replaces the server's, and `undefined` takes one out. `process.env` passes the whole environment, as before 0.99.10. `NODE_OPTIONS` is never passed. Anything but an object throws a `TypeError`. New in 0.99.10. |
 | `childScript` | `string \| URL` | The `ingest-child.js` shipped next to the module | The script the children run: a path, a `file:` URL, or a string of one. For a bundler that moves files: `import.meta.resolve("llm-large-files/node/ingest-child.js")` gives the one in the installed package ([Bundlers](../guides/deployment.md#nodejs-esm-and-require)). |
 
 A number option that is not a number, NaN, below 0, or 0 where it must be above 0, throws a
@@ -1148,7 +1180,7 @@ generator of your own.
 |---|---|
 | `Content-Type` | `text/event-stream; charset=utf-8` |
 | `Cache-Control` | `no-cache, no-transform` |
-| `Connection` | `keep-alive` |
+| `Connection` | `keep-alive` (not on HTTP/2, which has no such header: since 0.99.10) |
 | `X-Accel-Buffering` | `no` |
 
 Then `headers` from the options are set on top: a name replaces the header above whatever its case
@@ -1191,6 +1223,7 @@ memory, in the `eventStream`, until they are read.
 | `map` throws | Calls `return()`, ends the response (unless `end: false`), and rejects with that error. |
 | The iterable throws | Ends the response (unless `end: false`) and rejects with that error. It does not call `return()` of an iterator that failed. An `askStream` or an `eventStream` never throws: a run that fails ends with its `run.error` or `ingest.error` event, and the promise resolves. |
 | A header cannot be set (an invalid name or value in `headers`) | Calls `return()`, destroys the response without a status line, and rejects with that error. |
+| A `response.write()` throws: for an event, or for a keep-alive (a response that a middleware wraps) | Calls `return()`, ends the response (unless `end: false`), and rejects with that error. Since 0.99.10 for a keep-alive too: thrown from its timer, the error was an uncaught exception of the process. |
 
 #### When the client goes away
 
@@ -1313,7 +1346,7 @@ The options of [`writeSseEvents()`](#writesseeventsresponse-events-options).
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `heartbeatMs` | `number` | `15000` | Milliseconds between two `: keep-alive` comments, which keep proxies and load balancers from closing a quiet stream. 0 sends none. The timer does not keep the process alive. |
+| `heartbeatMs` | `number` | `15000` | Milliseconds between two `: keep-alive` comments, which keep proxies and load balancers from closing a quiet stream. 0 sends none, and so does a time past what a timer can wait (2,147,483,647 ms, 24.8 days), `Infinity` included: since 0.99.10 (Node's timer took such a time for 1 ms, and a comment went out every millisecond). The timer does not keep the process alive. |
 | `headers` | `Record<string, string \| number \| string[]>` | none | Headers to send besides the event-stream ones, or in their place: a name replaces one of them whatever its case. Used only when no headers are sent yet. |
 | `map` | `(event: E) => SseMessage \| undefined` | [`sseMessageOf`](#ssemessageofevent) | What to send for an event. Return `undefined` to skip it. A throw stops the run and rejects. |
 | `end` | `boolean` | `true` | False keeps the response open after the last event, for something you write after it, or to end it yourself once the question is saved. You must then end it: `if (!res.writableEnded && !res.destroyed) res.end()`. |

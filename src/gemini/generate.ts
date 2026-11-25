@@ -169,7 +169,8 @@ export function createGeminiGenerateText(options: {
       try {
         const body = JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
-          systemInstruction: { role: "system", parts: [{ text: system }] },
+          // None when it is empty, as in a chat request: a text part with no text says nothing.
+          ...(system ? { systemInstruction: { role: "system", parts: [{ text: system }] } } : {}),
           // No temperature: Gemini 3.6 and later ignore it, and Google says later models will refuse it.
           generationConfig: options.generationConfig?.(limit) ?? { maxOutputTokens: limit },
           ...options.body?.(limit),

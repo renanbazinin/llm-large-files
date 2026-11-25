@@ -114,10 +114,32 @@ const ENTITIES: Record<string, string> = {
   alpha: "α", beta: "β", gamma: "γ", delta: "δ", pi: "π", sigma: "σ", omega: "ω", mu: "μ", lambda: "λ", Delta: "Δ", Omega: "Ω",
 };
 
-/** Decodes the character references of HTML text: numeric ones, and the named ones of `ENTITIES`. */
+/**
+ * The names HTML still reads without their ";": those of the Latin-1 table of HTML 2 to 4, and
+ * `amp`, `lt`, `gt` and `quot`. Every other name is a reference only with its ";".
+ */
+const WITHOUT_SEMICOLON = new Set([
+  "amp", "lt", "gt", "quot", "nbsp", "iexcl", "cent", "pound", "curren", "yen", "sect", "uml", "copy", "ordf", "laquo", "not", "shy", "reg",
+  "macr", "deg", "plusmn", "sup2", "sup3", "acute", "micro", "para", "middot", "cedil", "sup1", "ordm", "raquo", "frac14", "frac12", "frac34", "iquest",
+  "Agrave", "Aacute", "Acirc", "Atilde", "Auml", "Aring", "AElig", "Ccedil", "Egrave", "Eacute", "Ecirc", "Euml", "Igrave", "Iacute", "Icirc", "Iuml",
+  "ETH", "Ntilde", "Ograve", "Oacute", "Ocirc", "Otilde", "Ouml", "times", "Oslash", "Ugrave", "Uacute", "Ucirc", "Uuml", "Yacute", "THORN", "szlig",
+  "agrave", "aacute", "acirc", "atilde", "auml", "aring", "aelig", "ccedil", "egrave", "eacute", "ecirc", "euml", "igrave", "iacute", "icirc", "iuml",
+  "eth", "ntilde", "ograve", "oacute", "ocirc", "otilde", "ouml", "divide", "oslash", "ugrave", "uacute", "ucirc", "uuml", "yacute", "thorn", "yuml",
+]);
+
+/**
+ * Decodes the character references of HTML text: numeric ones, and the named ones of `ENTITIES`.
+ *
+ * A name without its ";" is decoded as HTML decodes one in an attribute's value: only a name of
+ * `WITHOUT_SEMICOLON`, and not before "=" (or before a letter or a digit, which the name read here
+ * takes in). So the parameters of an address stay as they are written, in a link's address and in
+ * text: "?a=1&copy=2&reg=us" was read as "?a=1©=2®=us", and "&le=5" as "≤=5". In text a browser
+ * decodes "&copy=2" too; there it is an address written out far more often than a "©" meant, and
+ * the address is then the one of the link beside it.
+ */
 export function decodeHtmlEntities(text: string): string {
   if (!text.includes("&")) return text;
-  return text.replace(/&(#[xX][0-9a-fA-F]{1,6}|#\d{1,7}|[A-Za-z][A-Za-z0-9]{1,31});?/g, (match, entity: string) => {
+  return text.replace(/&(#[xX][0-9a-fA-F]{1,6}|#\d{1,7}|[A-Za-z][A-Za-z0-9]{1,31})(;?)/g, (match, entity: string, semicolon: string, at: number) => {
     if (entity.startsWith("#")) {
       const code = entity[1] === "x" || entity[1] === "X" ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10);
       // HTML reads 0x80-0x9F as windows-1252 by mistake; and a surrogate or 0 is a replacement character.
@@ -126,7 +148,9 @@ export function decodeHtmlEntities(text: string): string {
     }
     // Only a name of the table, not one an object has from its prototype ("&constructor;").
     // "AT&T" and "?a=1&b=2" stay as they are.
-    return Object.hasOwn(ENTITIES, entity) ? ENTITIES[entity]! : match;
+    if (!Object.hasOwn(ENTITIES, entity)) return match;
+    if (semicolon === "" && (!WITHOUT_SEMICOLON.has(entity) || text.charCodeAt(at + match.length) === 61)) return match;
+    return ENTITIES[entity]!;
   });
 }
 
@@ -344,6 +368,8 @@ class HtmlText {
    * list of the first `MAX_LISTS`: a page of lists nested millions deep must not hold one each.
    */
   private skipping = 0;
+  /** How many skipped elements of each name are open: only the end tag of one that is open ends a skip. */
+  private readonly skippedOpen = new Map<string, number>();
   private preformatted = 0;
   private listDepth = 0;
   private readonly lists: Array<{ ordered: boolean; count: number }> = [];
@@ -375,6 +401,7 @@ class HtmlText {
   open(name: string, attributes: string): void {
     if (SKIPPED.has(name)) {
       this.skipping++;
+      this.skippedOpen.set(name, (this.skippedOpen.get(name) ?? 0) + 1);
       return;
     }
     if (this.skipping > 0) return;
@@ -473,7 +500,14 @@ class HtmlText {
 
   close(name: string): void {
     if (SKIPPED.has(name)) {
-      if (this.skipping > 0) this.skipping--;
+      // An end tag of an element that was not opened ends nothing, as in a browser: a stray
+      // "</script>" inside a <noscript>, a <template> or an <svg> ended that one, and the rest of
+      // what it holds was read as text of the page.
+      const open = this.skippedOpen.get(name) ?? 0;
+      if (open > 0) {
+        this.skippedOpen.set(name, open - 1);
+        this.skipping--;
+      }
       return;
     }
     if (this.skipping > 0) return;
@@ -486,7 +520,11 @@ class HtmlText {
 
   text(raw: string): void {
     if (this.skipping > 0 || raw === "") return;
-    const text = decodeHtmlEntities(raw);
+    this.decoded(decodeHtmlEntities(raw));
+  }
+
+  /** Text as it is read, its character references decoded: that of the page, or of an attribute (a picture's alt text). */
+  private decoded(text: string): void {
     if (!this.row?.cell) {
       // Text between the cells of a table (white space, or a caption's text outside a cell).
       if (this.tableDepth > 0 && !text.trim()) return;
@@ -619,7 +657,8 @@ class HtmlText {
   private image(attributes: string): void {
     // Up to `MAX_ALT` characters, read from the start of the text only: an attribute can be megabytes long.
     const alt = sliceWhole(decodeSpaces(attributeOf(attributes, "alt", MAX_ALT * 4) ?? "").trim(), MAX_ALT).trim();
-    if (alt) this.text(` [Image: ${alt}] `);
+    // The attribute's references are decoded already: decoded again as text, "&amp;copy;" (the text "&copy;") was "©".
+    if (alt) this.decoded(` [Image: ${alt}] `);
   }
 
   private startLink(attributes: string): void {

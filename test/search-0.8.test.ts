@@ -93,7 +93,8 @@ describe("keyword terms in every script (LLF-014, F21)", () => {
 
   it("adds the stem of a Hebrew word without its prefix letters, and the plain form of a final letter", () => {
     expect(queryTerms("בחוזה")).toEqual(["בחוזה", "חוזה"]);
-    expect(queryTerms("והחוזה")).toEqual(["והחוזה", "חוזה"]);
+    // Each prefix letter taken off gives a stem (0.99.10): until then only the shortest, and המשרד gave שרד alone.
+    expect(queryTerms("והחוזה")).toEqual(["והחוזה", "החוזה", "חוזה"]);
     // Three letters are always left.
     expect(queryTerms("מחיר")).toEqual(["מחיר", "חיר"]);
     expect(queryTerms("בית")).toEqual(["בית"]);

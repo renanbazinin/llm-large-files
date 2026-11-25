@@ -3,14 +3,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { errorInfoOf, retryAfterOfCode, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE } from "../error-info.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type IngestErrorCode } from "../errors.js";
-import { eventStream, newRunId, type EventError, type IngestEvent } from "../events.js";
+import { eventStream, newRunId, withoutCredentials, type EventError, type IngestEvent } from "../events.js";
 import { checkAppData, reusedHere } from "../ingest.js";
 import { checkOwner, cleanFileName, toDocumentSummary, type AccessOptions, type IngestInput, type LargeFiles } from "../library.js";
 import { DocumentsNotFoundError, errorKindOf, ModelRequestError, type ModelErrorKind } from "../model.js";
 import { formatBytes } from "../plan.js";
 import { checkScope } from "../scope.js";
 import type { DocumentMeta, DocumentScope } from "../types.js";
-import { BodyFile, checkRefFolders, HttpError, parsedBody, readBody, Room, spoolFileIn, writeBody, type Held } from "./spool.js";
+import { BodyFile, checkRefFolders, HttpError, parsedBody, readBody, Room, spoolFileIn, sweepSpool, timed, writeBody, type Held } from "./spool.js";
 import { writeSseEvents } from "./sse.js";
 
 /** What `onUploaded` is told besides the document. New in 0.9.0. */
@@ -122,6 +122,15 @@ export type UploadSpoolOptions = {
    * Defaults to 1 MiB (1,048,576). 0 writes every body to a file.
    */
   minBytes?: number;
+  /**
+   * The spool's files in `directory` (`llf-upload-<UUID>`) that were last written more than this
+   * many milliseconds ago are removed when the handlers are made, and at most once an hour after
+   * that, when an upload is spooled: what a server killed in the middle of an upload left there,
+   * and what could not be removed. Longer than any upload takes, so that a folder several server
+   * processes share is safe. Nothing else in the folder is touched. Defaults to 24 hours
+   * (86,400,000). 0 or `Infinity` removes none. New in 0.99.10.
+   */
+  sweepAfterMs?: number;
 };
 
 /**
@@ -228,8 +237,9 @@ export type DocumentHandlerOptions = {
    * Writes the bodies of uploads to temporary files, instead of holding them in memory while they
    * are ingested: those over `minBytes` (1 MiB), and those without a `Content-Length`. Each file is
    * made new in `directory` (`os.tmpdir()`), with a random name and mode 0o600, ingested from its
-   * path, and removed once the ingest ends, whatever the end. `true` for the defaults. Defaults to
-   * false. New in 0.9.0.
+   * path, and removed once the ingest ends, whatever the end. A file left by a server that was
+   * killed is removed once it is a day old (`sweepAfterMs`, 0.99.10). `true` for the defaults.
+   * Defaults to false. New in 0.9.0.
    */
   uploadSpool?: boolean | UploadSpoolOptions;
   /**
@@ -265,6 +275,10 @@ export type DocumentHandlerOptions = {
    * `Retry-After` since 0.10.0 (a 500 before), and its room is given back; the call then counts as
    * stuck (`LargeFilesStats.stuckStoreCalls`) until it ends. The removal of the file is waited for
    * no longer either: past it, the removal goes on alone, and the upload is answered all the same.
+   * Since 0.99.10 it also bounds the rest of a body that is read and dropped after an answer sent
+   * before the body was read to its end (no name, too large, no room): when nothing comes for this
+   * long, the answer ends and the connection is closed. Whatever this limit, that rest is read for
+   * two minutes at most.
    * 0 or `Infinity` for no limit. Defaults to 30,000. New in 0.8.2.
    */
   uploadIdleTimeoutMs?: number;
@@ -408,8 +422,11 @@ function answerFor(error: unknown, failed: string): UploadAnswer {
     }
     const status = statusOf(error);
     if (status !== undefined) {
+      // Its own words, as a hook or an extractor of yours wrote them for the client, without what
+      // is never meant for one (0.99.10): the user and password of a URL, the value of a key or a
+      // token in one (`withoutCredentials`). An SDK's error with a status can hold them.
       const message = (error as Error).message;
-      return { status, error: typeof message === "string" && message ? message : plain.error, ...(status === 503 ? retryOf((error as { retryAfterMs?: unknown }).retryAfterMs) : {}) };
+      return { status, error: typeof message === "string" && message ? withoutCredentials(message) || plain.error : plain.error, ...(status === 503 ? retryOf((error as { retryAfterMs?: unknown }).retryAfterMs) : {}) };
     }
     const code = systemErrorCode(error);
     if (!code) return plain;
@@ -454,13 +471,16 @@ export function uploadAnswerOf(error: unknown): UploadAnswer {
  * size message of the upload. An answer that says when to try again (a busy reader, a store, a
  * model's rate limit) sets `Retry-After`.
  */
-function fail(response: ServerResponse, error: unknown, failed: string, tooLarge: string, unread?: IncomingMessage): void {
+function fail(response: ServerResponse, error: unknown, failed: string, tooLarge: string, unread?: Unread): void {
   const answer = answerFor(error, failed);
   if (answer.retryAfterMs !== undefined && !response.headersSent) {
     response.setHeader("Retry-After", String(Math.max(1, Math.ceil(answer.retryAfterMs / 1_000))));
   }
   send(response, answer.status, { error: messageOf(answer, error, tooLarge) }, unread);
 }
+
+/** A request whose body may not be read to its end when it is answered, and the idle time of its upload (`uploadIdleTimeoutMs`), which bounds the drain of the rest. */
+type Unread = { request: IncomingMessage; idleMs: number };
 
 /** The message of an answer: a 413 of the handler itself, or of `ingest`, says the upload limit. */
 function messageOf(answer: UploadAnswer, error: unknown, tooLarge: string): string {
@@ -601,14 +621,14 @@ async function streamIngest(
  * upload refused as too large, or before it was read): the answer is written now, so that a client
  * still sending reads it, and ended once the rest of the body is drained (see `drain`).
  */
-function send(response: ServerResponse, status: number, value: unknown, unread?: IncomingMessage): void {
+function send(response: ServerResponse, status: number, value: unknown, unread?: Unread): void {
   if (response.headersSent) return;
   response.statusCode = status;
   response.setHeader("Content-Type", "application/json; charset=utf-8");
   const body = JSON.stringify(value);
-  if (!unread || unread.complete || unread.destroyed) return void response.end(body);
+  if (!unread || unread.request.complete || unread.request.destroyed) return void response.end(body);
   response.write(body);
-  drain(unread, response);
+  drain(unread.request, response, unread.idleMs);
 }
 
 /** A header's value as it came (the first, when it came more than once), or "". */
@@ -651,21 +671,24 @@ function roomLimit(name: string, value: unknown, fallback: number): number {
 }
 
 /** Where the spool writes bodies, and from which size (`uploadSpool`, checked). */
-type Spool = { directory: string; minBytes: number };
+type Spool = { directory: string; minBytes: number; sweepAfterMs: number };
 
 /** `uploadSpool`, checked: undefined for no spool. */
 function spoolOf(value: unknown): Spool | undefined {
   if (value === undefined || value === false) return undefined;
   const given: unknown = value === true ? {} : value;
-  if (typeof given !== "object" || given === null) throw new TypeError("uploadSpool must be true, false, or { directory?, minBytes? }.");
-  const { directory, minBytes } = given as { directory?: unknown; minBytes?: unknown };
+  if (typeof given !== "object" || given === null) throw new TypeError("uploadSpool must be true, false, or { directory?, minBytes?, sweepAfterMs? }.");
+  const { directory, minBytes, sweepAfterMs } = given as { directory?: unknown; minBytes?: unknown; sweepAfterMs?: unknown };
   if (directory !== undefined && (typeof directory !== "string" || directory.length === 0 || directory.includes("\0"))) {
     throw new TypeError("uploadSpool.directory must be the path of a folder: a string that is not empty.");
   }
   if (minBytes !== undefined && (typeof minBytes !== "number" || Number.isNaN(minBytes) || minBytes < 0)) {
     throw new RangeError(`uploadSpool.minBytes must be a number of 0 or more, and is ${typeof minBytes === "number" ? minBytes : typeof minBytes}. Leave it out for the default.`);
   }
-  return { directory: path.resolve(directory ?? tmpdir()), minBytes: minBytes ?? 1024 * 1024 };
+  if (sweepAfterMs !== undefined && (typeof sweepAfterMs !== "number" || Number.isNaN(sweepAfterMs) || sweepAfterMs < 0)) {
+    throw new RangeError(`uploadSpool.sweepAfterMs must be a number of 0 or more, and is ${typeof sweepAfterMs === "number" ? sweepAfterMs : typeof sweepAfterMs}. Leave it out for the default.`);
+  }
+  return { directory: path.resolve(directory ?? tmpdir()), minBytes: minBytes ?? 1024 * 1024, sweepAfterMs: sweepAfterMs ?? 24 * 60 * 60 * 1_000 };
 }
 
 /** `uploadFileMode`, checked: a file mode from 0 to 0o777. */
@@ -731,6 +754,13 @@ function expectedSize(request: IncomingMessage, limit: number): number {
  * body was read to its end (too large, no name). Past it the connection is closed.
  */
 const DRAIN_BYTES = 8 * 1024 * 1024;
+/**
+ * The longest the rest of such a body is read and dropped: two minutes, in which 8 MiB arrive at
+ * 0.6 Mbit/s. Past it the connection is closed.
+ */
+const DRAIN_MS = 120_000;
+/** How often, at most, the spool's folder is looked through for files a killed server left (`sweepAfterMs`): once an hour. */
+const SPOOL_SWEEP_EVERY_MS = 60 * 60 * 1_000;
 
 /**
  * Reads and drops the rest of a body that was answered before it was read to its end, up to
@@ -740,20 +770,32 @@ const DRAIN_BYTES = 8 * 1024 * 1024;
  * a whole answer (so the answer has no Content-Length, and ends only after the drain). Closing the
  * connection at once instead makes some systems (Windows) reset it, and the client then never
  * reads the answer. A body larger than `DRAIN_BYTES` is cut off: the answer ends, and the
- * connection is closed.
+ * connection is closed. So is one that is too slow (0.99.10): nothing came for `idleMs`
+ * (`uploadIdleTimeoutMs`, when it sets a limit), or the rest took more than `DRAIN_MS`. Before, a
+ * client that stopped sending, or sent a byte now and then, kept the connection for as long as the
+ * server let a request last (`server.requestTimeout`, 5 minutes by default in Node, and for ever
+ * where that is 0), with none of the upload's own limits on it.
  */
-function drain(request: IncomingMessage, response: ServerResponse): void {
+function drain(request: IncomingMessage, response: ServerResponse, idleMs: number): void {
   let drained = 0;
   const end = () => {
     request.off("data", count);
+    clearTimeout(idle);
+    clearTimeout(whole);
     if (!response.writableEnded) response.end();
   };
-  const count = (chunk: Buffer | string) => {
-    drained += chunk.length;
-    if (drained <= DRAIN_BYTES) return;
+  /** Ends the answer, then closes the connection: the rest of the body is too long, or too slow. */
+  const cut = () => {
     end();
     if (response.writableFinished) request.destroy();
     else response.once("finish", () => request.destroy());
+  };
+  const idle = timed(idleMs) ? setTimeout(cut, idleMs) : undefined;
+  const whole = setTimeout(cut, DRAIN_MS);
+  const count = (chunk: Buffer | string) => {
+    drained += chunk.length;
+    if (drained > DRAIN_BYTES) cut();
+    else idle?.refresh();
   };
   request.on("data", count);
   request.once("end", end);
@@ -806,6 +848,23 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
   const fileMode = fileModeOf(options.uploadFileMode);
   /** Uploads being answered now (`stats`). */
   let uploadsInFlight = 0;
+  /** When the spool's folder was last looked through for the files a killed server left there. */
+  let sweptAt = Number.NEGATIVE_INFINITY;
+  /** Whether it is being looked through now: on a volume that stopped answering, one look waits, not one more each hour. */
+  let sweeping = false;
+  /**
+   * Removes the spool's files older than `sweepAfterMs` (0.99.10), when the handlers are made and
+   * at most once an hour after that: nobody waits for it, and it never fails an upload.
+   */
+  function sweepSpoolFolder(): void {
+    if (spool === undefined || spool.sweepAfterMs === 0 || spool.sweepAfterMs === Number.POSITIVE_INFINITY || sweeping) return;
+    const now = Date.now();
+    if (now - sweptAt < SPOOL_SWEEP_EVERY_MS) return;
+    sweptAt = now;
+    sweeping = true;
+    void sweepSpool(spool.directory, spool.sweepAfterMs).finally(() => (sweeping = false));
+  }
+  sweepSpoolFolder();
 
   /**
    * Whether the body of an upload goes to a file of the spool: with `uploadSpool`, one over
@@ -956,6 +1015,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
       try {
         let body: Uint8Array | undefined;
         if (prepared.path !== undefined || spooled) {
+          if (prepared.path === undefined) sweepSpoolFolder();
           const at = prepared.path ?? spoolFileIn(spool!.directory);
           const size = await writeBody(request, at, { limit: files.maxUploadBytes, idleMs, mode: prepared.path !== undefined ? fileMode : 0o600 });
           file = new BodyFile(at, prepared.path !== undefined, idleMs);
@@ -1072,7 +1132,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         return;
       }
       // Answered before the body was read to its end (too large, no name): the rest is drained.
-      fail(response, error, "Upload failed", tooLarge, request);
+      fail(response, error, "Upload failed", tooLarge, { request, idleMs });
       // An event stream that failed after its headers were sent cannot answer with a status. (An
       // answer to a body still being drained is ended by `drain`.)
       if (response.headersSent && !response.writableEnded && request.complete) response.end();

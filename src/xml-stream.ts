@@ -5,6 +5,8 @@
  * machine-written, and what matters here is that a hostile one cannot make it slow or large.
  */
 
+import { wellFormed } from "./text.js";
+
 /** A tag is read up to this many characters; a longer one is refused: no tag of an Office file comes near. */
 const MAX_TAG_CHARACTERS = 64 * 1024;
 
@@ -19,19 +21,35 @@ export type XmlHandlers = {
   text?(text: string): void;
 };
 
-/** Decodes the five XML entities and character references. */
+/** The code of a numeric character reference without its "&" and ";" ("#x41", "#65"), or NaN. */
+const referenceCode = (entity: string): number => (entity[1] === "x" || entity[1] === "X" ? Number.parseInt(entity.slice(2), 16) : Number.parseInt(entity.slice(1), 10));
+/** The first and the second half of a character outside the basic plane, as JavaScript holds it. */
+const isHalf = (code: number) => code >= 0xd800 && code <= 0xdfff;
+
+/**
+ * Decodes the five XML entities and character references. A reference to half of a surrogate pair
+ * (`&#xD800;`) is not a character, and XML does not allow it: alone it becomes U+FFFD, as a
+ * decoder makes of bytes that are not text. Left as it was, it reached the stored text and the
+ * request, and an API that checks its input (Claude's) refuses a request that holds one. Two
+ * references that make a pair (`&#xD83D;&#xDE00;`, as some programs write an emoji) stay the
+ * character they make.
+ */
 export function decodeEntities(value: string): string {
   if (!value.includes("&")) return value;
-  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
+  let halves = false;
+  const decoded = value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (match, entity: string) => {
     const lower = entity.toLowerCase();
     if (lower === "amp") return "&";
     if (lower === "lt") return "<";
     if (lower === "gt") return ">";
     if (lower === "quot") return "\"";
     if (lower === "apos") return "'";
-    const code = lower.startsWith("#x") ? Number.parseInt(lower.slice(2), 16) : Number.parseInt(lower.slice(1), 10);
-    return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+    const code = referenceCode(lower);
+    if (!(Number.isFinite(code) && code > 0 && code <= 0x10ffff)) return match;
+    if (isHalf(code)) halves = true;
+    return String.fromCodePoint(code);
   });
+  return halves ? wellFormed(decoded) : decoded;
 }
 
 /** White space, as XML and HTML count it between attributes. */
@@ -108,7 +126,10 @@ export class XmlStream {
         if (start === -1) {
           // An entity cut at the end of the piece ("&am" + "p;") is read with the next piece.
           const amp = xml.lastIndexOf("&");
-          const cut = amp >= at && length - amp <= MAX_ENTITY && !xml.includes(";", amp) ? amp : length;
+          let cut = amp >= at && length - amp <= MAX_ENTITY && !xml.includes(";", amp) ? amp : length;
+          // So is a reference to the first half of a surrogate pair: the second may come next.
+          const half = FIRST_HALF_AT_END.exec(xml.slice(Math.max(at, cut - MAX_ENTITY), cut));
+          if (half && isFirstHalf(referenceCode(half[1]!))) cut -= half[0].length;
           if (cut > at) this.handlers.text?.(decodeEntities(xml.slice(at, cut)));
           this.kept = xml.slice(cut);
           return;
@@ -190,6 +211,9 @@ export class XmlStream {
 
 /** The longest entity read: "&#x10FFFF;". */
 const MAX_ENTITY = 10;
+/** A numeric character reference that ends a piece of text. */
+const FIRST_HALF_AT_END = /&(#x[0-9a-f]+|#\d+);$/i;
+const isFirstHalf = (code: number) => code >= 0xd800 && code <= 0xdbff;
 const COMMENT_START = "!--";
 const CDATA_START = "![CDATA[";
 

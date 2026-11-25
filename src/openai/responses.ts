@@ -7,7 +7,7 @@ import { documentsOption, messageFiles } from "../native.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import type { DocumentsCapability, GenerateText, GenerateUsage, ToolFile } from "../types.js";
-import { failure, newCallId, OpenAiRequestError, silent, streamErrorStatus, streamFailure, textOf, tooSlow, unreachable } from "./adapter.js";
+import { failure, isRefusal, newCallId, OpenAiRequestError, silent, streamErrorStatus, streamFailure, textOf, tooSlow, unreachable } from "./adapter.js";
 
 /** The options of `openAiResponses()`. New in 0.99.9. */
 export type OpenAiResponsesOptions = {
@@ -111,8 +111,8 @@ export function responsesErrorStatus(failed: unknown): number {
     const { code, type } = failed as { code?: unknown; type?: unknown };
     for (const word of [type, code]) {
       if (typeof word !== "string") continue;
-      const status = RESPONSES_STATUS_OF_ERROR[word];
-      if (status !== undefined) return status;
+      // Only a word of the table itself: "constructor" names no status.
+      if (Object.hasOwn(RESPONSES_STATUS_OF_ERROR, word)) return RESPONSES_STATUS_OF_ERROR[word]!;
       if (word.includes("image")) return 400;
     }
   }
@@ -298,7 +298,7 @@ export function openAiResponses(options: OpenAiResponsesOptions): ModelAdapter {
    * `store: true`, "Encrypted content cannot be requested for persisted responses".
    */
   const refusesInclude = (error: unknown, sent: boolean): boolean => options.encryptedReasoning === undefined && sent
-    && error instanceof OpenAiRequestError && error.status === 400
+    && error instanceof OpenAiRequestError && isRefusal(error.status)
     && (error.param === "include" || /reasoning\.encrypted_content|encrypted content/i.test(error.message));
 
   /**

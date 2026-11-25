@@ -8,7 +8,7 @@
 // file or a link already at its name is never written through. New in 0.9.0; the reading into
 // memory moved here from handlers.ts.
 import { randomUUID } from "node:crypto";
-import { open, realpath, rm, type FileHandle } from "node:fs/promises";
+import { lstat, open, opendir, realpath, rm, type FileHandle } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import path from "node:path";
 import { watchStuck } from "../access.js";
@@ -36,7 +36,7 @@ const ALREADY_SAVED = "A file is already saved for this upload.";
 const LONGEST_TIMER_MS = 2_147_483_647;
 
 /** Whether `idleMs` is a time a timer can wait: 0 and Infinity are no limit. */
-const timed = (idleMs: number) => idleMs > 0 && idleMs <= LONGEST_TIMER_MS;
+export const timed = (idleMs: number) => idleMs > 0 && idleMs <= LONGEST_TIMER_MS;
 
 /** `next`, or the error `late` makes once `idleMs` pass without it. */
 function within<T>(next: Promise<T>, idleMs: number, late: () => Error): Promise<T> {
@@ -183,12 +183,32 @@ function writeError(error: unknown): unknown {
 }
 
 /**
- * Removes a file the handlers wrote, once nobody needs it. A removal that fails (a file another
- * process holds open, on Windows) is tried a few times, then left: the upload is answered all the
- * same.
+ * Errors a removal can meet for a moment: another process (a reader, an antivirus scanner) has the
+ * file open, on Windows, or the process is out of file handles just now.
+ */
+const REMOVAL_RETRY_CODES = new Set<unknown>(["EBUSY", "EPERM", "EACCES", "EMFILE", "ENFILE"]);
+/** The pauses before the second, third and fourth try of a removal. */
+const REMOVAL_PAUSES_MS = [50, 100, 150];
+
+/**
+ * Removes a file the handlers wrote, once nobody needs it. A removal that fails for a moment (a
+ * file another process holds open, on Windows) is tried four times in all, then left: the upload
+ * is answered all the same, and the spool's sweep removes the file later (`sweepSpool`). The tries
+ * are made here since 0.99.10. Before, Node's `rm` was asked for them (`maxRetries`): its
+ * documentation says it makes none for a single file (Node 22 and 24 do make them), and it never
+ * tries `EACCES` again.
  */
 export async function removeFile(file: string): Promise<void> {
-  await rm(file, { force: true, maxRetries: 3, retryDelay: 50 }).catch(() => undefined);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rm(file, { force: true });
+      return;
+    } catch (error) {
+      const pause = REMOVAL_PAUSES_MS[attempt];
+      if (pause === undefined || !REMOVAL_RETRY_CODES.has(codeOf(error))) return;
+      await new Promise((resolve) => setTimeout(resolve, pause));
+    }
+  }
 }
 
 /**
@@ -260,12 +280,9 @@ export async function writeBody(request: IncomingMessage, file: string, options:
  * fails with a `DiskTimeout`, before anything is written.
  */
 export async function checkRefFolders(file: string, ref: string, idleMs: number): Promise<void> {
-  const target = path.resolve(file);
-  let tail = path.normalize(ref);
-  while (tail.endsWith(path.sep)) tail = tail.slice(0, -1);
-  if (!tail || tail === "." || path.isAbsolute(tail) || tail === ".." || tail.startsWith(`..${path.sep}`) || !target.endsWith(`${path.sep}${tail}`)) return;
-  const root = target.slice(0, target.length - tail.length - 1) || path.parse(target).root;
-  const folder = path.dirname(target);
+  const folders = refFoldersOf(file, ref);
+  if (folders === undefined) return;
+  const { root, folder } = folders;
   let real: string;
   let realRoot: string;
   try {
@@ -286,8 +303,66 @@ export async function checkRefFolders(file: string, ref: string, idleMs: number)
   }
 }
 
+/**
+ * The folders `checkRefFolders` looks at for a `file` saved under a `ref`: the root the ref is read
+ * under (`<root>/<ref>` is the file) and the file's own folder. Undefined when the path does not
+ * end with the ref, or the ref is not one of a file below a root: nothing is checked then.
+ * `paths`: the path functions of the platform (`path.win32` in the tests).
+ */
+export function refFoldersOf(file: string, ref: string, paths: path.PlatformPath = path): { root: string; folder: string } | undefined {
+  const target = paths.resolve(file);
+  let tail = paths.normalize(ref);
+  while (tail.endsWith(paths.sep)) tail = tail.slice(0, -1);
+  if (!tail || tail === "." || paths.isAbsolute(tail) || tail === ".." || tail.startsWith(`..${paths.sep}`) || !target.endsWith(`${paths.sep}${tail}`)) return undefined;
+  // The path without the ref and the separator before it. For a file at the root of a volume that
+  // is shorter than the root: "" for "/a.pdf", and "C:" for "C:\a.pdf", which Windows reads as the
+  // working folder of the drive, not its root (0.99.10: the check then compared the wrong folders).
+  const cut = target.slice(0, target.length - tail.length - 1);
+  const top = paths.parse(target).root;
+  return { root: cut.length < top.length ? top : cut, folder: paths.dirname(target) };
+}
+
+/** The start of the name of a temporary file of the spool. */
+const SPOOL_PREFIX = "llf-upload-";
+/** The name of a temporary file of the spool: the prefix and a random UUID, as `spoolFileIn` makes it. */
+const SPOOL_NAME = /^llf-upload-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 /** A new name for a temporary file of the spool in `directory`: never one that is there ("wx" makes sure). */
-export const spoolFileIn = (directory: string): string => path.join(directory, `llf-upload-${randomUUID()}`);
+export const spoolFileIn = (directory: string): string => path.join(directory, `${SPOOL_PREFIX}${randomUUID()}`);
+
+/**
+ * Removes the files a server left in the spool's folder when it was killed in the middle of an
+ * upload, or could not remove (a file held open, on Windows): those named as the spool names its
+ * files (`llf-upload-<UUID>`) and last written more than `ageMs` ago. A file an upload still uses
+ * is younger than that, also when another server process wrote it, so a folder several processes
+ * share is safe. Nothing else is touched: not a file of another name, a folder, a link, nor (where
+ * files have an owner) a file of another user. Returns how many it removed. It never rejects: a
+ * folder that cannot be read, or a file that cannot be removed, is left for the next time. New in
+ * 0.99.10.
+ */
+export async function sweepSpool(directory: string, ageMs: number, now = Date.now()): Promise<number> {
+  let removed = 0;
+  const user = typeof process.getuid === "function" ? process.getuid() : undefined;
+  try {
+    // One entry at a time: the default folder is the system's temporary folder, which may hold many.
+    for await (const entry of await opendir(directory)) {
+      if (!SPOOL_NAME.test(entry.name)) continue;
+      const file = path.join(directory, entry.name);
+      try {
+        // Looked at without following a link: a link at such a name is not the spool's.
+        const found = await lstat(file);
+        if (!found.isFile() || !(now - found.mtimeMs > ageMs) || (user !== undefined && found.uid !== user)) continue;
+        await rm(file, { force: true });
+        removed++;
+      } catch {
+        // Gone meanwhile (another process swept it), or not removable now.
+      }
+    }
+  } catch {
+    // The folder is not there, or cannot be read.
+  }
+  return removed;
+}
 
 /**
  * The file an upload's body was written to, while its ingest runs. `kept`: the application's file
