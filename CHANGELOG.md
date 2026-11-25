@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.99.11 — not released yet
+## 0.99.11 — 2026-11-25
 
 The docs, checked. Every TypeScript sample of the README and the docs is now compiled against the
 source in CI, which found one sample that did not compile. A new page has the whole integration of
