@@ -1,0 +1,40 @@
+2026-11-19 12:00:01 INFO request 1 ok
+2026-11-19 12:00:02 INFO request 2 ok
+2026-11-19 12:00:03 INFO request 3 ok
+2026-11-19 12:00:04 INFO request 4 ok
+2026-11-19 12:00:05 INFO request 5 ok
+2026-11-19 12:00:06 INFO request 6 ok
+2026-11-19 12:00:07 ERROR payment worker failed for order 1007
+2026-11-19 12:00:08 INFO request 8 ok
+2026-11-19 12:00:09 INFO request 9 ok
+2026-11-19 12:00:10 INFO request 10 ok
+2026-11-19 12:00:11 INFO request 11 ok
+2026-11-19 12:00:12 INFO request 12 ok
+2026-11-19 12:00:13 INFO request 13 ok
+2026-11-19 12:00:14 INFO request 14 ok
+2026-11-19 12:00:15 INFO request 15 ok
+2026-11-19 12:00:16 INFO request 16 ok
+2026-11-19 12:00:17 ERROR payment worker failed for order 1017
+2026-11-19 12:00:18 INFO request 18 ok
+2026-11-19 12:00:19 INFO request 19 ok
+2026-11-19 12:00:20 INFO request 20 ok
+2026-11-19 12:00:21 INFO request 21 ok
+2026-11-19 12:00:22 INFO request 22 ok
+2026-11-19 12:00:23 INFO request 23 ok
+2026-11-19 12:00:24 INFO request 24 ok
+2026-11-19 12:00:25 INFO request 25 ok
+2026-11-19 12:00:26 INFO request 26 ok
+2026-11-19 12:00:27 ERROR payment worker failed for order 1027
+2026-11-19 12:00:28 INFO request 28 ok
+2026-11-19 12:00:29 INFO request 29 ok
+2026-11-19 12:00:30 INFO request 30 ok
+2026-11-19 12:00:31 INFO request 31 ok
+2026-11-19 12:00:32 INFO request 32 ok
+2026-11-19 12:00:33 INFO request 33 ok
+2026-11-19 12:00:34 INFO request 34 ok
+2026-11-19 12:00:35 INFO request 35 ok
+2026-11-19 12:00:36 INFO request 36 ok
+2026-11-19 12:00:37 ERROR payment worker failed for order 1037
+2026-11-19 12:00:38 INFO request 38 ok
+2026-11-19 12:00:39 INFO request 39 ok
+2026-11-19 12:00:40 INFO request 40 ok

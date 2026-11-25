@@ -253,6 +253,17 @@ export async function storeCall<T>(operation: DocumentStoreOperation, call: () =
 }
 
 /**
+ * Whether stored metadata is of a version this package reads (H7): no metaVersion (before 0.9.0),
+ * null, or a number up to `DOCUMENT_META_VERSION`. NaN, a higher number and anything not a number
+ * are not. The one test of `checkMetaVersion`, `files.list` and ingest's `dedupe` look-up. Internal:
+ * not exported from an entry point. New in 0.99.9.
+ */
+export function readableMetaVersion(meta: Pick<DocumentMeta, "metaVersion">): boolean {
+  const version: unknown = meta.metaVersion ?? 0;
+  return typeof version === "number" && version <= DOCUMENT_META_VERSION;
+}
+
+/**
  * Refuses metadata written by a newer version of the package (`metaVersion` above
  * `DOCUMENT_META_VERSION`), which may mean what this version cannot tell: a `DocumentStoreError`
  * with code "NEWER_VERSION", not a document that is missing, so that an application does not
@@ -260,8 +271,8 @@ export async function storeCall<T>(operation: DocumentStoreOperation, call: () =
  * database gives a field that was left out, is read as before.
  */
 export function checkMetaVersion(meta: DocumentMeta): void {
-  const version: unknown = meta.metaVersion ?? 0;
-  if (typeof version === "number" && version <= DOCUMENT_META_VERSION) return;
+  if (readableMetaVersion(meta)) return;
+  const version: unknown = meta.metaVersion;
   const found = new RangeError(`The metadata of ${String(meta.id)} has metaVersion ${String(version)}; this version of llm-large-files reads up to ${DOCUMENT_META_VERSION}.`);
   throw new DocumentStoreError(found, { operation: "read", code: "NEWER_VERSION" });
 }

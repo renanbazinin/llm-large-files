@@ -5,6 +5,7 @@ import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { askGemini, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_REQUEST, geminiApi, geminiFunctionResponses, geminiFunctionResponseTurns, type GeminiContent } from "llm-large-files/gemini";
 import { frameMark } from "../src/plan.js";
 import { numberedPdf, pdfWithPictures, utf8 } from "./pdf-fixtures.js";
+import { withPrepareOf09 } from "./prepare-of-09.js";
 
 const endpoint = geminiApi({ apiKey: "test-key", model: "gemini-test" });
 const question = (text: string) => [{ role: "user" as const, text }];
@@ -269,7 +270,7 @@ describe("askGemini without pages to show", () => {
 
   /** The requests one question produces, with document IDs and the marks made from them replaced by their order of appearance. */
   async function requestsFor(options: { keepOriginals: boolean; viewPages?: boolean }): Promise<Body[]> {
-    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 }, ...(options.keepOriginals ? { keepOriginals: ["pdf" as const] } : {}) });
+    const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 2_000 }, requireOwner: false, ...(options.keepOriginals ? { keepOriginals: ["pdf" as const] } : {}) });
     const pdf = await files.ingest({ name: "report.pdf", bytes: numberedPdf(6) });
     const large = await files.ingest({ name: "app.log", bytes: log });
     const gemini = fakeGemini([
@@ -277,8 +278,9 @@ describe("askGemini without pages to show", () => {
       call("read_document", { document_id: large.id, start_line: 1, end_line: 3 }),
       say("Found."),
     ]);
-    // The PDF sent whole as 0.9 sent it, without line numbers (numbered by default since 0.10.0).
-    await askGemini({ files, endpoint, fetch: gemini.fetch, documentIds: [pdf.id, large.id], system: "Be brief.", messages: question("Where is request 250?"), numberInline: false, ...(options.viewPages === undefined ? {} : { viewPages: options.viewPages }) });
+    // The PDF sent whole as 0.9 sent it, without line numbers (numbered since 0.10.0): from a
+    // prepare of 0.9, since 0.99.9 removed `numberInline`.
+    await askGemini({ files: withPrepareOf09(files), endpoint, fetch: gemini.fetch, documentIds: [pdf.id, large.id], system: "Be brief.", messages: question("Where is request 250?"), ...(options.viewPages === undefined ? {} : { viewPages: options.viewPages }) });
     const ids = [pdf.id, large.id];
     const marks = ids.map(frameMark);
     return JSON.parse(JSON.stringify(gemini.bodies)

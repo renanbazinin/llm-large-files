@@ -3,7 +3,9 @@
 // that name, and counts the removal as its own only when that succeeds. On Windows two unlinks of
 // one file at the same moment can both succeed, so two sweeps counted 26 of 25, and two deletes
 // both said true. Here an unlink that found its file when it began, and is told it worked though
-// another removed it meanwhile, stands for that.
+// another removed it meanwhile, stands for that. Since 0.99.9 (carried from 0.10.3): a claim whose
+// unlink fails with something other than ENOENT counts only while its name is still there, as the
+// last two tests check.
 import fsp, { mkdtemp, readdir, rm, utimes } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -25,7 +27,7 @@ async function folder(): Promise<string> {
   return directory;
 }
 
-type Table = Record<"unlink" | "rename", (...args: unknown[]) => Promise<unknown>>;
+type Table = Record<"unlink" | "rename" | "lstat", (...args: unknown[]) => Promise<unknown>>;
 
 /** Replaces a function of `node:fs/promises` for the test, as the store imports it. */
 function replace(method: keyof Table, make: (real: Table[keyof Table]) => Table[keyof Table]): void {
@@ -164,4 +166,48 @@ describe("FileDocumentStore claims a removal before it counts it", () => {
     expect(await readdir(directory)).toEqual([]);
     expect(await store.getMeta("a")).toBeUndefined();
   }, 15_000);
+
+  // About 2.7 s, and 4 s on a busy machine: the unlink is tried again after each of the pauses for
+  // EPERM (2,630 ms in all) before the store looks at the name.
+  it("does not count a removal whose claim another call renamed away, when the unlink of that name fails with EPERM, as on Windows", async () => {
+    const directory = await folder();
+    const store = new FileDocumentStore(directory);
+    await store.put({ meta: metaOf("a", Date.now() + DAY), text: "alpha" });
+    const CLAIM = /\.json\.[a-f0-9]{8}\.tmp$/;
+    const theirs = path.join(directory, "a.json.0badc0de.tmp");
+    // Two renames of one file both succeed on Windows, and the file keeps the last name: the other
+    // call's. This call's claim name is then gone before its unlink begins.
+    replace("rename", (real) => async function (this: unknown, ...args: unknown[]) {
+      await real.apply(this, args);
+      if (CLAIM.test(String(args[1])) && String(args[1]) !== theirs) await real.call(this, args[1], theirs);
+    });
+    // And the unlink of that name fails with something other than ENOENT.
+    replace("unlink", (real) => async function (this: unknown, ...args: unknown[]) {
+      try {
+        return await real.apply(this, args);
+      } catch (error) {
+        if ((error as { code?: unknown }).code === "ENOENT" && CLAIM.test(String(args[0]))) throw Object.assign(new Error("EPERM: operation not permitted, unlink"), { code: "EPERM", syscall: "unlink" });
+        throw error;
+      }
+    });
+    expect(await store.delete("a")).toBe(false);
+    expect(await readdir(directory)).toEqual(["a.json.0badc0de.tmp"]);
+    expect(await store.getMeta("a")).toBeUndefined();
+  }, 15_000);
+
+  it("counts a removal whose own name cannot be removed nor looked at: it was renamed, so the document is gone", async () => {
+    const directory = await folder();
+    const store = new FileDocumentStore(directory);
+    await store.put({ meta: metaOf("a", Date.now() + DAY), text: "alpha" });
+    const CLAIM = /\.json\.[a-f0-9]{8}\.tmp$/;
+    const eio = (call: string) => Object.assign(new Error(`EIO: i/o error, ${call}`), { code: "EIO", syscall: call });
+    replace("unlink", (real) => function (this: unknown, ...args: unknown[]) {
+      return CLAIM.test(String(args[0])) ? Promise.reject(eio("unlink")) : real.apply(this, args);
+    });
+    replace("lstat", (real) => function (this: unknown, ...args: unknown[]) {
+      return CLAIM.test(String(args[0])) ? Promise.reject(eio("lstat")) : real.apply(this, args);
+    });
+    expect(await store.delete("a")).toBe(true);
+    expect(await store.getMeta("a")).toBeUndefined();
+  });
 });

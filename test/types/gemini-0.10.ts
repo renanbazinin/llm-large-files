@@ -40,7 +40,7 @@ export async function asked(): Promise<void> {
   // The options of askWithFiles that askGemini does not name, new in 0.10.0 among them.
   await askGemini({
     files, endpoint, documentIds: [], messages: [{ role: "user", text: "?" }],
-    documentPlacement: "last", inlineTables: "tools", numberInline: true, filteredAnswer: "drop",
+    documentPlacement: "last", storeRounds: "compact", filteredAnswer: "drop",
     onToolResult: ({ result }) => ({ result }), limits: { wholeReadsPerQuestion: 2 },
     body: fields, explorerBody: { labels: { model: "explorer" } }, analysisBody: () => ({}), timeoutMs: 300_000, functionCallingMode: "AUTO", answerWithoutTools: "omit",
   });

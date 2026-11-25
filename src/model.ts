@@ -44,13 +44,38 @@ export type ChatTurn = { role: "user" | "assistant" | "model"; text: string };
  * question what its tools returned in an earlier one, and does not have to search again.
  *
  * `version` is the version of this shape: `TOOL_TURN_VERSION` (1) on the rounds of 0.9.0 and later,
- * absent on those of earlier versions. It is never sent to the model. `askWithFiles` refuses a
- * round of a higher version, which a newer version of the package made, with a `TypeError`.
+ * absent on those of earlier versions. It is never sent to the model. Every reader of stored rounds
+ * refuses a higher one, which a newer version of the package made, with a `TypeError`:
+ * `askWithFiles`, `compactToolTurns`, `geminiToolTurns`, `openAiToolTurns` and `anthropicToolTurns`
+ * (since 0.99.9; before, `askWithFiles` alone). A version that raises `TOOL_TURN_VERSION` still reads
+ * the one before it (H7).
  */
 export type ToolTurn = { role: "tools"; version?: number; calls: Array<ToolCall & { result: ToolResult }> };
 
-/** The version of `ToolTurn` this package writes, and the highest it reads. New in 0.9.0. */
+/**
+ * The version of `ToolTurn` this package writes, and the highest it reads. New in 0.9.0. Raised only
+ * when a reader of this version would misread the new shape: a field removed, renamed or retyped,
+ * given a new meaning, or added where an older reader must not ignore it. An optional field older
+ * readers can ignore raises nothing (CONTRIBUTING.md, "Stored shapes").
+ */
 export const TOOL_TURN_VERSION = 1;
+
+/**
+ * Refuses a stored tool round of a version this package does not read: one a newer version made
+ * (`ToolTurn.version` above `TOOL_TURN_VERSION`). A round without a version (before 0.9.0) is read
+ * as before. A `TypeError`, which an application can catch to leave such rounds out. Called by every
+ * reader of stored rounds: `askWithFiles` (through `toMessages`), `compactToolTurns`,
+ * `geminiToolTurns`, `openAiToolTurns` and `anthropicToolTurns`. Internal: not exported from an
+ * entry point. Moved from ask.ts in 0.99.9.
+ */
+export function checkToolTurnVersion(turn: ToolTurn): void {
+  const version: unknown = turn.version ?? 0;
+  if (typeof version === "number" && version <= TOOL_TURN_VERSION) return;
+  if (typeof version !== "number" || Number.isNaN(version)) {
+    throw new TypeError(`A stored tool round (toolTurns) has a version that is not a number (${typeof version === "string" ? JSON.stringify(version) : String(version)}). Leave it out of messages, or store it as it was given.`);
+  }
+  throw new TypeError(`A stored tool round (toolTurns) has version ${String(version)}: a newer version of llm-large-files made it, and this one reads up to version ${TOOL_TURN_VERSION}. Leave it out of messages.`);
+}
 
 /**
  * A result of a stored tool round, as it is sent again in a later question: without
@@ -183,13 +208,6 @@ export interface ModelAdapter {
   /** Names the model in usage totals and messages: "gemini-3.8-flash". */
   readonly id: string;
   readonly capabilities: ModelCapabilities;
-  /**
-   * @deprecated Never called. The loop counts every request in the library's estimate
-   * (`estimateTokens`), as the documents were counted when they were uploaded, and turns that into
-   * this model's tokens with `capabilities.tokenScale`: set `tokenScale` instead. Kept so that
-   * adapters that declare it still compile; it may be removed in a later version.
-   */
-  estimateTokens?(text: string): number;
   /**
    * One chat request. Throw a `ModelRequestError` for an HTTP error or a connection that failed:
    * the loop retries the ones worth retrying.

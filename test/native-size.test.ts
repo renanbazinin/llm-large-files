@@ -8,6 +8,7 @@ import { askWithFiles, createLargeFiles, MemoryDocumentStore, type AskEvent, typ
 import { fromGeminiContents, gemini, geminiApi, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
 import { calls, fakeFetch, fakeModel, says, serviceLog, utf8 } from "llm-large-files/testing";
 import { numberedPdf } from "./pdf-fixtures.js";
+import { withPrepareOf09 } from "./prepare-of-09.js";
 
 /** 0.8.2's `maxFileBytes` for the first look of `roomForPages()` (below). */
 const ROOM_082 = 6_742_642;
@@ -50,11 +51,13 @@ describe("a function part of Gemini's own form", () => {
  */
 async function roomForPages(before: ChatMessage[] = []): Promise<number | undefined> {
   const store = new MemoryDocumentStore();
-  const files = createLargeFiles({ store, keepOriginals: ["pdf"] });
+  const files = createLargeFiles({ store, keepOriginals: ["pdf"], requireOwner: false });
   const meta = await files.ingest({ name: "report.pdf", bytes: numberedPdf(3) });
   const seen: Array<number | undefined> = [];
+  // The PDF sent whole as 0.8.2 sent it: without line numbers, which 0.10.0 added (from a prepare
+  // of 0.9, since 0.99.9 removed `numberInline`).
   const spy: LargeFiles = {
-    ...files,
+    ...withPrepareOf09(files),
     tools: (documents, options) => {
       const set = files.tools(documents, options);
       return {
@@ -67,8 +70,7 @@ async function roomForPages(before: ChatMessage[] = []): Promise<number | undefi
     },
   };
   const model = fakeModel([calls([{ name: "view_pages", args: { document_id: meta.id, from_page: 2 } }]), says("Page 2.")]);
-  // The PDF sent whole as 0.8.2 sent it: without line numbers, which 0.10.0 adds by default.
-  await askWithFiles({ files: spy, model, documentIds: [meta.id], messages: [...before, { role: "user", text: "What is on page 2?" }], numberInline: false });
+  await askWithFiles({ files: spy, model, documentIds: [meta.id], messages: [...before, { role: "user", text: "What is on page 2?" }] });
   expect(seen).toHaveLength(1);
   return seen[0];
 }
