@@ -48,7 +48,7 @@ export type RenderImporters = { unpdf?: () => Promise<unknown>; canvas?: () => P
 /** What this module uses of a PDF opened by unpdf 2 (pdf.js 5). */
 type PdfProxy = {
   numPages: number;
-  getPage(page: number): Promise<{ getViewport(options: { scale: number }): { width: number; height: number } }>;
+  getPage(page: number): Promise<{ getViewport(options: { scale: number }): { width: number; height: number }; cleanup?(): unknown }>;
   loadingTask: { destroy(): Promise<void> };
 };
 
@@ -95,8 +95,15 @@ async function backendOf(importers: RenderImporters): Promise<RenderBackend> {
           return { width, height };
         },
         async draw(page, { scale, format, quality }) {
-          const drawn = await library.renderPageAsImage(proxy, page, { canvasImport: async () => canvas, scale, format, ...(format === "jpeg" ? { quality } : {}) });
-          return drawn instanceof Uint8Array ? drawn : new Uint8Array(drawn);
+          try {
+            const drawn = await library.renderPageAsImage(proxy, page, { canvasImport: async () => canvas, scale, format, ...(format === "jpeg" ? { quality } : {}) });
+            return drawn instanceof Uint8Array ? drawn : new Uint8Array(drawn);
+          } finally {
+            // pdf.js keeps the decoded images of a page it drew until the page is cleaned up: without
+            // this, a call held those of every page it drew (up to 160 MB an image) until the file
+            // was closed, not those of one page at a time.
+            await proxy.getPage(page).then((drawnPage) => drawnPage.cleanup?.()).catch(() => undefined);
+          }
         },
         async close() {
           await proxy.loadingTask.destroy();

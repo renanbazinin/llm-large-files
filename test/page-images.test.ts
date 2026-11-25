@@ -203,7 +203,11 @@ describe("loadRenderBackend", () => {
   /** What this module uses of unpdf 2, made by hand: it notes what it is asked. */
   const fakeUnpdf = () => {
     const asked: unknown[] = [];
-    const proxy = { numPages: 3, getPage: async () => ({ getViewport: ({ scale }: { scale: number }) => ({ width: 612 * scale, height: 792 * scale }) }), loadingTask: { destroy: async () => void asked.push("destroy") } };
+    const proxy = {
+      numPages: 3,
+      getPage: async (page: number) => ({ getViewport: ({ scale }: { scale: number }) => ({ width: 612 * scale, height: 792 * scale }), cleanup: () => void asked.push(["cleanup", page]) }),
+      loadingTask: { destroy: async () => void asked.push("destroy") },
+    };
     return {
       asked,
       module: {
@@ -214,6 +218,7 @@ describe("loadRenderBackend", () => {
         },
         renderPageAsImage: async (given: unknown, page: number, options: { canvasImport: () => Promise<unknown>; scale: number; format: string; quality?: number }) => {
           asked.push(["draw", given === proxy, page, options.scale, options.format, options.quality, await options.canvasImport()]);
+          if (options.scale <= 0) throw new Error("bad scale");
           return new Uint8Array([page]).buffer;
         },
       },
@@ -240,12 +245,19 @@ describe("loadRenderBackend", () => {
     expect(await document.pageSize(1)).toEqual({ width: 612, height: 792 });
     expect(await document.draw(2, { scale: 2, format: "jpeg", quality: 0.85 })).toEqual(new Uint8Array([2]));
     expect(await document.draw(3, { scale: 1, format: "png", quality: 0.85 })).toEqual(new Uint8Array([3]));
+    // A page that fails is let go too, and its own error is the one thrown.
+    await expect(document.draw(1, { scale: 0, format: "png", quality: 0.85 })).rejects.toThrow("bad scale");
     await document.close();
     expect(asked).toEqual([
       ["open", 10, { maxImageSize: 40_000_000 }],
+      // Each page is let go once it is drawn: pdf.js would keep its decoded images until the file is closed.
       ["draw", true, 2, 2, "jpeg", 0.85, canvas],
+      ["cleanup", 2],
       // No quality for a PNG.
       ["draw", true, 3, 1, "png", undefined, canvas],
+      ["cleanup", 3],
+      ["draw", true, 1, 0, "png", undefined, canvas],
+      ["cleanup", 1],
       "destroy",
     ]);
   });
