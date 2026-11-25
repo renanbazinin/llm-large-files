@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.99.10 — not released yet
+## 0.99.10 — 2026-11-25
 
 A patch from an outside review of the code. Each finding was checked against 0.99.9, and each one
 that held was reproduced in a test before it was fixed: seven in what a server exposes (a redacted
