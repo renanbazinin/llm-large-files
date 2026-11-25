@@ -123,7 +123,7 @@ type LargeFilesOptions = {
   maxConcurrentIngests?: number;
   maxConcurrentPageLooks?: number; // new in 0.9.0
   pageLookWaitMs?: number; // new in 0.9.0
-  requireOwner?: boolean; // new in 0.9.0
+  requireOwner?: boolean; // new in 0.9.0; true by default since 0.99.9
   requireScope?: boolean; // new in 0.9.0
   storeTimeoutMs?: number; // new in 0.10.0
   maxStuckStoreCalls?: number; // new in 0.10.0
@@ -153,7 +153,7 @@ type LargeFilesOptions = {
 | `maxConcurrentIngests` | `number` | 2 | How many ingests do their work at once in this library. The others wait their turn, in the order they came; their `ingestTimeoutMs` starts when their turn comes, and a caller that aborts its `signal` while it waits gets its own reason, with nothing stored. An empty file, or one over `maxUploadBytes`, is refused without waiting. An ingest holds about five times its file in memory while it works, and the steps it runs in your server's thread share that thread with the others: more of them at once do not finish sooner (100 logs of 2 MB: all answered in 28 to 42 s all at once, 28 to 33 s two at a time, with a peak of 817 to 830 MB of memory against 329 to 356 MB). An ingest keeps its turn until its work ends: when its time is up or its caller left while an extractor goes on (one that does not stop on the signal, such as the parse of a PDF by `@cantoo/pdf-lib`), until that extractor ends; such an extractor that never ends gives the turn back after `ingestTimeoutMs` more (2 minutes when that is 0), and a store write that never ends fails the ingest after `ingestTimeoutMs` (above). An extractor of your own must not wait on an ingest of the same library (to store the parts of an archive, say): that ingest waits for a turn like any other, and with every turn held by such extractors, each waits on itself until its time is up. With [`createIsolatedExtractors`](./node.md#createisolatedextractorsoptions), at most this many files reach its readers at once from this library. `Infinity` for no limit, as before 0.8.2. At least 1. New in 0.8.2. |
 | `maxConcurrentPageLooks` | `number` | 1 | How many looks at pages (`view_pages`) run at once in this library, over all its questions. The others wait their turn, in order, before their PDF is loaded: a look that waits holds none of its bytes. A look parses the whole PDF on the thread your server shares: more at once do not finish sooner, they only hold more memory (six at once held 352 MB more than one, and each took four times as long). A look holds its turn while it reads its PDF from the store for at most `ingestTimeoutMs` (2 minutes when that is 0), the time the library gives its store writes. Past it, the turn goes back and the model reads "The original file of ‹file› could not be read in time, so its pages cannot be shown. Answer from the text." The read goes on, so give your store's `getOriginal` a time limit of its own. A question stopped while its PDF is read gives the turn back at once. `Infinity` for no limit, as before 0.9.0. At least 1. New in 0.9.0. |
 | `pageLookWaitMs` | `number` | 30,000 | How long a look at pages waits for its turn, in milliseconds. Past it, the look is not run: the model reads "‹file›: The pages cannot be looked at right now; the server is busy. Answer from the text, or look again later.", and `askWithFiles` gives a `"page_looks_busy"` notice. A question that is stopped stops waiting at once. In `askWithFiles` a wait that ends busy comes once in a tool turn: after a look of the turn was told the server is busy, its other looks run only when a turn is free at once ([`ToolCallLimits.maxWaitMs`](./tools.md#toolcalllimits)). Each look that gets its turn may still have waited up to `pageLookWaitMs`: see [PDFs](../guides/pdfs.md). `Infinity` waits without end; 0 does not wait. New in 0.9.0. |
-| `requireOwner` | `boolean` | `false` | Every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `prepare`, `askWithFiles`, `askStream` and `askGemini`, and `tools`, which then needs `access`. A call without one throws `TypeError("owner is required: requireOwner is on")`, before the store is asked anything. An owner that `ingest` would refuse (`""`, spaces only) is refused too. A document stored without an owner reads as missing. Use it on a server where every document belongs to a signed-in user: a call that forgot the owner fails, rather than reaching every document stored without one. New in 0.9.0. |
+| `requireOwner` | `boolean` | `true` (since 0.99.9; `false` from 0.9.0 to 0.10.x) | Whether every call must name its owner: `ingest`, `getMeta`, `getOriginal`, `delete`, `list`, `touch`, `update`, `prepare`, `toolsFor`, `askWithFiles`, `askStream` and `askGemini`, and `tools`, which then needs `access`. A call without one throws, before the store is asked anything: `TypeError("owner is required: requireOwner is on (the default). Pass the user's ID as owner, or create the library with requireOwner: false to allow calls without one.")`. An owner that `ingest` would refuse (`""`, spaces only) is refused too. A document stored without an owner, by any version, reads as missing. `sweep` takes no owner: it is upkeep of the store. A call that forgot the owner fails, rather than reaching every document stored without one. `false` turns the checks off, as before 0.99.9: for an application with one user, or one that lets anyone with a document's ID use it. Only `false` does: any other value (`"false"` from an environment file, say) leaves them on. New in 0.9.0. |
 | `requireScope` | `boolean` | `false` | The same for scopes ([`DocumentScope`](#documentscope)): a call without one throws `TypeError("scope is required: requireScope is on")`, and a document stored without a scope reads as missing. `files.sweep()` without a scope is still allowed: it is upkeep, not a user's access. New in 0.9.0. |
 | `storeTimeoutMs` | `number` | 30,000 | The most time one store call may take, in milliseconds: `getMeta`, `get`, `readTextRange`, `getIndex` and `putIndex` when a document is opened, `getOriginal` (and `originals.read`), and `delete`. Past it, the call fails with a [`DocumentStoreError`](#documentstoreerror) of code `"ETIMEDOUT"` (status 503, `cause`: `The store did not answer within 30 s.`). The call itself goes on, since nothing can stop it, and counts as stuck until it ends (`maxStuckStoreCalls`). In a question, a tool call that meets it ends the question with `run.error`. `ingest` keeps its own limits (`ingestTimeoutMs`), past which its store calls, and since 0.10.2 its own reads of a path upload, count as stuck too, and `sweep` has `sweepTimeoutMs`. Keep it above your store's slowest healthy call, such as a `get` of a text of `wholeDocumentBytes`. 0 sets no limit, and so does a time past what a timer can wait. Before 0.10.0 a store call that never settled held its caller forever. New in 0.10.0. [Storage](../guides/storage.md#time-limits). |
 | `maxStuckStoreCalls` | `number` | half of `UV_THREADPOOL_SIZE` (4 when it is not set), at least 1: 2 by default, 16 with 32 threads | While this many calls of the process are stuck (past their time limit, and not ended), every new store call of this library fails at once, without calling the store, with a `DocumentStoreError` of code `"STORE_STUCK"` (status 503): an `ingest` fails at its first store call (operation `"write"`, or `"read"` for the look-up of an application's ID). The removal of what an ingest wrote, once writes that began under the limit end (its caller left, or they failed), still runs. The count is the process's, shared by every library: store calls past `storeTimeoutMs`, whether their caller timed out or left, the store calls of `ingest` past the time it gives them (`ingestTimeoutMs`, 2 minutes when it is 0), since 0.10.2 its own reads of a path upload (its `lstat` and format reads past that time, and the read of the file when `ingestTimeoutMs` is a time limit), and the upload handlers' calls to the disk past `uploadIdleTimeoutMs`. A call that ends within its limit never counts. `UV_THREADPOOL_SIZE` is read when the library is made, as libuv reads it: an empty value, 0, or one that does not start with digits is a pool of 1 thread, so a limit of 1. `Infinity` refuses nothing. New in 0.10.0. [Deployment](../guides/deployment.md#a-store-that-stops-answering). |
@@ -225,7 +225,9 @@ The members new in 0.10.0:
 | `stats` | `() => LargeFilesStats`, optional | Counters for metrics and alerts ([`files.stats()`](#filesstats)), read without a store call. Optional, so that a `LargeFiles` of your own still compiles; the one `createLargeFiles` makes has it. New in 0.10.0. |
 | `toolsFor` | `(ids: string[], options: ToolOptions & { access: AccessOptions }) => Promise<{ tools: ToolSet; missing: string[] }>`, optional | Looks each ID up for `options.access`, then makes the tools for the documents found; `missing` lists the others ([`files.toolsFor()`](#filestoolsforids-options)). Optional, as `stats` is. New in 0.10.0. |
 
-The members new in 0.10.2, optional for the same reason; the one `createLargeFiles` makes has them:
+The members new in 0.10.2, optional for the same reason; the one `createLargeFiles` makes has them,
+and since 0.99.9 they are required on its type, [`CreatedLargeFiles`](#createdlargefiles), so
+`files.list(…)` needs no `!`:
 
 | Member | Type | What it is |
 |---|---|---|
@@ -237,10 +239,12 @@ The members new in 0.10.2, optional for the same reason; the one `createLargeFil
 
 `readonly access?: { readonly requireOwner: boolean; readonly requireScope: boolean }`
 
-New in 0.9.0. What the library requires of every call: `requireOwner` and `requireScope` as they
-were given, `false` when left out. The object is frozen. Code that serves a library, such as the
-upload handlers, reads it to require an owner or a scope too. It is optional in the type, so a
-`LargeFiles` of your own still compiles.
+New in 0.9.0. What the library requires of every call: `requireOwner` is `true` unless the library
+was made with `requireOwner: false` (since 0.99.9; before, `false` when left out), and
+`requireScope` is as it was given, `false` when left out. The object is frozen. Code that serves a
+library, such as the upload handlers, reads it to require an owner or a scope too. It is optional
+in the type, so a `LargeFiles` of your own still compiles: the upload handlers treat one without
+it as requiring an owner (0.99.9), the default of the library it wraps.
 
 #### `files.ingest(input)`
 
@@ -340,7 +344,7 @@ progress](./node.md#upload-with-progress-accept-textevent-stream)).
 | It throws | When |
 |---|---|
 | `TypeError("owner must be a string that is not empty or only spaces, such as the signed-in user's ID. To let anyone with the document's ID use it, leave owner out.")` | `owner` is `""`, spaces only or `null`, or, from JavaScript, neither a string nor a finite number (an object, `true`, `NaN`). Before anything is read. New in 0.6.0: 0.5.0 accepted them. |
-| `TypeError("owner is required: requireOwner is on")`, `TypeError("scope is required: requireScope is on")` | The library requires an owner or a scope, and `input` has none. Before anything is read. New in 0.9.0. |
+| `TypeError("owner is required: requireOwner is on (the default). Pass the user's ID as owner, or create the library with requireOwner: false to allow calls without one.")`, `TypeError("scope is required: requireScope is on")` | The library requires an owner (the default since 0.99.9) or a scope, and `input` has none. Before anything is read. New in 0.9.0; the owner's message got its second part in 0.99.9. |
 | [`DocumentScopeError`](#documentscopeerror) `"scope_invalid"` | `scope` is not a valid [`DocumentScope`](#documentscope). Before anything is read. New in 0.9.0. |
 | `TypeError('id must be lowercase letters, digits, "_" and "-", up to 64 characters, starting with a letter or a digit (APP_DOCUMENT_ID_PATTERN), and not a name Windows keeps for a device (con, nul, com1…).')` | `id` does not match [`APP_DOCUMENT_ID_PATTERN`](#app_document_id_pattern). The message does not repeat the ID. New in 0.9.0. |
 | `TypeError('ifExists must be "fail" or "replace".')` | Another `ifExists`. New in 0.9.0. |
@@ -399,8 +403,10 @@ extraction writes.
 The document's metadata, or `undefined` when the ID has neither shape of a document ID
 ([`isDocumentId`](#isdocumentidvalue)), the document was never there, was deleted, has expired (the
 library compares `expiresAt` with its clock itself, whatever the store returns), or belongs to
-another owner or another scope ([`AccessOptions`](#accessoptions)). The store is asked with the
-caller's owner and scope. Metadata the store returns for another ID is missing too (new in 0.9.0).
+another owner or another scope ([`AccessOptions`](#accessoptions)), or has no owner under
+`requireOwner` (the default since 0.99.9, under which a call without an owner throws its
+`TypeError`). The store is asked with the caller's owner and scope. Metadata the store returns for
+another ID is missing too (new in 0.9.0).
 An owner of `null` is left out of the metadata returned (new in 0.9.0). Throws `DocumentStoreError` when the
 store cannot be read, and, new in 0.9.0, with code `"NEWER_VERSION"` when a newer version of the
 package wrote the metadata ([`DOCUMENT_META_VERSION`](#document_meta_version)). A name that 0.5.0
@@ -432,7 +438,7 @@ Throws `DocumentStoreError` as `getMeta` does.
 
 Removes a document, with its original and its index. It looks the document up as `getMeta` does,
 and returns `false` when it is not there for this caller: another owner's document is never
-deleted. Otherwise it drops what this process keeps of the document in memory, in every scope,
+deleted, nor, under `requireOwner` (the default), one without an owner. Otherwise it drops what this process keeps of the document in memory, in every scope,
 and returns what `store.delete(id, context)` returns. Throws `DocumentStoreError` when the look-up
 cannot read the store, and, new in 0.9.0, a `DocumentStoreError` of operation `"delete"` when
 `store.delete` fails, with the store's error as `cause` (it was passed on unchanged). Its message
@@ -451,7 +457,9 @@ the wait.
 Calls the store's `sweep` with the library's clock and returns how many expired documents it
 removed: 0 when the store has no `sweep`. With `scope` (new in 0.9.0), the store is asked to sweep
 that scope only (`store.sweep(now, { scope })`); without one, every scope (`store.sweep(now, {})`).
-It needs no scope under `requireScope`. A scope that is not valid is a `DocumentScopeError`. Since
+It needs no scope under `requireScope`, and takes no owner, under `requireOwner` too: it is upkeep,
+and removes the expired documents of every owner, those without one included. A scope that is not
+valid is a `DocumentScopeError`. Since
 0.9.0 a store that fails is a `DocumentStoreError` of operation `"sweep"`, with the store's error as
 `cause` (it was passed on unchanged). Since 0.10.0 `sweepTimeoutMs` bounds it (no limit by default),
 and it never counts as a stuck call. The library never sweeps on its own: run it on a schedule,
@@ -496,7 +504,7 @@ async function planQuestion(files: LargeFiles, generate: GenerateText, documentI
   const prepared = await files.prepare(documentIds, base, { owner: userId, viewPages: true });
   if (prepared.missing.length > 0) throw new Error(`Not found: ${prepared.missing.join(", ")}`);
 
-  const tools = files.tools(prepared.plan.searchable, { generate, viewPages: prepared.viewable });
+  const tools = files.tools(prepared.plan.searchable, { generate, viewPages: prepared.viewable, access: { owner: userId } });
   const system = [instructions, prepared.instruction].filter(Boolean).join("\n\n");
   const user = [...prepared.blocks.values(), question].join("\n\n");
   return { system, user, tools };
@@ -524,12 +532,13 @@ the same owner and scope, the call answers the same way, since what it read may 
 - With `access` (new in 0.9.0), the caller is `access`: the store is asked with its owner and scope,
   and the document's are compared with them, as `getMeta(id, access)` does. The metadata handed in
   decides nothing: metadata read from the store for another user reads nothing. `askWithFiles`
-  passes it. Under `requireOwner` or `requireScope`, `access` is required, with the owner or scope:
-  without it `tools` throws the `TypeError` of [`LargeFilesOptions`](#largefilesoptions).
+  passes it. Under `requireOwner` (the default since 0.99.9) or `requireScope`, `access` is
+  required, with the owner or scope: without it `tools` throws the `TypeError` of
+  [`LargeFilesOptions`](#largefilesoptions).
 - Without `access`, as before 0.9.0, the caller of each document is the `owner` and `scope` of the
   `DocumentMeta` handed in for it. So metadata built from an ID alone, or with another owner or
-  scope, reads nothing of a document that has one. A document stored without an owner is read
-  whatever the metadata says. Pass documents that you got from `prepare` or `getMeta` with the
+  scope, reads nothing of a document that has one. Under `requireOwner: false`, a document stored
+  without an owner is read whatever the metadata says (under the default, `tools` needs `access`). Pass documents that you got from `prepare` or `getMeta` with the
   caller's owner and scope. An owner of `null` counts as none (new in 0.9.0: such a document was
   missing for `getMeta`, and open to the tools).
 
@@ -575,14 +584,14 @@ New in 0.10.0. The tools of a loop of your own, for document IDs: each ID is loo
 every call of the tools reads with the same owner and scope. `missing` lists the IDs not found, in
 the order given: never there, deleted, expired, of another owner or of another scope, or not of an
 ID's shape. A repeated ID counts once. `access` is required (a `TypeError` without it); under
-`requireOwner` and `requireScope` it needs the owner and the scope. `access.signal`, or the tool
+`requireOwner` (the default since 0.99.9) and `requireScope` it needs the owner and the scope. `access.signal`, or the tool
 set's `signal`, ends the waits for the store. Throws `DocumentStoreError` as `getMeta` does.
 
 ```ts
-import type { LargeFiles } from "llm-large-files";
+import type { CreatedLargeFiles } from "llm-large-files";
 
 // The tools for the documents of one chat, in a loop of your own.
-async function chatTools(files: LargeFiles & { toolsFor: NonNullable<LargeFiles["toolsFor"]> }, ids: string[], userId: string, chatId: string) {
+async function chatTools(files: CreatedLargeFiles, ids: string[], userId: string, chatId: string) {
   const { tools, missing } = await files.toolsFor(ids, { access: { owner: userId, scope: [userId, chatId] } });
   if (missing.length > 0) console.warn(`Not found for this chat: ${missing.join(", ")}`);
   return tools;
@@ -596,19 +605,21 @@ async function chatTools(files: LargeFiles & { toolsFor: NonNullable<LargeFiles[
 New in 0.10.2. The documents held by exactly the caller's owner and scope, as
 [`files.getMeta`](#filesgetmetaid-access) would give each: with `{ owner, scope }`, those stored with
 that owner and that scope; without an owner, those without one; without a scope, those without
-one. For a chat's file panel, with no second list of its files in your database. The oldest first,
-then by ID. A document without an owner is never listed to a caller with one: anyone who has its
+one. For a chat's file panel, with no second list of its files in your database (the upload
+handlers serve it at a `GET` route since 0.99.9: [`handlers.list`](./node.md#listrequest-response)).
+The oldest first, then by ID. A document without an owner is never listed to a caller with one, and
+under `requireOwner`, the default since 0.99.9, never listed at all: anyone who has its
 ID may use it (its ID works like a password, [Security](../security.md)), and a list would hand
 those IDs to every user. Left out too: expired documents, metadata that is damaged or names another
 ID, and metadata of a newer version of the package, where `getMeta` would throw `"NEWER_VERSION"`.
 It reads the store once, through [`DocumentStore.list`](#documentstore): a store without it is a
-`TypeError`. Under `requireOwner` and `requireScope` it needs the owner and the scope, as every
-call does. A store that fails is a `DocumentStoreError` of operation `"read"`, within
+`TypeError`. Under `requireOwner` (the default) and `requireScope` it needs the owner and the
+scope, as every call does. A store that fails is a `DocumentStoreError` of operation `"read"`, within
 `storeTimeoutMs`; `access.signal` ends the wait.
 
 ```ts
 // The files of one chat, for its panel.
-const shown = (await files.list!({ owner: userId, scope: [userId, chatId] })).map(toDocumentSummary);
+const shown = (await files.list({ owner: userId, scope: [userId, chatId] })).map(toDocumentSummary);
 ```
 
 #### `files.touch(id, access?)`
@@ -618,7 +629,8 @@ const shown = (await files.list!({ owner: userId, scope: [userId, chatId] })).ma
 New in 0.10.2. Marks a document used: its `expiresAt` is counted again from now (`ttlMs`), so a
 file that a chat still reads stays while one nobody reads goes at its time (H5). An expiry that is
 already later stays as it is. Returns the metadata as it now is, or undefined when the document is
-missing for this caller (never there, deleted, expired, of another owner or scope). Only the
+missing for this caller (never there, deleted, expired, of another owner or scope, or without an
+owner under `requireOwner`, the default). Only the
 expiry is changed, through [`DocumentStore.patchMeta`](#documentstore), and only for the document
 the library just looked up (by its `createdAt`, owner and scope): one deleted and stored again under
 the same ID meanwhile is not changed, and `touch` gives undefined. When the expiry is already as
@@ -668,12 +680,21 @@ The upload limit in effect: `options.maxUploadBytes`, or 104,857,600 (100 MB).
 ### `CreatedLargeFiles`
 
 ```ts
-type CreatedLargeFiles = LargeFiles & { stats(): LargeFilesStats; toolsFor: NonNullable<LargeFiles["toolsFor"]> };
+type CreatedLargeFiles = LargeFiles & {
+  stats(): LargeFilesStats;
+  toolsFor: NonNullable<LargeFiles["toolsFor"]>;
+  list: NonNullable<LargeFiles["list"]>;     // required since 0.99.9
+  touch: NonNullable<LargeFiles["touch"]>;   // required since 0.99.9
+  update: NonNullable<LargeFiles["update"]>; // required since 0.99.9
+};
 ```
 
 What `createLargeFiles` returns since 0.10.0: a [`LargeFiles`](#largefiles) whose `stats` and
 `toolsFor` are always there, so `files.stats()` needs no `?.` under `strict`. It was `LargeFiles`
 before. Code that types its library as `LargeFiles` still compiles, and calls `files.stats?.()`.
+Since 0.99.9 `list`, `touch` and `update` are always there too, so `files.list(…)` needs no `!`. A
+mock typed `CreatedLargeFiles` (or `ReturnType<typeof createLargeFiles>`) needs them: TS2739
+without them. Type a mock of the library as `LargeFiles`, whose members they stay optional on.
 
 ### `LargeFilesStats`
 
@@ -726,7 +747,7 @@ The argument of [`files.ingest`](#filesingestinput).
 | `name` | `string` | required | The file name. It is cleaned to one printable line: the last segment of a path, with control characters, line breaks and text-direction controls replaced by spaces, the characters that show nothing removed as from the text (tag characters, zero-width spaces, word joiners, soft hyphens, a byte-order mark), runs of spaces made one, trimmed, and cut to 255 characters, never in the middle of a character (`"file"` when nothing is left; an emoji of several characters, such as a flag, can lose its end). With the MIME type it picks the format. |
 | `mimeType` | `string` | `"application/octet-stream"` | The MIME type. Since 0.9.0 it is kept as its type and subtype, in lower case, without parameters (`"Text/CSV; charset=x"` is `"text/csv"`); one that is not a type/subtype of RFC 9110 token characters of at most 127 characters, or that holds anything but printable ASCII (a line break, a text-direction control, a tag character), is `"application/octet-stream"`. It was only trimmed. Used when the extension names no format. Never sent to the model. |
 | `bytes` | `Uint8Array` | required | The file. A Node `Buffer` is one. Empty, or larger than `maxUploadBytes`, is refused. |
-| `owner` | `string` | none | The user or tenant the document belongs to. Every later call must pass the same owner. Without one, anyone who has the ID can use the document. It must be a string that is not empty or only spaces: `""`, spaces only and `null` throw a `TypeError` (see [`files.ingest`](#filesingestinput)), since each would be one owner shared by every caller without a user. A number from JavaScript is taken, as before. Reads with the owner `""` work as before. |
+| `owner` | `string` | none | The user or tenant the document belongs to. Every later call must pass the same owner. Required unless the library has `requireOwner: false` (since 0.99.9). With `false` and no owner, anyone who has the ID can use the document. It must be a string that is not empty or only spaces: `""`, spaces only and `null` throw a `TypeError` (see [`files.ingest`](#filesingestinput)), since each would be one owner shared by every caller without a user. A number from JavaScript is taken, as before. Reads with the owner `""` work as before. |
 | `signal` | `AbortSignal` | none | Stops the ingest when it aborts, for example when the uploader goes away: `ingest` throws `signal.reason` and stores nothing. The PDF, DOCX, PPTX, XLSX and HTML extractors stop between pages and pieces; `ingest` stops waiting for an extractor of your own at once. A signal that aborts once the store is being written does not cut the writes short; since 0.9.0, once they end, what they wrote is removed and `ingest` throws `signal.reason` (before, the document stayed). `createDocumentHandlers` passes one that aborts when the client closes the connection before the answer. |
 | `onEvent` | `(event: IngestEvent) => void` | none | What the ingest does as it goes: `ingest.start`, `ingest.progress` for each stage, then `ingest.finish` or `ingest.error` (see [`files.ingest`](#filesingestinput) and [events](./events.md)). Progress is worked out only when it is given. New in 0.7.0. |
 | `runId` | `string` | `"ing_"` and 16 hex digits | The `runId` of those events. New in 0.7.0. |
@@ -938,18 +959,20 @@ type AccessOptions = {
 };
 ```
 
-Who is asking. `getMeta`, `getOriginal`, `delete` and `prepare` (through
-[`PrepareOptions`](#prepareoptions)) take it, `tools` as `ToolOptions.access`, and `askWithFiles`
-takes the same two options. Each store call carries both ([`DocumentContext`](#documentcontext)).
+Who is asking. `getMeta`, `getOriginal`, `delete`, `list`, `touch`, `update` and `prepare`
+(through [`PrepareOptions`](#prepareoptions)) take it, `tools` and `toolsFor` as
+`ToolOptions.access`, and `askWithFiles` takes the same two options. Since 0.99.9 the owner is
+required unless the library has `requireOwner: false`. Each store call carries both ([`DocumentContext`](#documentcontext)).
 
 | Field | Type | Default | What it does |
 |---|---|---|---|
-| `owner` | `string` | none | Compared with the document's `owner` with `===`. A document that has an owner can be used only with that exact owner. A document without one can be used by anyone, unless the library has `requireOwner`. Another owner's document looks exactly like a missing one. `null` counts as none. |
+| `owner` | `string` | none | Compared with the document's `owner` with `===`. A document that has an owner can be used only with that exact owner. A document without one can be used by anyone only under `requireOwner: false`: under `requireOwner`, the default since 0.99.9, it reads as missing, and a call without an owner throws a `TypeError`. Another owner's document looks exactly like a missing one. `null` counts as none. |
 | `scope` | [`DocumentScope`](#documentscope) | none | The scope of the caller, such as `[userId, chatId]`. A document stored with a scope serves only a caller of the same scope, segment by segment: a caller with another scope, a longer or shorter one, or none, finds it missing. A document stored without a scope serves any caller, unless the library has `requireScope`. A store that keeps scopes apart (`MemoryDocumentStore`) does not even find a document of another scope. Not valid: a `DocumentScopeError`. `null` counts as none. New in 0.9.0. |
 | `signal` | `AbortSignal` | none | Ends this caller's waits for the store, with the signal's reason, as it is: in `getMeta`, `getOriginal`, `delete`, `prepare`, `toolsFor`, and the calls of `tools` with `access`. Never a store call that other callers wait on too (one opening of a document serves every caller of its scope: the others go on waiting), and never the store call itself, which nothing can stop. A signal already aborted starts no store call. Not an `AbortSignal`: a `TypeError`. New in 0.10.0. |
 
-The library has no notion of a session and cannot list documents by owner: record the IDs in your
-own data. See [storage](../guides/storage.md) and [security](../security.md).
+The library has no notion of a session. Since 0.10.2 `files.list` lists the documents of exactly one
+owner and one scope, not those of an owner across its scopes: record what else you need in your own
+data. See [storage](../guides/storage.md) and [security](../security.md).
 
 ### `PrepareOptions`
 

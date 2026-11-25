@@ -342,16 +342,17 @@ others. 0.5.0 accepted it.
   string nor a finite number: the user object (`req.user` in place of `req.user.id`), `true`, `NaN`,
   an array.
 
-A numeric owner is accepted, as before. `get`, `remove` and questions that pass the owner `""` work
-as before, so documents that 0.5.0 stored with that owner stay readable until they expire. Under
-`requireOwner` the library refuses that owner on every call: `get` and `remove` then answer
-"The file could not be looked up (empty owner)." and "The file could not be deleted (empty owner).",
-also `500` (new in 0.9.0).
+A numeric owner is accepted, as before. Under `requireOwner`, the default since 0.99.9, the
+library refuses that owner on every call: `get`, `remove` and `list` then answer "The file could
+not be looked up (empty owner).", "The file could not be deleted (empty owner)." and "The files
+could not be listed (empty owner).", also `500`. Under `requireOwner: false`, `get`, `remove` and
+questions that pass the owner `""` work as before, so documents that 0.5.0 stored with that owner
+stay readable until they expire.
 
-**Fix.** Return the user's ID, not the user object. Where every upload needs a signed-in user,
-throw an error with `status: 401` for a request without one. Only where anonymous uploads are
-meant, return `undefined` for such a caller (`user?.id || undefined`): anyone who has the ID of
-such a document may then use it.
+**Fix.** Return the user's ID, not the user object. For a request without a signed-in user, return
+`undefined`: it is answered `401` "Sign in first." by default. Only under `requireOwner: false`
+does `undefined` make an anonymous upload (`user?.id || undefined`): anyone who has the ID of such
+a document may then use it.
 
 See [`DocumentHandlerOptions`](./reference/node.md#documenthandleroptions) and
 [Security](./security.md#ownership).
@@ -528,6 +529,34 @@ ends with an answer or a tool round.
 
 See [Conversations](./guides/conversations.md).
 
+### `TypeError: owner is required: requireOwner is on (the default)`
+
+The whole message: `owner is required: requireOwner is on (the default). Pass the user's ID as owner, or create the library with requireOwner: false to allow calls without one.`
+It comes from `ingest`, `getMeta`, `getOriginal`, `delete`, `list`, `touch`, `update`, `prepare`,
+`toolsFor`, `tools` without `access`, or a question (`askWithFiles`, `askStream`'s `result`,
+`askGemini`; `run.error` says "Something went wrong."), before the store or a model is asked
+anything. `createDocumentHandlers` throws its own:
+`createDocumentHandlers needs getOwner: the library requires an owner on every call (requireOwner, on by default). Give getOwner, or create the library with requireOwner: false.`
+
+**Cause.** Since 0.99.9 owner checks are on by default (`requireOwner`, off from 0.9.0 to 0.10.x),
+and the call names no owner. Code written for 0.10 that never passed one now fails here.
+
+The same change shows in code that already passes owners: documents stored without one, by an
+earlier version, now read as missing. `getMeta` gives `undefined`, a question throws
+`DocumentsNotFoundError` (below), `list` leaves them out. Nothing is deleted.
+
+**Fix.** One of two:
+
+- **Name the owner on every call**: `owner: userId` on `ingest` and on each question,
+  `{ owner: userId }` as the `access` of `getMeta`, `delete`, `list` and the others,
+  `access: { owner: userId }` for `tools` and `toolsFor`, and `getOwner` for the upload handlers.
+- **Turn the checks off**, for an application with one user (a script, a command-line tool), or one
+  that lets anyone with a document's ID use it: `createLargeFiles({ store, requireOwner: false })`.
+  Everything then works as in 0.10, documents without an owner included.
+
+Documents stored without an owner can be read again with `requireOwner: false`, or stored again
+with an owner: [Upgrading to 0.99](./upgrading-0.99.md#owner-checks-are-on-by-default).
+
 ### `DocumentsNotFoundError`: "A document is no longer available: doc_…. Upload it again."
 
 With several: `2 documents are no longer available: doc_…, doc_…. Upload them again.` The upload
@@ -539,6 +568,9 @@ handler's `get` answers `404` with `This file is no longer available.` for the s
 - was deleted;
 - belongs to another `owner`, or has an owner while the question passes none. A document with an
   owner is reported as missing, never as forbidden;
+- has no owner while the library checks owners (`requireOwner`, the default since 0.99.9): a
+  document stored by an earlier version without one, or by a library made with
+  `requireOwner: false` ([the entry above](#typeerror-owner-is-required-requireowner-is-on-the-default));
 - was stored in a `MemoryDocumentStore` of another process, or of this one before it restarted;
 - has lost its text in the store while its metadata stayed (removed outside the library). Since
   0.8.2 such a document is missing here too; before, a question about one read by range failed
@@ -566,8 +598,8 @@ from `read_document`, `search_document`, `get_document_overview`, `analyze_whole
 0.6.0, `files.tools()` compares the owner stored with each document with the `owner` of the
 `DocumentMeta` it was handed, and answers a mismatch as a document that is gone. Your loop passes
 metadata that it built itself (from an ID, from its own database, from a `DocumentSummary`, which
-has no owner) or that another owner's call returned. A document stored without an owner is not
-checked.
+has no owner) or that another owner's call returned. Under `requireOwner: false`, a document stored
+without an owner is not checked.
 
 **Fix.** Pass `tools()` the metadata that `prepare(ids, base, { owner })` returned
 (`prepared.plan.searchable`, `prepared.viewable`), or `getMeta(id, { owner })`, with the owner of
@@ -1388,9 +1420,9 @@ model has finished writing.
 ```ts
 import { askWithFiles, type AskEvent } from "llm-large-files";
 
-// files, model, documentIds and messages are those of your question; send() is your own.
+// files, model, documentIds, messages and owner are those of your question; send() is your own.
 declare function send(event: AskEvent): void;
-await askWithFiles({ files, model, documentIds, messages, streamText: true, onEvent: send });
+await askWithFiles({ files, model, documentIds, messages, owner, streamText: true, onEvent: send });
 ```
 
 With it, a reply that fails after its first text is not sent again: the question throws, with what

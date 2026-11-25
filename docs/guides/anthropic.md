@@ -21,7 +21,7 @@ import { readFile } from "node:fs/promises";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { anthropic } from "llm-large-files/anthropic";
 
-const files = createLargeFiles({ store: new MemoryDocumentStore() });
+const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false }); // one user: no owner checks
 const meta = await files.ingest({ name: "app.log", bytes: await readFile("app.log") });
 
 const claude = anthropic({

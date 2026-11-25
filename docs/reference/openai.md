@@ -178,7 +178,7 @@ when it is a plain word (see [`analyze_whole_document`](./tools.md#analyze_whole
 import { askWithFiles } from "llm-large-files";
 import { openAiCompatible } from "llm-large-files/openai";
 
-// files, documentIds and messages come from your application.
+// files, documentIds, messages and userId (their owner) come from your application.
 const model = openAiCompatible({
   model: "gpt-5.5",
   apiKey: process.env.OPENAI_API_KEY!,
@@ -189,6 +189,7 @@ const model = openAiCompatible({
 const result = await askWithFiles({
   files,
   model,
+  owner: userId,
   documentIds,
   messages,
   onText: (delta) => process.stdout.write(delta), // the answer streams
@@ -305,9 +306,9 @@ yourself only in a test or in a wrapper around the adapter.
 import { askWithFiles, partialResultOf } from "llm-large-files";
 import { OpenAiRequestError } from "llm-large-files/openai";
 
-// files, model, documentIds and messages as above.
+// files, model, documentIds, messages and userId as above.
 try {
-  await askWithFiles({ files, model, documentIds, messages });
+  await askWithFiles({ files, model, owner: userId, documentIds, messages });
 } catch (error) {
   if (error instanceof OpenAiRequestError) {
     console.error(error.status, error.kind, error.code, error.param, error.message);
@@ -380,11 +381,11 @@ function runs, so that the rounds of two questions kept in one history never sha
 import { askWithFiles } from "llm-large-files";
 import { fromOpenAiMessages, openAiToolTurns, type OpenAiMessage } from "llm-large-files/openai";
 
-// files, model and documentIds as above. history is the chat so far, kept by your application
+// files, model, documentIds and userId as above. history is the chat so far, kept by your application
 // as Chat Completions messages, ending with the user's question.
 async function answer(history: OpenAiMessage[]): Promise<string> {
   const { system, messages } = fromOpenAiMessages(history);
-  const result = await askWithFiles({ files, model, system, documentIds, messages });
+  const result = await askWithFiles({ files, model, owner: userId, system, documentIds, messages });
   // Keep what the tools returned between the question and the answer: a follow-up question
   // then finds it without searching again.
   history.push(...openAiToolTurns(result.toolTurns), { role: "assistant", content: result.text });

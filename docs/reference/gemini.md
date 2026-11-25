@@ -509,7 +509,7 @@ by its first entry, its message and `details` included (since 0.10.0).
 import { askWithFiles } from "llm-large-files";
 import { gemini, geminiApi } from "llm-large-files/gemini";
 
-// files, documentIds and messages come from your application.
+// files, documentIds, messages and userId (their owner) come from your application.
 const apiKey = process.env.GEMINI_API_KEY!;
 
 const model = gemini(geminiApi({ apiKey, model: "gemini-3.8-flash" }), {
@@ -518,7 +518,7 @@ const model = gemini(geminiApi({ apiKey, model: "gemini-3.8-flash" }), {
 });
 const explorer = gemini(geminiApi({ apiKey, model: "gemini-3.5-flash-lite" }), { id: "explorer" });
 
-const result = await askWithFiles({ files, model, explorer, documentIds, messages });
+const result = await askWithFiles({ files, model, explorer, documentIds, messages, owner: userId });
 console.log(result.usage.byModel); // keyed "gemini-3.8-flash" and, when the explorer ran, "explorer"
 ```
 
@@ -671,12 +671,12 @@ are then sent without the field (above).
 ```ts
 import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";
 
-// files, endpoint and documentId as above. history is what your application keeps for the chat.
+// files, endpoint, userId and documentId as above. history is what your application keeps for the chat.
 const history: GeminiContent[] = [];
 
 async function ask(question: string): Promise<string> {
   const turn: GeminiContent = { role: "user", parts: [{ text: question }] };
-  const result = await askGemini({ files, endpoint, documentIds: [documentId], contents: [...history, turn] });
+  const result = await askGemini({ files, endpoint, owner: userId, documentIds: [documentId], contents: [...history, turn] });
   history.push(turn, ...geminiToolTurns(result.toolTurns));
   if (result.answered) history.push({ role: "model", parts: [{ text: result.text }] });
   return result.text;
@@ -959,10 +959,10 @@ passed in as `code` and `details` to tell the `kind`, and are not kept on the er
 ```ts
 import { askGemini, DocumentsNotFoundError, GeminiRequestError, partialResultOf } from "llm-large-files/gemini";
 
-// files and endpoint as above; documentIds: string[];
+// files, endpoint and userId as above; documentIds: string[];
 // messages: ChatMessage[] (plain turns and stored toolTurns).
 try {
-  const result = await askGemini({ files, endpoint, documentIds, messages });
+  const result = await askGemini({ files, endpoint, owner: userId, documentIds, messages });
   console.log(result.text);
 } catch (error) {
   if (error instanceof DocumentsNotFoundError) {

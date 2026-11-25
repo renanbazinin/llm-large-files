@@ -1,7 +1,7 @@
 # `llm-large-files/node`
 
 This page lists every export of `llm-large-files/node`: `createDocumentHandlers`, its options and
-hooks, and the three HTTP handlers it returns, with the request each one expects and every status
+hooks, and the four HTTP handlers it returns, with the request each one expects and every status
 and body it can answer; `uploadAnswerOf`, the rule by which they answer an error;
 `createIsolatedExtractors`, which reads PDF and Office files in child processes with a
 memory limit and a kill timer; `fileOriginals`, which reads back the uploads your application keeps
@@ -33,7 +33,8 @@ import type { DocumentFormat, DocumentMeta, DocumentScope, Extractor, IngestErro
   [spooling: `uploadSpool`](#spooling-uploadspool)
 - [`DocumentHandlers`](#documenthandlers): [`upload()`](#uploadrequest-response) and
   [its progress as events](#upload-with-progress-accept-textevent-stream),
-  [`get()`](#getrequest-response-id), [`remove()`](#removerequest-response-id)
+  [`list()`](#listrequest-response), [`get()`](#getrequest-response-id),
+  [`remove()`](#removerequest-response-id)
 - [How errors are answered](#how-errors-are-answered):
   [`uploadAnswerOf()`](#uploadansweroferror), [`UploadAnswer`](#uploadanswer)
 - [Isolated ingest](#isolated-ingest): [`createIsolatedExtractors()`](#createisolatedextractorsoptions),
@@ -49,7 +50,7 @@ import type { DocumentFormat, DocumentMeta, DocumentScope, Extractor, IngestErro
 declare function createDocumentHandlers(files: LargeFiles, options?: DocumentHandlerOptions): DocumentHandlers;
 ```
 
-Upload, look-up and delete handlers for any Node HTTP server: `node:http` and Express; Fastify
+Upload, list, look-up and delete handlers for any Node HTTP server: `node:http` and Express; Fastify
 through `request.raw` and `reply.raw`, with a pass-through parser for `application/octet-stream`
 and `reply.hijack()`; Next.js API routes on the Node runtime, with `bodyParser: false`. The last two
 are not tested in this repository: see [web app](../guides/web-app.md#mount-them-in-plain-nodehttp).
@@ -61,17 +62,20 @@ included, and never rejects, so it can be called without a `catch`.
 | `files` | [`LargeFiles`](./library.md#largefiles) | required | The library that uploads are ingested into and documents are looked up in. Its `maxUploadBytes` ([`LargeFilesOptions`](./library.md#largefilesoptions), 100 MB by default) is the upload limit. |
 | `options` | [`DocumentHandlerOptions`](#documenthandleroptions) | `{}` | Who owns a request, how many bytes of uploads are held at once, and how long a body may stop arriving. |
 
-**Returns** the three [`DocumentHandlers`](#documenthandlers). It makes no request and reads no
+**Returns** the four [`DocumentHandlers`](#documenthandlers). It makes no request and reads no
 store. It throws:
 
 - a `RangeError` for a `maxPendingUploadBytes`, `maxSpooledUploadBytes`, `uploadIdleTimeoutMs` or
   `uploadSpool.minBytes` that is not a number in range;
 - a `TypeError` when `files` has no `maxUploadBytes` above 0 (a `LargeFiles` of your own, from
   JavaScript, must keep the one of the library it wraps; new in 0.8.2);
-- a `TypeError` when `files.access.requireOwner` is on and there is no `getOwner`, or
+- a `TypeError` when the library requires an owner and there is no `getOwner`, or
   `files.access.requireScope` is on and there is no `getScope` (new in 0.9.0). Every request would
-  fail otherwise. The message names the option:
-  "createDocumentHandlers needs getOwner: the library requires an owner on every call (requireOwner).";
+  fail otherwise. Since 0.99.9 the library requires an owner unless `files.access.requireOwner` is
+  `false`: the default of `createLargeFiles` requires one, and so does a `LargeFiles` of your own
+  without `access`, which fails closed (give it `getOwner`, or
+  `access: { requireOwner: false, requireScope: false }`). The message names the option:
+  "createDocumentHandlers needs getOwner: the library requires an owner on every call (requireOwner, on by default). Give getOwner, or create the library with requireOwner: false.";
 - a `TypeError` when `getScope`, `prepareUpload`, `onUploaded` or `onRemoved` is given and is not
   a function (new in 0.9.0);
 - a `TypeError` for an `uploadSpool` that is not `true`, `false` or an object, a
@@ -103,6 +107,7 @@ createServer((request, response) => {
   const { pathname } = new URL(request.url ?? "/", "http://localhost");
   const id = /^\/api\/documents\/([^/]+)$/.exec(pathname)?.[1];
   if (pathname === "/api/documents" && request.method === "POST") return void documents.upload(request, response);
+  if (pathname === "/api/documents" && request.method === "GET") return void documents.list(request, response);
   if (id !== undefined && request.method === "GET") return void documents.get(request, response, id);
   if (id !== undefined && request.method === "DELETE") return void documents.remove(request, response, id);
   response.writeHead(404).end();
@@ -133,7 +138,7 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 
 | Option | Type | Default | What it does |
 |---|---|---|---|
-| `getOwner` | `(request: IncomingMessage) => string \| undefined \| Promise<string \| undefined>` | none: every request is anonymous | The owner of this request, usually the signed-in user's ID. Called at most once per request. In `upload` it runs after the name is read and before the body: an upload without a name is answered `400` without calling it, and a refused upload is never buffered. An empty owner (`""`, or spaces only) is the server's mistake: the upload is answered `500` `{ "error": "Upload failed (empty owner)." }`, before its body is read. So is an owner from JavaScript that is neither a string nor a finite number (`req.user` in place of `req.user.id`, say): `{ "error": "Upload failed (owner is not a string)." }`. Required when the library has `requireOwner` (new in 0.9.0): an owner of `undefined`, or `null` from JavaScript (`req.user?.id ?? null`), is then answered `401` `{ "error": "Sign in first." }`, on every route, before the body is read, and an empty owner `500` "(empty owner)" on every route too. |
+| `getOwner` | `(request: IncomingMessage) => string \| undefined \| Promise<string \| undefined>` | none; required unless the library has `requireOwner: false` (since 0.99.9) | The owner of this request, usually the signed-in user's ID. Called at most once per request. In `upload` it runs after the name is read and before the body: an upload without a name is answered `400` without calling it, and a refused upload is never buffered. An empty owner (`""`, or spaces only) is the server's mistake: the upload is answered `500` `{ "error": "Upload failed (empty owner)." }`, before its body is read. So is an owner from JavaScript that is neither a string nor a finite number (`req.user` in place of `req.user.id`, say): `{ "error": "Upload failed (owner is not a string)." }`. Required when the library has `requireOwner` (new in 0.9.0; the default since 0.99.9, and a `LargeFiles` of your own without `access` counts as having it): an owner of `undefined`, or `null` from JavaScript (`req.user?.id ?? null`), is then answered `401` `{ "error": "Sign in first." }`, on every route, before the body is read, and an empty owner `500` "(empty owner)" on every route too. Under `requireOwner: false`, without it every request is anonymous. |
 | `getScope` | `(request: IncomingMessage) => DocumentScope \| undefined \| Promise<DocumentScope \| undefined>` | none: no scope | New in 0.9.0. The scope of this request, such as `[userId, chatId]` ([`DocumentScope`](./library.md#documentscope)). Called after `getOwner`, at most once per request, before the body is read, on every route. The upload is stored in that scope, and `get` and `remove` find only documents of that scope. Required when the library has `requireScope`. See [what `getScope` returns](#what-getscope-returns). |
 | `onUploaded` | `(document: DocumentMeta, context: UploadedContext) => UploadedResult \| Promise<UploadedResult>` | none | New in 0.9.0. Called once an upload is stored, before it is answered: to record the document in your database, for example. What it returns can add fields to the answer. When it throws, the document is deleted and the upload fails. See [the hooks](#the-hooks-onuploaded-and-onremoved). |
 | `onRemoved` | `(id: string, context: RemovedContext) => void \| Promise<void>` | none | New in 0.9.0. Called after `remove` deleted a document, before it answers `{ "deleted": true }`. See [the hooks](#the-hooks-onuploaded-and-onremoved). |
@@ -148,15 +153,20 @@ What `getOwner` returns decides what each handler does:
 
 | `getOwner` | `upload` | `get` and `remove` |
 |---|---|---|
-| Returns a string that is not empty or only spaces | The document is ingested with that `owner`. | They pass `{ owner }`: they find the documents of that owner, and those that have no owner. A document of another owner answers as one that does not exist. |
-| Returns `undefined`, or there is no `getOwner` | The document has no owner: anyone who has its ID can read it, delete it and ask about it. Under `requireOwner`: answered `401` `{ "error": "Sign in first." }`, before the body is read (new in 0.9.0). | They pass no owner: they find only documents that have no owner. Under `requireOwner`: `401` `{ "error": "Sign in first." }`. |
-| Returns `""`, spaces only, or `null` from JavaScript | Answered `500` `{ "error": "Upload failed (empty owner)." }`, before the body is read, and nothing is logged. Under `requireOwner`, `null` is a request that is not signed in: `401`, as `undefined` (new in 0.9.0). Such an owner would be one owner shared by every caller without a user: `user?.id ?? ""` gives it for a user who is not signed in. New in 0.6.0: 0.5.0 stored the document with that owner. | As before: they pass it as `owner`, so documents that 0.5.0 stored with the owner `""` stay readable until they expire. Under `requireOwner`, where the library refuses such an owner on every call, `""` or spaces only (`null` is a `401` there, as `undefined`) are answered `500` `{ "error": "The file could not be looked up (empty owner)." }` and `{ "error": "The file could not be deleted (empty owner)." }` without calling it (new in 0.9.0: they called it, and answered its `TypeError` with a bare `500`). |
-| Returns, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array | Answered `500` `{ "error": "Upload failed (owner is not a string)." }`, before the body is read, and nothing is logged. New in 0.6.0. A finite number is taken as the owner, as before. | They pass it as `owner`, as before. Under `requireOwner`: `500` "(owner is not a string)", as the upload (new in 0.9.0). |
+| Returns a string that is not empty or only spaces | The document is ingested with that `owner`. | They pass `{ owner }`: they find the documents of that owner, and, under `requireOwner: false`, those that have no owner. A document of another owner answers as one that does not exist. |
+| Returns `undefined` | Under `requireOwner`, the default since 0.99.9: answered `401` `{ "error": "Sign in first." }`, before the body is read (new in 0.9.0). Under `requireOwner: false` (or without `getOwner` there): the document has no owner, and anyone who has its ID can read it, delete it and ask about it. | Under `requireOwner`: `401` `{ "error": "Sign in first." }`. Under `requireOwner: false`: they pass no owner, and find only documents that have no owner. |
+| Returns `""`, spaces only, or `null` from JavaScript | Answered `500` `{ "error": "Upload failed (empty owner)." }`, before the body is read, and nothing is logged. Under `requireOwner`, `null` is a request that is not signed in: `401`, as `undefined` (new in 0.9.0). Such an owner would be one owner shared by every caller without a user: `user?.id ?? ""` gives it for a user who is not signed in. New in 0.6.0: 0.5.0 stored the document with that owner. | Under `requireOwner: false`, as before: they pass it as `owner`, so documents that 0.5.0 stored with the owner `""` stay readable until they expire. Under `requireOwner` (the default), where the library refuses such an owner on every call, `""` or spaces only (`null` is a `401` there, as `undefined`) are answered `500` `{ "error": "The file could not be looked up (empty owner)." }` and `{ "error": "The file could not be deleted (empty owner)." }` without calling it (new in 0.9.0: they called it, and answered its `TypeError` with a bare `500`). |
+| Returns, from JavaScript, something that is neither a string nor a finite number: an object such as `req.user`, `true`, `NaN`, an array | Answered `500` `{ "error": "Upload failed (owner is not a string)." }`, before the body is read, and nothing is logged. New in 0.6.0. A finite number is taken as the owner, as before. | Under `requireOwner: false`, they pass it as `owner`, as before. Under `requireOwner` (the default): `500` "(owner is not a string)", as the upload (new in 0.9.0). |
 | Throws an `Error` whose `status` (or `statusCode`) is a whole number from 400 to 599, as the `http-errors` package makes them | Answered with that status and `{ "error": <the error's message> }`. | The same. |
 | Throws anything else | Answered `500` without the error's message, which may name your hosts: `{ "error": "Upload failed." }` (with the code of a Node system error: "Upload failed (ECONNREFUSED)."). | `500`: "The file could not be looked up." or "The file could not be deleted.", the same way. |
 
+`list` reads the owner as `get` does, and its owner's shape under every rule, as `upload` does: a
+list hands out IDs. A request with neither an owner nor a scope is answered `401`
+([`list`](#listrequest-response)).
+
 The owner is one opaque string, compared as it is. Pass the same string as `owner` to
-`askWithFiles` or `askGemini`, and to `files.getMeta`, `files.getOriginal` and `files.delete`. To
+`askWithFiles` or `askGemini`, and to `files.getMeta`, `files.getOriginal`, `files.delete` and
+`files.list`. To
 keep each chat's files apart, give a scope with `getScope` rather than an owner per chat session
 ([storage](../guides/storage.md)). What ownership protects and what it does not:
 [security](../security.md).
@@ -186,7 +196,7 @@ request, and fail the upload when it cannot:
 import { createLargeFiles, FileDocumentStore } from "llm-large-files";
 import { createDocumentHandlers } from "llm-large-files/node";
 
-const files = createLargeFiles({ store: new FileDocumentStore("/data", { scopes: { depth: 2 } }), requireOwner: true, requireScope: true });
+const files = createLargeFiles({ store: new FileDocumentStore("/data", { scopes: { depth: 2 } }), requireScope: true }); // owner checks are on by default
 
 const documents = createDocumentHandlers(files, {
   getOwner: (request) => userIdOf(request), // your sign-in
@@ -216,8 +226,8 @@ const documents = createDocumentHandlers(files, {
 - **`context`** is an [`UploadedContext`](#uploadedcontext): the `request` (its body is read; the
   bytes are not in the context, unless a framework left them in `request.body`, as `express.raw()`
   does: those stay until the request ends), the `owner` and the `scope` the handler used,
-  `clientGone`, and the `path` where the body was saved, for an upload that `prepareUpload` gave
-  one (new in 0.9.0).
+  `clientGone`, the `path` where the body was saved, for an upload that `prepareUpload` gave
+  one (new in 0.9.0), and `reused` for a document `dedupe` gave back (new in 0.99.9).
 - **A client that went away.** The hook is still called, with `clientGone: true`, for a document
   that was stored. Nobody gets the answer. Record the document, or delete it, as your app needs.
   With the library's own `ingest`, a client that leaves before the ingest ends leaves nothing
@@ -235,7 +245,9 @@ const documents = createDocumentHandlers(files, {
   error of `ingest` is ([`uploadAnswerOf`](#uploadansweroferror)): an error with a `status` from
   400 to 599 gives that status and its message, and any other error a `500`
   `{ "error": "Upload failed." }`. On the event-stream path, that is the `ingest.error` event, and
-  no `ingest.finish` is sent.
+  no `ingest.finish` is sent. A document that `dedupe` gave back (`reused: true`, new in 0.99.9) is
+  never deleted: it was stored before, by another upload. The upload is answered with the error all
+  the same.
 
 `onRemoved(id, context)` is called after `remove` deleted the document (`files.delete` returned
 `true`), and before the answer `{ "deleted": true }`. `context` is a [`RemovedContext`](#removedcontext):
@@ -252,6 +264,7 @@ type UploadedContext = {
   scope?: DocumentScope;
   clientGone: boolean;
   path?: string;
+  reused?: true; // new in 0.99.9
 };
 ```
 
@@ -261,7 +274,8 @@ type UploadedContext = {
 | `owner` | What `getOwner` returned, when it returned an owner. |
 | `scope` | What `getScope` returned, when it returned a scope (a frozen copy). |
 | `clientGone` | `true` when the client went away before the hook was called: after the ingest ended, or during an `ingest` of your own that does not stop on its `signal`. |
-| `path` | The `path` that `prepareUpload` returned, where the body is saved. Only for such an upload: the file is there while the hook runs, and stays, unless the hook throws. A file of the spool is removed before the hook, and is not told. New in 0.9.0. |
+| `path` | The `path` that `prepareUpload` returned, where the body is saved. Only for such an upload: the file is there while the hook runs, and stays, unless the hook throws. A file of the spool is removed before the hook, and is not told. Not told either for a document `dedupe` gave back (`reused`): no document refers to the file, which is removed before the hook. New in 0.9.0. |
+| `reused` | `true` when `dedupe` (from `prepareUpload`) gave back a document stored before, not one this upload stored: it keeps its own name, `createdAt` and `appData`, and the handlers never delete it, even when the hook throws. Absent otherwise. A `LargeFiles` of your own must give back the `DocumentMeta` its library's `ingest` gave, not a copy, for this to be known: the mark is not a field, and a copy loses it (the document is then treated as new). New in 0.99.9. |
 
 ##### `UploadedResult`
 
@@ -292,8 +306,7 @@ const files = createLargeFiles({
   keepOriginals: ["pdf"],
   originals: fileOriginals(VOLUME),
   ttlMs: Infinity, // kept as long as the chat, as its uploads are
-  requireOwner: true,
-  requireScope: true,
+  requireScope: true, // owner checks are on by default
 });
 
 const documents = createDocumentHandlers(files, {
@@ -337,8 +350,21 @@ folder is there.
     Without `original`, the file is saved and ingested all the same, and a store with `putOriginal`
     keeps its own copy, as `keepOriginals` says. A library without `originals` refuses a ref
     (`TypeError`): `500` "Upload failed.", and the file is removed.
-  - Anything else (a relative path, an ID that is not a string, a ref without a path) is the
-    server's mistake: `500` `{ "error": "Upload failed." }`, before the body is read.
+  - `dedupe` (new in 0.99.9): `true` passes `IngestInput.dedupe`. When the store already has a
+    document of the request's owner and scope whose file has the same SHA-256, the upload gives
+    back that document (`201` with its summary, its expiry counted again), `onUploaded` is told
+    `reused: true`, and the file saved to `path` for this upload is removed before the hook, since
+    no document refers to it. Not with `id`. It needs a store with `list`: another fails the upload
+    with `500` "Upload failed." once the body is read, and nothing is stored.
+  - `appData` (new in 0.99.9): passes `IngestInput.appData`, the application's own data about the
+    document, a JSON object of at most `MAX_APP_DATA_BYTES` (16 KB) as JSON. It is checked here, as
+    `ingest` checks it, before the body is read. Build it on the server: never pass on what a
+    client sent as it is. It is kept in the metadata, never in the answer or `ingest.finish`, and
+    not applied to a document `dedupe` gave back, which keeps its own.
+  - Anything else (a relative path, an ID that is not a string, a ref without a path, a `dedupe`
+    that is not `true` or `false`, `dedupe: true` with an `id`, an `appData` that is not a JSON
+    object or is too large) is the server's mistake: `500` `{ "error": "Upload failed." }`, before
+    the body is read.
 - **When it throws,** the upload is answered as for `getOwner`: an error with a `status` from 400
   to 599 gives that status and its message, and any other error a `500` "Upload failed.". Nothing
   is written.
@@ -459,7 +485,7 @@ type PrepareUploadInfo = { name: string; owner?: string; scope?: DocumentScope }
 ##### `PreparedUpload`
 
 ```ts
-type PreparedUpload = { id?: string; path?: string; original?: { ref: string } };
+type PreparedUpload = { id?: string; path?: string; original?: { ref: string }; dedupe?: boolean; appData?: object }; // dedupe, appData: new in 0.99.9
 ```
 
 | Field | What it does |
@@ -467,6 +493,8 @@ type PreparedUpload = { id?: string; path?: string; original?: { ref: string } }
 | `id` | The document's ID (`IngestInput.id`): lowercase letters, digits, `_` and `-`, up to 64 characters (`APP_DOCUMENT_ID_PATTERN`). The model sees it: no personal data in it. |
 | `path` | An absolute path where the body is saved, made new, then ingested from. The file stays once the document is stored, and is removed when the upload fails. |
 | `original` | `{ ref }`: where `LargeFilesOptions.originals` reads the saved file, such as its path under the folder of [`fileOriginals`](#fileoriginalsroot). Only with `path`. When `path` ends with the ref, a link in a folder below that root is refused (`500` "Upload failed (ELOOP)."). |
+| `dedupe` | `IngestInput.dedupe`: a file uploaded again gives back the document of the request's owner and scope stored before (`201` with its summary; `onUploaded` is told `reused: true`). Not with `id`. Needs a store with `list`. A reused upload's saved file is removed. New in 0.99.9. |
+| `appData` | `IngestInput.appData`: a JSON object of at most `MAX_APP_DATA_BYTES`, checked before the body is read, built on the server. Not applied to a reused document. Never in the answer. New in 0.99.9. |
 
 ##### `UploadSpoolOptions`
 
@@ -486,17 +514,20 @@ type DocumentHandlers = {
   upload(request: IncomingMessage, response: ServerResponse): Promise<void>;
   get(request: IncomingMessage, response: ServerResponse, id: string): Promise<void>;
   remove(request: IncomingMessage, response: ServerResponse, id: string): Promise<void>;
+  list(request: IncomingMessage, response: ServerResponse): Promise<void>; // new in 0.99.9
   stats(): DocumentHandlerStats; // new in 0.10.0
 };
 ```
 
 What [`createDocumentHandlers()`](#createdocumenthandlersfiles-options) returns. Each handler's
 promise resolves once the response is written; none rejects. `stats()` reads counters
-([handlers.stats()](#handlersstats)).
+([handlers.stats()](#handlersstats)). Since 0.99.9 `list` is a required member: a
+`DocumentHandlers` made by hand (a mock) needs it (TS2741).
 
 | Handler | Route it for | What it does |
 |---|---|---|
 | [`upload(request, response)`](#uploadrequest-response) | `POST`, such as `/api/documents` | Reads the raw body and ingests it as a document of the request's owner. `201` with its summary, or, with `Accept: text/event-stream`, `200` and the ingest's events ending with the summary. |
+| [`list(request, response)`](#listrequest-response) | `GET`, such as `/api/documents` | `200` with `{ "documents": [summary, …] }`: the documents of the request's owner and scope, the oldest first. New in 0.99.9. |
 | [`get(request, response, id)`](#getrequest-response-id) | `GET`, such as `/api/documents/:id` | `200` with the document's summary, or `404`. |
 | [`remove(request, response, id)`](#removerequest-response-id) | `DELETE`, such as `/api/documents/:id` | Deletes the document. `200` with `{ "deleted": true }` or `{ "deleted": false }`. |
 
@@ -587,7 +618,7 @@ The responses:
 | Status | Body | When |
 |---|---|---|
 | `201` | The [`DocumentSummary`](./library.md#documentsummary) of the new document, with the fields of `onUploaded`'s `answer` (the summary's win) | It was ingested, and `onUploaded`, when there is one, did not throw. |
-| `401` | `{ "error": "Sign in first." }` | The library has `requireOwner`, and `getOwner` returned `undefined` (or `null`). The body is not read. New in 0.9.0. |
+| `401` | `{ "error": "Sign in first." }` | The library has `requireOwner` (the default since 0.99.9), and `getOwner` returned `undefined` (or `null`). The body is not read. New in 0.9.0. |
 | `404` | `{ "error": "This chat no longer exists." }` | The store threw a [`DocumentScopeError`](./library.md#documentscopeerror) of code `"scope_missing"`: the scope's folder is gone (a scoped `FileDocumentStore` whose session folder your app removed). New in 0.9.0: it was `422` with the error's message. |
 | `400` | `{ "error": "Name the file with an X-File-Name header or a ?name= query parameter." }` | No name. |
 | `400` | `{ "error": "The upload body was already parsed by another middleware. Mount the upload route before body parsers, or send Content-Type: application/octet-stream." }` | `request.body` is an object with fields. |
@@ -717,9 +748,9 @@ taken from your route. Nothing else is read but what `getOwner` and `getScope` r
 
 | Status | Body | When |
 |---|---|---|
-| `200` | The [`DocumentSummary`](./library.md#documentsummary) | The document is there, has not expired, has no owner or the owner `getOwner` returned, and has no scope or the scope `getScope` returned. |
-| `404` | `{ "error": "This file is no longer available." }` | `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner or another scope. |
-| `401` | `{ "error": "Sign in first." }` | The library has `requireOwner`, and `getOwner` returned `undefined` (or `null`). New in 0.9.0. |
+| `200` | The [`DocumentSummary`](./library.md#documentsummary) | The document is there, has not expired, has the owner `getOwner` returned (or no owner, under `requireOwner: false`), and has no scope or the scope `getScope` returned. |
+| `404` | `{ "error": "This file is no longer available." }` | `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner or another scope; or, under `requireOwner`, has no owner. |
+| `401` | `{ "error": "Sign in first." }` | The library has `requireOwner` (the default since 0.99.9), and `getOwner` returned `undefined` (or `null`). New in 0.9.0. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner` or `getScope` threw an error with that `status` or `statusCode`. |
 | `503` | `{ "error": "The document store could not be read (EIO). Try again." }`, with `Retry-After: 5` | The store could not be read: the message of its [`DocumentStoreError`](./library.md#documentstoreerror), with the code of the system error behind it, when there is one. Since 0.9.0, the status of that error; before, `500` "The file could not be looked up (EIO).". `Retry-After` is new in 0.9.0. |
 | `500` | `{ "error": "The file could not be looked up (empty owner)." }` | The library has `requireOwner`, and `getOwner` returned `""` or spaces only; "(owner is not a string)" for an object, as for the upload. `files.getMeta` is not called. New in 0.9.0. |
@@ -737,7 +768,7 @@ which removes it from the store: its text, its index and any kept original, as f
 |---|---|---|
 | `200` | `{ "deleted": true }` | The document was deleted, and `onRemoved`, when there is one, did not throw. |
 | `200` | `{ "deleted": false }` | This owner has no such document in this scope: `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner or another scope. Also when the store's `delete` returned `false`. It never answers `404`. `onRemoved` is not called. |
-| `401` | `{ "error": "Sign in first." }` | The library has `requireOwner`, and `getOwner` returned `undefined` (or `null`). New in 0.9.0. |
+| `401` | `{ "error": "Sign in first." }` | The library has `requireOwner` (the default since 0.99.9), and `getOwner` returned `undefined` (or `null`). New in 0.9.0. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, `getScope` or `onRemoved` threw an error with that `status` or `statusCode`. When `onRemoved` threw, the document is deleted all the same. |
 | `503` | `{ "error": "The document store could not be read (EIO). Try again." }`, with `Retry-After: 5` | The look-up before the delete could not read the store, as for `get`. Since 0.9.0. |
 | `503` | `{ "error": "The document could not be deleted (EIO). Try again." }`, with `Retry-After: 5` | The store's `delete` failed: `files.delete` threw a `DocumentStoreError` of operation `"delete"`, with the code of the store's error when it has one. Since 0.9.0: it was `500` "The file could not be deleted (EIO).". |
@@ -752,6 +783,27 @@ together, so that the answer comes within it. A store that does not answer withi
 store could not be read (ETIMEDOUT). Try again." for the look-up), with `Retry-After: 5`; the
 delete goes on alone. While the process has `maxStuckStoreCalls` calls stuck, the answer is the same `503`,
 with code `STORE_STUCK`, at once. Before, a store that never answered left the request unanswered.
+
+#### list(request, response)
+
+New in 0.99.9. The request: route `GET` to it, such as `GET /api/documents`, the path of the
+upload's `POST`; the handler does not check the method or the path. Nothing is read from the
+request but what `getOwner` and `getScope` read: no query parameter, header or body of its own, so
+the scope comes only from `getScope`. It calls `files.list({ owner, scope })`
+([`files.list`](./library.md#fileslistaccess)) and answers the summaries of exactly that owner and
+scope, the oldest first, then by ID. There is no paging: one store call reads every document of that
+owner and scope.
+
+| Status | Body | When |
+|---|---|---|
+| `200` | `{ "documents": [DocumentSummary, …] }` | Listed. The array may be empty. A summary holds no owner, scope, `appData`, `sha256` or `original`. |
+| `401` | `{ "error": "Sign in first." }` | `getOwner` returned `undefined` (or `null`) under `requireOwner`, the default; or, under `requireOwner: false`, the request has neither an owner nor a scope: its list would hold every document stored without an owner, whose IDs work like passwords. `files.list` is not called. |
+| 400 to 599 | `{ "error": <the error's message> }` | `getOwner` or `getScope` threw an error with that `status` or `statusCode`. |
+| `404` | `{ "error": "This chat no longer exists." }` | The store threw a `DocumentScopeError` `"scope_missing"`: the chat's folder is gone. |
+| `503` | `{ "error": "The document store could not be read (EIO). Try again." }`, with `Retry-After: 5` | The store could not be read, or did not answer within `storeTimeoutMs`, or too many calls are stuck (`STORE_STUCK`), as for `get`. |
+| `500` | `{ "error": "The files could not be listed (empty owner)." }` | `getOwner` returned `""` or spaces only, under every rule (a list hands out IDs, as an upload stores them); "(owner is not a string)" for an object. `files.list` is not called. |
+| `500` | `{ "error": "The files could not be listed (invalid scope)." }` | `getScope` returned a scope that is not valid; "(no scope)" for none under `requireScope`. |
+| `500` | `{ "error": "The files could not be listed." }` | `getOwner` or `getScope` threw an error without a status; the store has no `list` (the library's `TypeError`); or a `LargeFiles` of your own has no `list`. |
 
 #### handlers.stats()
 

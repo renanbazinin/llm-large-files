@@ -917,6 +917,11 @@ same conversations.
   server at once, or keep each chat on servers of one version until the rollout ends. Files that
   0.9.0 writes are `0600`: servers of 0.8 that run as another user cannot read them either.
   [Upgrading to 0.9](../upgrading-0.9.md#several-servers-and-rolling-deploys) has the steps.
+- **Owner checks of 0.99.9.** A server of 0.99.9 checks owners by default; one of 0.10 does not.
+  While both share a store, a document a 0.10 server stores without an owner is missing on the
+  0.99.9 servers. If your application ever ingests without an owner, set `requireOwner` explicitly
+  on both versions during the rollout
+  ([Upgrading to 0.99](../upgrading-0.99.md#rolling-deploys)).
 - **A document keeps what the version that ingested it extracted**: its text, outline and log
   profile. A better extractor applies to files uploaded after the upgrade. A text file in an older
   encoding that 0.5.0 stored holds U+FFFD where 0.6.0 reads its letters, and text that 0.5.0

@@ -162,10 +162,11 @@ the behavior of 0.9: no ceiling.
 ```ts
 import { askGemini } from "llm-large-files/gemini";
 
-// files and endpoint as in the first sample. documentIds and question are yours.
+// files and endpoint as in the first sample. userId, documentIds and question are yours.
 const result = await askGemini({
   files,
   endpoint,
+  owner: userId,
   documentIds,
   messages: [{ role: "user", text: question }],
   wholeDocumentAnalysis: false, // no analyze_whole_document: no part reads
@@ -339,8 +340,8 @@ const local = openAiCompatible({
   tokenScale: 1.2,
 });
 
-export async function ask(documentIds: string[], question: string) {
-  const result = await askWithFiles({ files, model: flash, explorer: local, documentIds, messages: [{ role: "user", text: question }] });
+export async function ask(userId: string, documentIds: string[], question: string) {
+  const result = await askWithFiles({ files, model: flash, explorer: local, owner: userId, documentIds, messages: [{ role: "user", text: question }] });
   console.log(result.budget.contextTokens); // 109226: the library's 1,000,000, then 131,072, then / 1.2
   return result;
 }

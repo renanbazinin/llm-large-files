@@ -44,7 +44,8 @@ import { GoogleAuth } from "google-auth-library";
 import { askWithFiles, type ChatMessage } from "llm-large-files";
 import { gemini, vertexAi } from "llm-large-files/gemini";
 
-// `files` is your library and `documentIds` the documents of this chat (see Getting started).
+// `files` is your library, `documentIds` the documents of this chat and `userId` their owner, the
+// signed-in user (see Getting started).
 const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
 const model = gemini(vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
@@ -53,7 +54,7 @@ const model = gemini(vertexAi({
 }));
 
 const question = "Where is the first error in app.log?";
-const first = await askWithFiles({ files, model, documentIds, messages: [{ role: "user", text: question }] });
+const first = await askWithFiles({ files, model, documentIds, owner: userId, messages: [{ role: "user", text: question }] });
 
 const chart = (await readFile("chart.png")).toString("base64");
 const messages: ChatMessage[] = [
@@ -63,7 +64,7 @@ const messages: ChatMessage[] = [
   // A turn with a part in Gemini's own form.
   { role: "user", parts: [{ text: "Does this chart show the same outage?" }, { native: { inlineData: { mimeType: "image/png", data: chart } } }] },
 ];
-const second = await askWithFiles({ files, model, documentIds, messages });
+const second = await askWithFiles({ files, model, documentIds, owner: userId, messages });
 ```
 
 `askGemini` takes the conversation in one of two options. `messages` takes what `askWithFiles`
@@ -434,9 +435,9 @@ import type { LargeFiles } from "llm-large-files";
 import { askGemini, geminiToolTurns, type GeminiContent, type GeminiEndpoint } from "llm-large-files/gemini";
 
 /** Asks the next question of a history kept as Gemini `contents`, and returns the history with it. */
-export async function next(files: LargeFiles, endpoint: GeminiEndpoint, documentIds: string[], history: GeminiContent[], question: string): Promise<GeminiContent[]> {
+export async function next(files: LargeFiles, endpoint: GeminiEndpoint, owner: string, documentIds: string[], history: GeminiContent[], question: string): Promise<GeminiContent[]> {
   const asked: GeminiContent = { role: "user", parts: [{ text: question }] };
-  const result = await askGemini({ files, endpoint, documentIds, contents: [...history, asked] });
+  const result = await askGemini({ files, endpoint, owner, documentIds, contents: [...history, asked] });
   return [
     ...history,
     asked,
@@ -489,10 +490,10 @@ import { fromOpenAiMessages, openAiCompatible, openAiToolTurns, type OpenAiMessa
 const model = openAiCompatible({ apiKey: process.env.OPENAI_API_KEY!, model: "gpt-5.5" });
 
 /** Asks the next question of a history kept as Chat Completions messages, and returns the history with it. */
-export async function next(files: LargeFiles, documentIds: string[], history: OpenAiMessage[], question: string): Promise<OpenAiMessage[]> {
+export async function next(files: LargeFiles, owner: string, documentIds: string[], history: OpenAiMessage[], question: string): Promise<OpenAiMessage[]> {
   const asked: OpenAiMessage = { role: "user", content: question };
   const { system, messages } = fromOpenAiMessages([...history, asked]);
-  const result = await askWithFiles({ files, model, documentIds, system, messages });
+  const result = await askWithFiles({ files, model, owner, documentIds, system, messages });
   return [
     ...history,
     asked,
@@ -528,9 +529,9 @@ const claude = anthropic({
 });
 
 /** Asks the next question of a history kept as Messages API messages, and returns the history with it. */
-export async function next(files: LargeFiles, documentIds: string[], system: string, history: AnthropicMessage[], question: string): Promise<AnthropicMessage[]> {
+export async function next(files: LargeFiles, owner: string, documentIds: string[], system: string, history: AnthropicMessage[], question: string): Promise<AnthropicMessage[]> {
   const asked: AnthropicMessage = { role: "user", content: question };
-  const result = await askWithFiles({ files, model: claude, documentIds, system, messages: fromAnthropicMessages([...history, asked]) });
+  const result = await askWithFiles({ files, model: claude, owner, documentIds, system, messages: fromAnthropicMessages([...history, asked]) });
   return [
     ...history,
     asked,

@@ -13,7 +13,7 @@ import { readFile } from "node:fs/promises";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { openAiCompatible } from "llm-large-files/openai";
 
-const files = createLargeFiles({ store: new MemoryDocumentStore() });
+const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner: false }); // one user: no owner checks
 
 const model = openAiCompatible({
   apiKey: process.env.OPENAI_API_KEY!, // sent as Authorization: Bearer …

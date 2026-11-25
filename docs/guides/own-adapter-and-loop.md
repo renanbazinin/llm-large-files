@@ -461,7 +461,7 @@ import { readFile } from "node:fs/promises";
 import { askWithFiles, createLargeFiles, FileDocumentStore } from "llm-large-files";
 import { exampleAi } from "./example-ai.js";
 
-const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
+const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files"), requireOwner: false }); // one user: no owner checks
 const model = exampleAi({
   baseUrl: process.env.EXAMPLE_AI_URL!,
   apiKey: process.env.EXAMPLE_AI_KEY!,
@@ -754,8 +754,8 @@ refusing a whole-file read that would pass a ceiling of the question before it s
    Pass `access: { owner, scope }`, new in 0.9.0: each call then asks the store for the document
    with that owner and scope, and checks the ones the store holds against them, whatever the
    metadata handed in says. A document of another owner or scope reads nothing: each call answers
-   `doc_… is no longer available on the server. …`. Under `requireOwner` or `requireScope`, `tools()`
-   throws without it. Without `access`, as before 0.9.0, each call compares the owner and scope
+   `doc_… is no longer available on the server. …`. Under `requireOwner` (the default since
+   0.99.9) or `requireScope`, `tools()` throws without it. Without `access`, as before 0.9.0, each call compares the owner and scope
    stored with the document with those of the metadata it was handed, so pass `tools()` only
    metadata that came back for this user: `prepared.plan.searchable` and `prepared.viewable` from
    `prepare(ids, base, { owner, scope })`, or `getMeta(id, { owner, scope })`.

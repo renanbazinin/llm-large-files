@@ -45,12 +45,14 @@ const endpoint = vertexAi({
   accessToken: async () => (await auth.getAccessToken())!,
 });
 
-// files is your library (createLargeFiles); documentIds and messages come from the request.
+// files is your library (createLargeFiles); documentIds, messages and userId (the signed-in user,
+// the documents' owner) come from the request.
 const result = await askGemini({
   files,
   endpoint,
   documentIds,
   messages,
+  owner: userId,
   generationConfig: { thinkingConfig: { thinkingLevel: "high" } },        // for `model`
   explorerGenerationConfig: { thinkingConfig: { thinkingLevel: "low" } }, // for the explorer
   onText: (delta) => process.stdout.write(delta),
@@ -138,9 +140,9 @@ const explorer = gemini(onVertex("gemini-2.5-flash-lite"), {
   contextTokens: 1_048_576,
 });
 
-// files, documentIds and messages as in the sample above.
+// files, documentIds, messages and userId as in the sample above.
 const result = await askWithFiles({
-  files, model, explorer, documentIds, messages,
+  files, model, explorer, documentIds, messages, owner: userId,
   onText: (delta) => process.stdout.write(delta),
 });
 ```
@@ -154,14 +156,14 @@ OpenAI-compatible adapter, explores while Gemini on Vertex AI answers:
 ```ts
 import { openAiCompatible } from "llm-large-files/openai";
 
-// askWithFiles, files, documentIds, messages and `model` (the Gemini adapter) are those of the sample above.
+// askWithFiles, files, documentIds, messages, userId and `model` (the Gemini adapter) are those of the sample above.
 const local = openAiCompatible({
   baseUrl: process.env.VLLM_BASE_URL!, // for example http://vllm.internal:8000/v1
   model: process.env.VLLM_MODEL!,
   contextTokens: 131_072,              // the --max-model-len the server runs with
 });
 
-const answer = await askWithFiles({ files, model, explorer: local, documentIds, messages });
+const answer = await askWithFiles({ files, model, explorer: local, documentIds, messages, owner: userId });
 ```
 
 The question then runs inside the smaller window, 131,072 tokens, for both models. And this
