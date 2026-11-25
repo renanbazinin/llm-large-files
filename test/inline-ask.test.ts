@@ -86,7 +86,7 @@ describe("tables sent whole get the tools that count them", () => {
     expect(model.requests).toHaveLength(2);
     expect(result.answered).toBe(true);
     expect(result.text).toBe("יש 750 חשבוניות באיחור (חשבוניות.csv L4).");
-    expect(result.citations).toEqual({ checked: 1, supported: 1, unchecked: 0, unsupported: [] });
+    expect(result.citations).toEqual({ checked: 1, supported: 1, unchecked: 0, unsupported: [], cited: [{ document: "חשבוניות.csv", documentId: meta.id, from: 4, to: 4, form: "line", status: "supported" }] });
     // The file sent whole, then what aggregate_table showed.
     expect(result.evidence.map((entry) => entry.tool)).toEqual(["inline", "aggregate_table"]);
   });
@@ -386,7 +386,7 @@ describe("files sent whole are numbered", () => {
     expect(model.requests[0]!.system).toBe(INLINE_CITATION_LINE);
     expect(model.requests[0]!.tools).toBeUndefined();
     // Line 9 is past the end of the file.
-    expect(result.citations).toEqual({ checked: 2, supported: 1, unchecked: 0, unsupported: [{ document: "notes.md", line: 9 }] });
+    expect(result.citations).toEqual({ checked: 2, supported: 1, unchecked: 0, unsupported: [{ document: "notes.md", line: 9 }], cited: [{ document: "notes.md", documentId: meta.id, from: 3, to: 3, form: "line", status: "supported" }, { document: "notes.md", documentId: meta.id, from: 9, to: 9, form: "line", status: "unsupported" }] });
   });
 
   it("plans a file sent whole by its numbered size: at the edge of inlineTokens it is searched", async () => {

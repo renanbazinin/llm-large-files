@@ -25,6 +25,7 @@ The library cannot know these. Each answer becomes a line of the code below.
 | Do you trust the uploads? | If not, read them in child processes: `createIsolatedExtractors`. | [Security](../security.md#uploads) |
 | How long is a file kept? | 72 hours from the upload by default (`ttlMs`). With `files.touch` after each question, from its last use. | [Retention](./storage.md#retention) |
 | What may one question cost? | The limits of a question, and its usage, which you count for each user. | [Costs and limits](./costs-and-limits.md) |
+| Do users see the line citations, "(report.docx L188-L200)"? | If not, `showCitations: false`: the model still cites, the page gets the answer without them, and `result.citations.cited` keeps them for a list of sources. | [Citations the user does not see](../reference/ask.md#citations-the-user-does-not-see) |
 
 ## 1. Install
 

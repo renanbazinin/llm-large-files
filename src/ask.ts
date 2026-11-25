@@ -1,7 +1,7 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
 import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type DocumentRef, type EventResult, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
-import { checkCitations, type CitationCheck } from "./citations.js";
+import { CitationHider, checkCitations, type CitationCheck } from "./citations.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
 import type { LargeFiles } from "./library.js";
@@ -230,6 +230,19 @@ export type AskOptions = {
    * not true or false is a `TypeError` before any request. New in 0.99.9.
    */
   nativeDocuments?: boolean;
+  /**
+   * Whether the user sees the answer's line citations. True (the default): the answer is shown as
+   * the model wrote it. False: the model is asked for citations all the same, and
+   * `AskResult.citations` checks and lists them (`cited`), but the citations in parentheses
+   * ("(report.docx L188-L200)", "(L12)", "(חוזה.docx שורות 188-200)"), and parentheses of document
+   * IDs alone ("(policy-1)"), are taken out of what is shown: `onText`, the `text` events and `AskResult.text`. Text from a "(" is then held back
+   * until its ")" or the end of its line, so that a citation never shows for a moment. What stays
+   * (`CitationHider`): a parenthesis with other words in it, code, a form with no file name that is
+   * written in the files the model read ("(L4-L5)" of a medical report), and a citation written
+   * into a sentence ("line 12 of the contract says"). A value that is not true or false is a
+   * `TypeError` before any request. New in 0.99.12.
+   */
+  showCitations?: boolean;
   /** Answer text as it arrives. The adapter streams when this is set and it can (see `streamText`). */
   onText?: (delta: string) => void;
   /**
@@ -283,7 +296,8 @@ export type AskOptions = {
 export type AskResult = {
   /**
    * Everything the model wrote, including any remark it made before calling a tool. With an
-   * explorer model, only what the answering model wrote: the explorer's words are not shown.
+   * explorer model, only what the answering model wrote: the explorer's words are not shown. With
+   * `showCitations: false`, without its citations in parentheses, as it was shown (since 0.99.12).
    */
   text: string;
   /**
@@ -337,7 +351,9 @@ export type AskResult = {
   finish?: ModelReply["finish"];
   /**
    * The line citations of `text`, checked against what the tools showed (`checkCitations`): a
-   * document sent whole counts as shown. Set when the question had documents. New in 0.10.0.
+   * document sent whole counts as shown. Set when the question had documents. With
+   * `showCitations: false`, read from the answer as the model wrote it, before its citations were
+   * taken out, and listed in `cited`. New in 0.10.0.
    */
   citations?: CitationCheck;
   /**
@@ -406,6 +422,24 @@ function checkFilteredAnswer(given: unknown): void {
 function checkStoreRounds(given: unknown): void {
   if (given === undefined || given === "full" || given === "compact") return;
   throw new TypeError(`storeRounds must be "full" or "compact", and is ${shownValue(given)}.`);
+}
+
+/** The quotes of a whole-file read's items (`quote`, at any depth): the words of the file in its result. */
+function quotesIn(value: unknown, found: string[] = []): string[] {
+  if (Array.isArray(value)) for (const item of value) quotesIn(item, found);
+  else if (value !== null && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "quote" && typeof item === "string") found.push(item);
+      else quotesIn(item, found);
+    }
+  }
+  return found;
+}
+
+/** `showCitations` checked: true, false or nothing (0.99.12). */
+function checkShowCitations(given: unknown): void {
+  if (given === undefined || typeof given === "boolean") return;
+  throw new TypeError(`showCitations must be true or false, and is ${shownValue(given)}.`);
 }
 
 /** `nativeDocuments` checked: true, false or nothing (0.99.9). */
@@ -1088,6 +1122,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   checkStoreRounds(options.storeRounds);
   checkRemovedOptions(options);
   checkNativeDocuments(options.nativeDocuments);
+  checkShowCitations(options.showCitations);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -1242,10 +1277,46 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const meta = inlineById.get(id);
     return meta ? [sentWhole(meta), ...(sentById.has(id) ? [sentAsFile(meta)] : [])] : [];
   });
-  const emit = (delta: string, requestId: string) => {
-    text += delta;
+  // With `showCitations: false`, what is shown is the text without its citations in parentheses:
+  // `text` is what the model wrote, which the citations are read from, and `shownText` what the
+  // user saw. A question without documents has none to hide.
+  const citedFiles = [...prepared.plan.inline, ...prepared.plan.searchable];
+  const hider = options.showCitations === false && citedFiles.length > 0 ? new CitationHider(Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name]))) : undefined;
+  /**
+   * What the model read of the files, for the hider: a citation form written there ("L4-L5" of a
+   * medical report) is a word of the file, and stays. The results of a round, but a whole-file
+   * read's notes, which hold the model's own citations: only the quotes of its items.
+   */
+  const readByModel = (round: ModelToolRound) => {
+    if (!hider) return;
+    for (const { call, result } of round.answers) {
+      if (call.name !== TOOL_NAMES.analyze) hider.addToolResult(result);
+      else hider.addToolResult(quotesIn(result));
+    }
+  };
+  if (hider) {
+    // A file sent whole, without its frame lines, which hold its name and maybe its document_id.
+    for (const meta of prepared.plan.inline) {
+      const block = prepared.blocks.get(meta.id) ?? "";
+      hider.addContent(block.slice(block.indexOf("\n") + 1, Math.max(block.indexOf("\n") + 1, block.lastIndexOf("\n"))));
+    }
+    for (const message of messages) if (isRound(message)) readByModel(message);
+  }
+  let shownText = "";
+  const show = (delta: string, requestId: string) => {
+    if (!delta) return;
+    shownText += delta;
     options.onText?.(delta);
     events.emit({ type: "text", requestId, delta });
+  };
+  const emit = (delta: string, requestId: string) => {
+    text += delta;
+    show(hider ? hider.push(delta) : delta, requestId);
+  };
+  /** The end of a request's text: what the hider held back is shown, unless the question was stopped. */
+  const release = (requestId: string) => {
+    const rest = hider?.flush();
+    if (rest && !signal?.aborted) show(rest, requestId);
   };
   /**
    * A step can quote what the model sent: it is made one line of plain text before anyone sees it.
@@ -1360,12 +1431,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         },
       });
     } catch (error) {
+      if (got) release(requestId);
       if (events.active) events.emit({ type: "request.end", requestId, ms: Date.now() - began, outcome: "error", error: eventErrorOf(error) });
       throw error;
     }
     // Text the adapter did not pass on as it came (no streaming was asked for, or it cannot). Not
     // the text of a reply a filter stopped, when such an answer is dropped: it was not shown yet.
     if (shown && reply.text.length > got.length && reply.text.startsWith(got) && !(dropFiltered && reply.finish === "filtered")) write(reply.text.slice(got.length));
+    if (got) release(requestId);
     answeredRequests++;
     lastReply = reply;
     // A reply without its input tokens is counted by the estimate, in the model's own tokens.
@@ -1416,7 +1489,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     return checkCitations(text, evidence.map(bounded), names, formats);
   };
   const result = (answered: boolean): AskResult => ({
-    text,
+    text: hider ? shownText : text,
     answered,
     ...(blockReason ? { blockReason } : {}),
     steps,
@@ -1449,7 +1522,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const answer = (answered: boolean): AskResult => {
     const finish = lastReply?.finish;
     if (finish === "filtered") {
-      const sent = text.length > 0;
+      const sent = shownText.length > 0;
       const message = !lastReply?.text.trim()
         ? "A filter of the provider stopped the answer before any text came."
         : dropFiltered
@@ -1458,6 +1531,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       events.emit({ type: "notice", code: "answer_filtered", message, display: "none", ...(dropFiltered && sent ? { discardText: true as const } : {}) });
       if (dropFiltered) {
         text = "";
+        shownText = "";
         return result(false);
       }
     } else if (finish === "cut") {
@@ -2472,6 +2546,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       const done: ModelToolRound = { ...pending, answers };
       if (reply.raw !== undefined) rawOwner.set(done, toolModel);
       messages.push(done);
+      readByModel(done);
     }
 
     // Out of tool turns or of room, or the last turn had no text (cut off, or a malformed tool call):
