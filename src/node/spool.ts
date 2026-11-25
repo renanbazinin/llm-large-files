@@ -311,7 +311,7 @@ export class BodyFile {
    * gave back does not refer to it (one stored before, `dedupe`; new in 0.99.9). It settles once
    * that is done, as the ingest did.
    */
-  async settle<T>(ingesting: Promise<T>, keeps: (value: T) => boolean = () => true): Promise<T> {
+  async settle<T>(ingesting: Promise<T>, keeps: (value: T) => boolean): Promise<T> {
     try {
       const value = await ingesting;
       this.#stored = keeps(value);
