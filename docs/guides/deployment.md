@@ -929,6 +929,15 @@ same conversations.
   round whose `version` is above 1, made by a later version, with a `TypeError`. 0.6.0 sends the
   rounds of an earlier question without their `tool_turns_left`
   ([Conversations](./conversations.md#what-toolturns-holds)).
+- **Stored shapes, from 0.99.9 on.** `DocumentMeta.metaVersion` and `ToolTurn.version` are 1 from
+  0.9.0 to 0.99.9. 0.99.9 reads every shape stored since 0.2; from 0.99.9 on, each version reads at
+  least the shape of the version before it. A later version that changes either shape raises its
+  number and still reads the shape before it, so servers of two neighboring versions share a store
+  and conversations. The older server refuses what the newer one wrote in the new shape: a document
+  with a `DocumentStoreError` of code `"NEWER_VERSION"` (503: let the call be retried on a newer
+  server; it is never taken for missing, nor replaced), a stored round with a `TypeError` that
+  names its version (leave the round out, or ask on a newer server). Every build of the library
+  reads, in its tests, the documents and rounds that 0.8.2, 0.9.0 and 0.10.2 stored.
 - **Provider caches.** The tool guide in the system instruction, the descriptions of
   `analyze_whole_document` and `search_document`, and the frame lines of a file sent whole changed
   in 0.6.0. They come at the start of a request, so a request

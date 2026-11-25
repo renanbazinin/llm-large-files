@@ -398,7 +398,8 @@ declare function anthropicToolTurns(turns: ToolTurn[]): AnthropicMessage[];
 
 The tool rounds a question returned ([`AskResult.toolTurns`](./ask.md#askresult)) as Messages API
 messages, for an application that keeps its history in that form. Put them between the question and
-its answer. It throws nothing.
+its answer. It throws only for a round of a newer version (`version` above `TOOL_TURN_VERSION`):
+the `TypeError` of `askWithFiles` (since 0.99.9).
 
 Each round becomes two messages: an assistant message of `{ type: "tool_use", id, name, input }`
 blocks, and a user message of `{ type: "tool_result", tool_use_id, content }` blocks, `content`

@@ -666,7 +666,8 @@ model sees in a later question what its tools returned in this one. The results 
 stored rounds (since 0.6.0): a history kept as `contents` gives the same request as one kept as
 `toolTurns`. Contents that 0.5.0 converted keep the field. Since 0.9.0 `fromGeminiContents` turns
 these turns back into stored rounds, so the loop treats them alike too, and the rounds of 0.5.0
-are then sent without the field (above).
+are then sent without the field (above). A round of a newer version (`version` above
+`TOOL_TURN_VERSION`) is the `TypeError` of `askWithFiles` (since 0.99.9).
 
 ```ts
 import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/gemini";

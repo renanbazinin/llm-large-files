@@ -93,7 +93,7 @@ Through `files.tools(documents, options)` (a loop of your own, see [`ToolSet`](#
 - `options.declare` (new in 0.10.0) declares exactly the tools it names, in place of the rules
   above, always in the order search, read, overview, aggregate, analyze, view, whatever the order
   of the list: what [declarationsFor(names)](#declarationsfornames) gives. `askWithFiles` uses it
-  when tables are sent whole (`inlineTables`), to declare exactly the tools of the question: for
+  when tables are sent whole, to declare exactly the tools of the question: for
   those tables search, read and aggregate, not overview or a whole-file read. A list of your own may
   name a tool that has nothing to work on: each call of it then answers with the reason,
   `No attached file has a table: aggregate_table needs one.` for `aggregate_table` when no document

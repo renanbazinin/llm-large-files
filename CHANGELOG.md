@@ -47,7 +47,26 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
 
 ### Upgrading: what you need to change
 
-<!-- owner, shapes -->
+<!-- owner -->
+
+- **`inlineTables` and `numberInline` are removed** from `askWithFiles` and `askGemini`, with
+  `inlineTables: "text"` and `numberInline: false`, the ways back to 0.9's text that 0.10.0 kept
+  for one version. Tables sent whole always get the tools, and files sent whole are always
+  numbered. Any value but `"tools"` and `true` is a `TypeError` before any request. Questions asked
+  without them send what 0.10.2 sent, byte for byte.
+  **What to do:** delete both options
+  ([Upgrading to 0.99](docs/upgrading-0.99.md#the-way-back-to-09s-text)). `files.prepare()` keeps
+  them, off by default, for loops of your own.
+- **`ModelAdapter.estimateTokens` is removed.** It was deprecated in 0.6.0 and never called. An
+  adapter object typed `ModelAdapter` that declares it no longer compiles (TS2353); a class that
+  implements `ModelAdapter` with the method still does.
+  **What to do:** delete it, and set `capabilities.tokenScale` for a model that counts tokens
+  differently.
+- **`geminiToolTurns`, `openAiToolTurns`, `anthropicToolTurns` and `compactToolTurns` refuse a
+  stored round of a newer version** with the `TypeError` of `askWithFiles`. They converted it as a
+  round of version 1.
+  **What to do:** nothing, unless servers of two versions answer one chat: leave such rounds out,
+  as with `askWithFiles`.
 
 ### New: what you can add
 
@@ -57,9 +76,23 @@ question IDs for requests sent again, the AI SDK, and an MCP server helper.
 
 <!-- every package -->
 
+- **What earlier versions stored is read in CI (H7).** The files that `FileDocumentStore` of 0.8.2,
+  0.9.0 and 0.10.2 wrote, and the `toolTurns` they returned, are kept as fixtures and read by every
+  build, on Ubuntu and Windows. Metadata with `metaVersion` 2 and a round with `version` 2 are
+  refused. `metaVersion` and `ToolTurn.version` stay 1. 0.99.9 reads every shape stored since 0.2;
+  from 0.99.9 on, each version reads at least the shape of the version before it
+  ([Stored documents and rounds](docs/upgrading-0.99.md#stored-documents-and-rounds)).
+
 ### Fixed
 
-<!-- shapes (removal claim), others -->
+<!-- others -->
+
+- **Two sweeps at once on Windows** could count one document twice (26 for 25). When the losing
+  call could not remove its own claim for another reason than "not found", `FileDocumentStore`
+  counted the removal. It now counts it only when the claim's name is still there. No document was
+  lost.
+- `files.list` listed metadata whose `metaVersion` is NaN, which `getMeta` refuses. It leaves it out
+  now, as `ingest`'s `dedupe` does.
 
 ## 0.10.2 — 2026-11-25
 

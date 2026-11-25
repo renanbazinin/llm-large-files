@@ -83,6 +83,7 @@ tool calls of one model turn, each with what its tool returned:
 ```json
 {
   "role": "tools",
+  "version": 1,
   "calls": [
     {
       "id": "c1",
@@ -94,6 +95,9 @@ tool calls of one model turn, each with what its tool returned:
 }
 ```
 
+- `version` is the version of this shape (`TOOL_TURN_VERSION`, 1 since 0.9.0). Keep it as it is: a
+  later version reads the rounds of the version before its own, and refuses rounds of a newer one
+  with a `TypeError` ([ToolTurn](../reference/ask.md#toolturn)).
 - `id` is the provider's own ID of the call, when it gave one. `args` and `result` are what the
   model sent and what it was given back. The tools and their results are in
   [Tools](../reference/tools.md).
