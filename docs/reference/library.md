@@ -15,6 +15,7 @@ import {
   DocumentStoreError, DocumentScopeError,
   createPdfExtractor, defaultExtractors, detectFormat,
   estimateTokens, utf8Bytes, jsonBytes,
+  DEFAULT_NATIVE_FILE_BYTES, DEFAULT_NATIVE_PAGES, // new in 0.99.9
 } from "llm-large-files";
 import type {
   LargeFilesOptions, LargeFiles, CreatedLargeFiles, LargeFilesStats, AccessOptions, IngestInput, PrepareOptions, ToolOptions,
@@ -25,6 +26,7 @@ import type {
   ProgressListener, ToolCallHooks, ToolRequestHandle, ToolRequestStart, ToolRequestEnd, IngestEvent, IngestErrorCode,
   DocumentStoreOperation, DocumentScopeErrorCode,
   AppData, JsonValue, MetaPatch, // new in 0.10.2
+  NativeDocumentsPlan, PageImageOptions, // new in 0.99.9
 } from "llm-large-files";
 ```
 
@@ -42,6 +44,7 @@ Contents:
   [`DocumentPlan`](#documentplan), [`DEFAULT_CACHE_BYTES`](#default_cache_bytes), [`DEFAULT_WHOLE_DOCUMENT_BYTES`](#default_whole_document_bytes),
   [`DEFAULT_MAX_PDF_PAGES`](#default_max_pdf_pages), [`DEFAULT_MAX_TEXT_BYTES`](#default_max_text_bytes),
   [`DEFAULT_INGEST_TIMEOUT_MS`](#default_ingest_timeout_ms),
+  [`DEFAULT_NATIVE_FILE_BYTES` and `DEFAULT_NATIVE_PAGES`](#default_native_file_bytes-and-default_native_pages),
   [`NEVER_EXPIRES`](#never_expires), [`isDocumentId(value)`](#isdocumentidvalue),
   [`toDocumentSummary(meta)`](#todocumentsummarymeta)
 - [The budget](#the-budget): [`Budget`](#budget), [`DEFAULT_BUDGET`](#default_budget),
@@ -983,6 +986,14 @@ type PrepareOptions = AccessOptions & {
   wholeDocumentAnalysis?: boolean;
   numberInline?: boolean; // new in 0.10.0
   inlineTables?: "tools" | "text"; // new in 0.10.0
+  nativeDocuments?: NativeDocumentsPlan; // new in 0.99.9
+};
+
+type NativeDocumentsPlan = {
+  formats: readonly ("pdf" | "pptx")[];
+  maxFileBytes: number;
+  maxPages: number;
+  pageTokens: number;
 };
 ```
 
@@ -999,6 +1010,7 @@ for both (since 0.99.9, which removed `AskOptions.numberInline` and `inlineTable
 | `wholeDocumentAnalysis` | `boolean` | `true` | Says whether your tool set has `analyze_whole_document`. Pass `false` when you call `tools` without `generate`: the instruction then does not name it, and the cards do not offer a whole-file read or say that a file is too large for one. Each says `This file is NOT in your context. Use the document tools to search it and to read line ranges.` `askWithFiles` passes `false` when the model that explores has no `generateText`, and when its own `wholeDocumentAnalysis` is `false`. |
 | `numberInline` | `boolean` | `false` | Numbers the lines of each document sent whole, as the tools number them: `12| ` before each line, from 1, a line ending at each newline and none after the last. The document is planned by its numbered size, about 8% to 16% more tokens (see below), so a document at the edge of `inlineTokens` may become a card. `instruction` asks for line citations only when a file is searched: when none is, add `Cite line numbers like (report.docx L12).` after it. `plan.inlineTokens` and `plan.inlineBytes` are the numbered sizes. The frame lines do not change. A value that is not a boolean throws a `TypeError`. New in 0.10.0. |
 | `inlineTables` | `"tools" \| "text"` | `"text"` | `"tools"`: `toolable` lists the documents sent whole whose tables the tools can count (see [`PreparedContext`](#preparedcontext)), and the block of each gives its document_id in its first frame line (`; document_id doc_…;`), for the tools. `instruction` does not say that they can be counted: add a line after it, such as the one `askWithFiles` adds, `Files shown in full can still be counted exactly: use aggregate_table for counts, sums and groups over their tables, and search_document exact for matching lines. In a spreadsheet, give the Row number when asked which row.` `"text"`: no `toolable`, and the blocks of 0.9. Another value throws a `TypeError`. New in 0.10.0. |
+| `nativeDocuments` | `NativeDocumentsPlan` | none | Plan the small visual files sent whole that go to the model as their uploaded file too, and list them in `native`, left out of `viewable` and of the view line of `instruction`. `formats`, `maxFileBytes` and `maxPages` are what every model shares (see [`DocumentsCapability`](./ask.md#toolfiletype-documentscapability-and-nativedocumentformat)), and `pageTokens` what a page costs, in the library's estimate of tokens. A file is listed when it is sent whole, its format is listed, its original is kept and can be read, it is visual (a PDF with a picture line or a page without text, or a deck), its text has no table the tools count, it is within `maxFileBytes` and `maxPages`, and its pages (`pages × pageTokens`) and its base64 fit in the room the plan leaves, in the order of `plan.inline`. `askWithFiles` passes what its models declare. A value that is not `{ formats, maxFileBytes, maxPages, pageTokens }` with numbers above 0 throws a `TypeError`. New in 0.99.9 ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). |
 
 `numberInline` counts a document as `estimatedTokens` + 1.2 tokens a digit of its line numbers + 1.5
 tokens a line, and its bytes as its JSON bytes + the digits + 4 a line: the formula of
@@ -1022,6 +1034,7 @@ type ToolOptions = {
   retry?: RetryOptions;
   budget?: Partial<Budget>;
   viewPages?: boolean | DocumentMeta[];
+  pageImages?: PageImageOptions; // new in 0.99.9
   declare?: readonly ToolName[]; // new in 0.10.0
   inline?: readonly string[]; // new in 0.10.0
 };
@@ -1040,6 +1053,7 @@ The options of [`files.tools`](#filestoolsdocuments-options).
 | `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | 3 retries, a first wait of 250 to 500 ms (500 ms before the jitter) that doubles, 60 s at most | How a failed model request of a whole-document read is sent again. An error without an HTTP status is sent again once, at once. |
 | `budget` | `Partial<Budget>` | the library's | The budget fields to change for these tools: their result cap and part size. Use the budget you planned the request with. |
 | `viewPages` | `boolean \| DocumentMeta[]` | none | Offers `view_pages`, which hands the model real pages of a PDF as a file. `true` offers it for the PDFs among `documents`; a list offers it for exactly those, which may include PDFs whose text is already in the prompt: pass `prepared.viewable`. Only PDFs with `originalKept` count, and only with a store that has `getOriginal`. Turn it on only when your loop runs tools with `executeWithFiles` and sends the files to the model. |
+| `pageImages` | [`PageImageOptions`](./tools.md#pageimageoptions) | none | `{ format: "jpeg" }` or `{ format: "png" }`: `view_pages` draws each page as an image, one file per page named in `result.images`, in place of one small PDF, for a model that takes images and no PDF. Each is [`PAGE_IMAGE_SIDE`](./tools.md#page_image_side) (1,568) pixels on its longest side. Needs `unpdf` 2 or later (Node 24 or later) and `@napi-rs/canvas`; without them each call answers with what to install. `askWithFiles` sets it from its models' `toolFileTypes`. Another `format` throws a `TypeError` when the tools are made. New in 0.99.9 ([Pages as images](./tools.md#pages-as-images)). |
 | `declare` | `readonly `[`ToolName`](#toolname)`[]` | none | Declare exactly these tools, in the order the tool set declares them (search, read, overview, aggregate, analyze, view). A declared tool that cannot run answers with its reason. New in 0.10.0. |
 | `inline` | `readonly string[]` | none | The IDs of documents sent whole: `analyze_whole_document` refuses them, as they are shown in full, and `aggregate_table` says how to cite their lines (`cite`). New in 0.10.0. |
 
@@ -1055,6 +1069,7 @@ type PreparedContext = {
   missing: string[];
   viewable: DocumentMeta[];
   toolable?: DocumentMeta[]; // new in 0.10.0
+  native?: DocumentMeta[]; // new in 0.99.9
 };
 ```
 
@@ -1068,6 +1083,7 @@ What [`files.prepare`](#filesprepareids-base-options) returns.
 | `missing` | `string[]` | The IDs that were not found: never uploaded, not a document ID, deleted, expired, or another owner's. |
 | `viewable` | `DocumentMeta[]` | The PDFs whose pages `view_pages` can show, whether their text is in the prompt or searched. Empty unless `prepare` was called with `viewPages: true`. Pass it to `tools(..., { viewPages })`. |
 | `toolable` | `DocumentMeta[]`, optional | With `inlineTables: "tools"`: the documents sent whole whose tables the tools can still count and search. A CSV or an XLSX workbook always; a DOCX, PPTX, PDF, HTML or Markdown file when its text has a table of at least 3 `\| cell \|` rows (a run of lines that start and end with `\|`, a `\| --- \|` separator not counted), as `aggregate_table` reads a table. Absent with `"text"`. Give them to `tools` with the searched documents, and declare for them `search_document`, `read_document` and `aggregate_table`. New in 0.10.0. |
+| `native` | `DocumentMeta[]`, optional | With `nativeDocuments`: the documents sent whole whose uploaded file goes to the model too, in the order of `plan.inline`, possibly none. They are not in `viewable`. Send each one's file (`files.getOriginal(id, access)`) first in the turn that holds its block, with a line that names it, as `askWithFiles` does ([`ModelTextMessage.files`](./ask.md#modeltextmessage)); one whose original is gone by then is sent as text only. Absent without `nativeDocuments`. New in 0.99.9. |
 
 `toolable` is optional, so that a `LargeFiles` of your own still compiles. With a `prepare` of your
 own that gives the fields of 0.9 alone, `askWithFiles` works as in 0.9: no table sent whole gets the
@@ -1175,6 +1191,18 @@ declare const DEFAULT_MAX_TEXT_BYTES: number; // 104_857_600 (100 MB)
 
 The default of `LargeFilesOptions.maxTextBytes`, when `maxUploadBytes` is not larger. New in
 0.6.0.
+
+### `DEFAULT_NATIVE_FILE_BYTES` and `DEFAULT_NATIVE_PAGES`
+
+```ts
+declare const DEFAULT_NATIVE_FILE_BYTES: number; // 4_194_304 (4 MiB)
+declare const DEFAULT_NATIVE_PAGES = 10;
+```
+
+The defaults of `DocumentsCapability.maxFileBytes` and `maxPages`
+([`documents`](./ask.md#toolfiletype-documentscapability-and-nativedocumentformat)): the largest
+file, and the most pages (slides, for a deck), that a question sends to a model as the file itself.
+New in 0.99.9.
 
 ### `DEFAULT_INGEST_TIMEOUT_MS`
 

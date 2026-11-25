@@ -722,8 +722,12 @@ only what the answering model wrote.
   with `original: { ref }` and the library has `originals`;
 - the document was ingested after that: one ingested before has no file kept
   (`meta.originalKept` is not `true`);
-- every model of the question can be sent a file: not `openAiCompatible()` without `pdfInput`, not
-  `anthropic({ toolFilePlacement: "none" })`;
+- every model of the question can be sent a file: not `openAiCompatible()` without `pdfInput` or
+  `imageInput`, not `anthropic({ toolFilePlacement: "none" })`;
+- every model takes one kind of file (0.99.9): `gemini()` or `anthropic()` (PDF) next to
+  `openAiCompatible({ imageInput: true })` (images) share none;
+- the PDF is not sent to the model as the file itself (`documents`, 0.99.9): then the model has
+  every page, and needs no look;
 - the question does not pass `viewPages: false`.
 
 A model that has the tool and does not call it may have found the answer in the text.
@@ -750,6 +754,22 @@ text the model has, so none are shown.
 
 **Fix.** Keep each upload under a name of its own, and never write over a file a document names.
 To use the new file, ingest it again (`ifExists: "replace"` under the same `id`).
+
+### `view_pages` answers "Showing pages as images needs unpdf 2 or later"
+
+The model reads `report.pdf: Showing pages as images needs unpdf 2 or later, which runs on Node 24 or later.`,
+or `…needs the optional dependency "@napi-rs/canvas".`, and answers from the text.
+
+**Cause.** A model of the question takes images and no PDF (`openAiCompatible({ imageInput: true })`,
+or `toolFileTypes` of your own), so `view_pages` draws each page as an image (0.99.9). That needs
+unpdf 2 or later and `@napi-rs/canvas`, and unpdf 2 runs on Node 24 or later. The tool is offered
+without them, and each look answers with what is missing. `…is installed but could not be loaded
+(…)` is a canvas binary of another platform, or a broken install.
+
+**Fix.** On Node 24 or later, `npm install unpdf@2 @napi-rs/canvas`, on the machine or in the image
+the server runs on ([Deployment](./guides/deployment.md#optional-dependencies-in-production-images)).
+On Node 22, use a model that takes PDF (`pdfInput: true`), or offer no pages:
+`viewPages: false`. See [Pages as images](./guides/pdfs.md#pages-as-images).
 
 ### Whole-file reads never happen, or are refused
 
@@ -1073,9 +1093,17 @@ usual ones:
   `tool_choice: "none"`, so a question fails when it needs that request: always with an explorer,
   and when the tool turns run out.
 - **A server that cannot stream** and refuses the streamed request.
+- **A file it does not read** (0.99.9): with `documents: { formats: ["pdf", "pptx"] }` on Vertex AI,
+  a deck sent as itself fails the question with HTTP 400, a MIME type Vertex does not support for
+  the model. Vertex refused Office files on Gemini 3 models.
+- **More images than vLLM allows** (0.99.9): with `imageInput`, a request with more pages than
+  `--limit-mm-per-prompt` is refused with HTTP 400.
 
 **Fix.** Give the explorer its own `explorerGenerationConfig`. Check the model name and location.
-For an OpenAI-compatible server, set `answerWithoutTools: "omit"` or `stream: false`.
+For an OpenAI-compatible server, set `answerWithoutTools: "omit"` or `stream: false`. On Vertex AI,
+list `documents: { formats: ["pdf"] }` only. For vLLM, raise `--limit-mm-per-prompt` to the pages a
+question may show, or lower `budget.reservedTokens`
+([Pages as images](./guides/pdfs.md#pages-as-images)).
 
 See [An explorer model](./guides/explorer-model.md) and
 [OpenAI-compatible endpoints](./guides/openai-compatible.md).

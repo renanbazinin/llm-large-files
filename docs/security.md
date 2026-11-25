@@ -258,12 +258,18 @@ A question's requests can hold:
 - **The whole text of a file read whole** (`analyze_whole_document`), in parts of up to
   `mapChunkTokens`, through the adapter's `generateText`.
 - **Pages**: with `view_pages`, a small PDF of up to 5 pages cut from the kept original, for each
-  call. The pages stay in the later requests of that question, unless room runs out: older
+  call, or, for a model that takes images and no PDF (0.99.9), each of those pages drawn as an
+  image. The pages stay in the later requests of that question, unless room runs out: older
   results, pages included, are then replaced by a note of what they showed (never for a model whose
   conversation may only grow, as Claude's). They are not kept in `toolTurns`: only that they were
   shown.
+- **Uploaded files as they are** (0.99.9), only when every model declares `documents`: a small
+  visual PDF or deck sent whole goes in the request as the file the user uploaded, byte for byte,
+  next to its text, on every question that names it
+  ([The file itself](./guides/pdfs.md#the-file-itself-for-small-visual-files)). What the file holds
+  that its text does not (pictures, metadata, hidden layers) reaches the provider then.
 - **File names, and the IDs of the documents read through tools.** Not the owner, and no original
-  file other than those page cuts.
+  file other than those page cuts, page images and files sent as they are.
 - **Whatever you pass in `messages`**: earlier questions' `toolTurns`, which hold excerpts of the
   files, and parts in a provider's own form.
 
@@ -704,7 +710,7 @@ How `view_pages` works, and what to weigh before you keep originals, is in [PDFs
 ## Reading PDFs for pages and pictures
 
 Three features read the whole PDF into objects with `@cantoo/pdf-lib`, in your process, on a file
-a user uploaded:
+a user uploaded (a fourth, pages drawn as images, reads it with pdf.js: [below](#pages-drawn-as-images)):
 
 - **`view_pages`** reads the kept original again for every call, to cut the pages out of it.
 - **Picture marks** and **the page check** read every PDF at ingest, once for both, when
@@ -824,6 +830,32 @@ server that memory is the server's heap. Choose the isolation with care:
   does not change it.
 
 [Deployment](./guides/deployment.md#uploads-and-ingest) has the recipes.
+
+### Pages drawn as images
+
+For a model that takes images and no PDF, `view_pages` draws each page with pdf.js (unpdf 2) on
+`@napi-rs/canvas`, in the server that answers (since 0.99.9,
+[Pages as images](./guides/pdfs.md#pages-as-images)). It reads the kept original again for every
+call, and it decodes every image of a page to draw it. What bounds it:
+
+- **Turns.** It takes the same turn as a cut: one look at a time in the library by default
+  (`maxConcurrentPageLooks`), at most 5 pages a call, and the pages and bytes the question has room
+  for.
+- **Objects.** A file that declares more than 1,000,000 objects, or more than 60% of the free heap
+  holds, is refused before pdf.js reads it, as for a cut.
+- **Pixels.** Each page is drawn on a canvas of at most 1,568 pixels a side, about 10 MB. pdf.js
+  draws no image of a page that has more than 40 million pixels (`maxImageSize`): it leaves it
+  blank. A smaller one is decoded whole, up to 160 MB for 40 million pixels in RGBA.
+- **Time.** A call starts no page once the time so far and its slowest page would pass 5 seconds.
+  On Node 24, a page of the test PDFs took 0.09 to 0.5 s to draw, and the event loop went without a
+  turn for 0.37 s at most ([measured](./measurements.md#pages-drawn-as-images-0999)). Timers and
+  other requests run between two pages. A page that paints many large images holds the thread for as long as decoding them
+  takes: the 5 seconds do not cut a page short, and the question's `signal` stops a look only
+  between two pages.
+- **Errors** are caught: the model is told why the pages cannot be shown, and answers from the text.
+
+For the files of users you do not trust, do not offer `view_pages` (`viewPages: false`), or answer
+their questions in a process of their own, as for cuts above.
 
 ## Uploads
 

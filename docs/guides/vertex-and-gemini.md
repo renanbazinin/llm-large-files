@@ -520,6 +520,26 @@ await askGemini({ files, endpoint, documentIds, messages, toolFilePlacement: "be
 
 The optional dependency, the limits, scanned PDFs and the live results: [PDFs](./pdfs.md).
 
+Since 0.99.9 a small visual PDF sent whole can also go to the model as the file itself, before its
+text, as `inlineData`: Gemini then sees its pictures in the first request, and no look is needed.
+It is off until you pass `documents` ([The file itself](./pdfs.md#the-file-itself-for-small-visual-files)):
+
+```ts
+import { askGemini } from "llm-large-files/gemini";
+
+// files, endpoint, documentIds and messages as in the askGemini sample above; its PDFs kept
+// (keepOriginals: ["pdf"]). On Vertex AI, "pdf" only.
+await askGemini({ files, endpoint, documentIds, messages, documents: { formats: ["pdf"] } });
+```
+
+- **Vertex AI: list `"pdf"` only.** Vertex refused an inline DOCX with HTTP 400 on Gemini 3.1 and
+  3.5 Flash-Lite, and Google documents Office files on Vertex AI for Gemini 4 models only. A deck
+  (`"pptx"`) is for the Gemini API. A refused file fails the question with a `GeminiRequestError` of
+  kind `"invalid"`: the question is not asked again without it.
+- **What it costs.** Each page again on every question that names the file, about 530 tokens, on
+  top of its text. At most 10 pages and 4 MiB a file by default (`maxPages`, `maxFileBytes`).
+- **With an explorer**, `askGemini` gives both models the same `documents`.
+
 ## An enterprise gateway
 
 A gateway that proxies Generate Content takes an endpoint of your own: `{ url, streamUrl?, headers,

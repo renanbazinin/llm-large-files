@@ -56,7 +56,7 @@ the text of a reply is passed to it in two pieces, as a stream would arrive.
 |---|---|---|
 | `id` | `"fake-model"` | The model's `id`: its name in `usage.byModel`. Give two fakes different ones. |
 | `generateText` | None | The part reader of whole-file reads. Without it, `analyze_whole_document` is not offered. |
-| Any field of [`ModelCapabilities`](./ask.md#modelcapabilities) | `toolFiles: "inside"` (as Gemini's), `pageTokens: 500` | The capabilities: `toolFiles: "none"` for a model that takes no files (no `view_pages`), `appendOnly: true` for a model the loop treats as Claude, `contextTokens` and `maxRequestBytes` to make the budget of a question fit a model. |
+| Any field of [`ModelCapabilities`](./ask.md#modelcapabilities) | `toolFiles: "inside"` (as Gemini's), `pageTokens: 500` | The capabilities: `toolFiles: "none"` for a model that takes no files (no `view_pages`), `appendOnly: true` for a model the loop treats as Claude, `contextTokens` and `maxRequestBytes` to make the budget of a question fit a model. Since 0.99.9, `toolFileTypes: ["image/jpeg"]` for a model shown pages as images, and `documents: { formats: ["pdf"] }` for one sent small visual files as they are. |
 
 ### says(text, more?)
 

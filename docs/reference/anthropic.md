@@ -11,7 +11,7 @@ import { anthropic, ANTHROPIC_VERSION, anthropicToolTurns, AnthropicRequestError
 import type { AnthropicMessage, AnthropicOptions } from "llm-large-files/anthropic";
 // What the signatures below use from the main entry:
 import { ModelRequestError } from "llm-large-files";
-import type { ChatMessage, ModelAdapter, ModelErrorKind, ToolTurn } from "llm-large-files";
+import type { ChatMessage, DocumentsCapability, ModelAdapter, ModelErrorKind, ToolTurn } from "llm-large-files";
 ```
 
 The entry point needs no Anthropic SDK: it posts JSON to the Messages URL with `fetch`, signed in
@@ -44,7 +44,7 @@ The adapter it returns:
 | Member | Value |
 |---|---|
 | `id` | `options.id`, else `options.model`. It names the model in `usage.byModel` and in messages. |
-| `capabilities` | `maxRequestBytes` 32,000,000; `toolFiles` from `toolFilePlacement` (`"inside"`); `pageTokens` 3,500; `tokenScale` 1.35; `outputTokens` equal to `maxTokens` (64,000); `appendOnly: true`; `contextTokens` only when you set it; `clearsToolResults: true` only when `body.context_management.edits` holds an edit whose `type` starts with `clear_tool_uses` or `compact` (new in 0.6.0). Each value but `appendOnly` comes from an option: `toolFiles` from `toolFilePlacement`, `outputTokens` from `maxTokens`, `clearsToolResults` from `body`, the others from the option of the same name. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
+| `capabilities` | `maxRequestBytes` 32,000,000; `toolFiles` from `toolFilePlacement` (`"inside"`); `pageTokens` 3,500; `tokenScale` 1.35; `outputTokens` equal to `maxTokens` (64,000); `appendOnly: true`; `contextTokens` only when you set it; `clearsToolResults: true` only when `body.context_management.edits` holds an edit whose `type` starts with `clear_tool_uses` or `compact` (new in 0.6.0); `documents`, with its defaults filled in, only when you pass it (new in 0.99.9). No `toolFileTypes`: PDF only. Each value but `appendOnly` comes from an option: `toolFiles` from `toolFilePlacement`, `outputTokens` from `maxTokens`, `clearsToolResults` from `body`, the others from the option of the same name. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
 | `send(request, hooks?)` | One chat request, described below. |
 | `requestBytes(request)` | The size in bytes of the JSON body that `send` would post. |
 | `generateText` | The part reader of whole-file reads, described below. With it, `analyze_whole_document` can be offered when this adapter is the model that uses the tools (the explorer, when there is one), unless `wholeDocumentAnalysis` is `false`. |
@@ -96,6 +96,11 @@ No `temperature` or other sampling field is sent. `body` would send one, but the
 - A turn of text becomes content blocks: `{ type: "text", text }` for each text part that is not
   empty (the API refuses an empty text block), and each native part as it is. Turns of the same role
   that follow each other are made one message, and a turn left with no blocks is dropped.
+- A turn with files (`ModelTextMessage.files`, 0.99.9) has them first: a PDF as
+  `{ type: "document", source: { type: "base64", media_type: "application/pdf", data } }`, an image
+  (PNG, JPEG, GIF, WebP) as `{ type: "image", source: { type: "base64", media_type, data } }`. A
+  file of another type is a `TypeError` before anything is sent: the `document` block takes PDF
+  only.
 - A model turn of this question goes back as it came, thinking blocks and their signatures
   included. Two kinds of block are left out of it: an empty text block (one a stream opened and
   closed with nothing in it, which the API refuses) that no thinking block follows, and, in a reply
@@ -110,7 +115,9 @@ No `temperature` or other sampling field is sent. `body` would send one, but the
   `content` being the result as JSON, with `is_error: true` when the result is an error. With
   `toolFilePlacement` `"inside"`, the pages of `view_pages` are `document` blocks inside the
   `tool_result`, after its JSON. With `"beside"`, they come after all the results of the turn, each
-  after a text block `"{file name} (returned by view_pages):"`.
+  after a text block `"{file name} (returned by view_pages):"`. Since 0.99.9 a tool file that is an
+  image is an `image` block (it was a `document` block): a page drawn as an image, when another
+  model of the question takes no PDF, or the file of a tool set of your own.
 
 **Streaming.** Every chat request is streamed unless `stream` is `false`, whether `onText` is given
 or not: the explorer's requests too. Each piece of text goes to `onText` as it arrives.
@@ -239,6 +246,7 @@ type AnthropicOptions = {
   fallbacks?: "default" | Array<Record<string, unknown> & { model: string }> | undefined;
   cache?: boolean | "5m" | "1h" | undefined;
   toolFilePlacement?: "inside" | "beside" | "none" | undefined;
+  documents?: DocumentsCapability | undefined; // new in 0.99.9
   stream?: boolean | undefined;
   eagerInputStreaming?: boolean | undefined;
   contextTokens?: number | undefined;
@@ -270,7 +278,8 @@ The options of [`anthropic()`](#anthropicoptions).
 | `analysisBody` | `(maxOutputTokens: number) => Record<string, unknown>` | none | More fields for the body of each part read, given the `max_tokens` that request is sent with. Spread last. |
 | `fallbacks` | `"default" \| Array<Record<string, unknown> & { model: string }>` | none | Have another model answer when this one's safety classifiers decline a request: `"default"`, or a list of `{ model }`. It adds the `fallbacks` field and the beta `server-side-fallback-2026-07-01`. Off unless set: it is offered on the Claude API, not on Amazon Bedrock, Vertex AI or Microsoft Foundry, and not for every model. |
 | `cache` | `boolean \| "5m" \| "1h"` | `true` | Prompt caching: a top-level `cache_control`, which caches the request up to its last block, so each request of the tool loop, and a follow-up question, reads what the one before wrote. `true` and `"5m"` send `{ type: "ephemeral" }`, which the API keeps five minutes; `"1h"` adds `ttl: "1h"`; `false` sends none. Part reads are not cached. |
-| `toolFilePlacement` | `"inside" \| "beside" \| "none"` | `"inside"` | Where the pages of `view_pages` go: `"inside"` the tool result as `document` blocks; `"beside"` it, after the tool results of the turn; `"none"` sends no file, and `view_pages` is then not offered to any model of the question. It is `capabilities.toolFiles`. |
+| `toolFilePlacement` | `"inside" \| "beside" \| "none"` | `"inside"` | Where the pages of `view_pages` go: `"inside"` the tool result as `document` blocks; `"beside"` it, after the tool results of the turn; `"none"` sends no file, and `view_pages` is then not offered to any model of the question. It is `capabilities.toolFiles`. An image tool file goes as an `image` block (0.99.9). |
+| `documents` | [`DocumentsCapability`](./ask.md#toolfiletype-documentscapability-and-nativedocumentformat) | none | The files Claude reads natively: `{ formats: ["pdf"] }` sends a small visual PDF sent whole as a `document` block before its text ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). Only `"pdf"`: the Messages API reads no Office file. A value that is not valid is a `TypeError` (a `RangeError` for a limit out of range) when the adapter is made. It is also `capabilities.documents`. New in 0.99.9. |
 | `stream` | `boolean` | `true` | Stream every chat request, which keeps a long reply from timing out. `false` for a gateway without streaming. Part reads are never streamed. |
 | `eagerInputStreaming` | `boolean` | `true` when the host of the URL is `api.anthropic.com`, else `false` | Set `eager_input_streaming: true` on each tool of a streamed request, so that tool input arrives as it is written. Off by default for any other URL, which may refuse the field. Never sent when `stream` is `false`. |
 | `contextTokens` | `number` | none | The model's context window in tokens. Set as `capabilities.contextTokens`, it keeps the budget of a question within it. Without it the library's budget holds: 1,000,000 tokens unless you set another. |

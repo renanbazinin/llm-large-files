@@ -20,6 +20,7 @@ import type {
   ChatMessage, ChatTurn, ToolTurn,
   ModelAdapter, ModelCapabilities, ModelRequest, ModelMessage, ModelTextMessage, ModelToolRound,
   ModelPart, ToolCall, ToolAnswer, SendHooks, ModelReply, GenerateText, GenerateUsage,
+  ToolFileType, DocumentsCapability, NativeDocumentFormat,
   ModelUsage, UsageTotals, Evidence, NumberRange, AskEvent, EventStream,
 } from "llm-large-files";
 ```
@@ -52,7 +53,8 @@ Contents:
   [`ModelMessage`](#modelmessage), [`ModelTextMessage`](#modeltextmessage),
   [`ModelToolRound`](#modeltoolround), [`ModelPart`](#modelpart), [`ToolCall`](#toolcall),
   [`ToolAnswer`](#toolanswer), [`SendHooks`](#sendhooks), [`ModelReply`](#modelreply),
-  [`GenerateText`](#generatetext), [`GenerateUsage`](#generateusage)
+  [`GenerateText`](#generatetext), [`GenerateUsage`](#generateusage),
+  [`ToolFileType`, `DocumentsCapability` and `NativeDocumentFormat`](#toolfiletype-documentscapability-and-nativedocumentformat)
 - **Usage:** [`ModelUsage`](#modelusage), [`UsageTotals`](#usagetotals),
   [`UsageMeter`](#usagemeter)
 - **Evidence and ranges:** [`Evidence`](#evidence), [`NumberRange`](#numberrange),
@@ -296,7 +298,8 @@ The options of `askWithFiles`.
 | `retry` | [`RetryOptions`](./errors-and-retries.md#retryoptions) | `{ retries: 3, baseDelayMs: 500, maxDelayMs: 60_000 }` | How a failed model request is sent again: chat requests and whole-file part reads. `{ retries: 0 }` turns it off. |
 | `budget` | `Partial<`[`Budget`](./library.md#budget)`>` | the library's | Budget fields for this question, in place of the library's. Fields given nowhere follow the context window. The budget is then fitted to the models either way: `result.budget` shows it. |
 | `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
-| `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`. It changes nothing for a library that keeps no originals. |
+| `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`, and all of them take one kind of file (`capabilities.toolFileTypes`: one small PDF, or, since 0.99.9, each page drawn as an image). It changes nothing for a library that keeps no originals. |
+| `nativeDocuments` | `boolean` | `true` | Send small visual files sent whole (a PDF with a picture or a scanned page, a deck) as the files themselves too, before their text, when every model of the question declares `capabilities.documents` and their original is kept. It changes nothing unless an adapter declares `documents`; `false` sends text only. Another value is a `TypeError` before any request ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). New in 0.99.9. |
 | `onText` | `(delta: string) => void` | none | The answer's text as it arrives. With it, `streamText` defaults to `true`, and the adapter streams when it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
 | `streamText` | `boolean` | `true` with `onText`, and in [`askStream`](#askstreamoptions); `false` otherwise | Whether to ask the model for the answer as it is written: the loop then passes `onText` to the adapter's `send` ([`SendHooks`](#sendhooks)), and an adapter that can stream does. A reply that fails after its first piece of text is not sent again: that text was shown. With `false`, the text of each reply comes once the reply is in, to `onText` and as `text` events, and a reply that fails can be sent again. A listener of the events alone (`onEvent` without `onText`) does not change how the model is asked. New in 0.7.0. |
 | `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry of a chat request ("The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…"), and "Writing the answer…" before the request for the answer. Show it as plain text: a tool call's line can quote the model's words. The retries of a whole-file read's requests are not told here: they come only as `retry` events. |
@@ -361,7 +364,7 @@ question that failed.
 | `answered` | `boolean` | True when the last reply had text that is not blank, and the provider did not refuse the prompt. False when the prompt was refused (`blockReason`), or the last reply had no text: it was cut off or filtered before any text, or the request for the answer came back without text, and so did its second try. A turn whose tool call could not be read is not the answer, even with a remark in it: the answer is asked for (since 0.10.0; before, the remark was the answer). With `filteredAnswer: "drop"`, false for a filtered answer. `text` may then be empty, or hold a remark made before a tool call, or the start of a reply that was refused: show your own message ([`answerInfoOf`](#answerinfo) says which). |
 | `blockReason` | `string`, optional | Why the provider refused the prompt, in the adapter's words. Set only then. Nothing more is asked after a refusal. |
 | `steps` | `string[]` | Each finished step, in order: a line for each tool call, run or refused ("Search app.log (exact) for “timeout” — 12 matching lines", or "… — already shown above"), one for the calls of a turn over `callsPerTurn`, and one when the loop shortened older results, asked again after an empty or broken reply, or planned the documents again. The second try of the answer says "The model's answer was empty: it was asked again" or "The model called a tool instead of answering: it was asked again for the answer". The lines `onStep` got. Each is one line of plain text: a line break, a tab or another control character in what the model sent becomes one space with the blanks around it; the invisible characters that file text loses are dropped (text-direction overrides and isolates, zero-width spaces, word joiners, soft hyphens, tag characters); `](` becomes `] (`, so that a markdown link or picture stays text. A query is cut at 80 characters and a task at 100, never in the middle of a character. Steps still quote the model's words, HTML tags and web addresses included: show them as plain text, never as markdown or HTML. |
-| `evidence` | [`Evidence[]`](#evidence) | What the model was shown. First each file sent whole, in the order of its block: `{ tool: "inline", documentId, document, lines: [[1, lines]], whole: true }`, with no `callId` (new in 0.10.0). Then what each tool call showed: the document, and the lines or pages, in call order. A call that failed, was not run, or was answered with a pointer to an earlier result adds none. Each of those has the `callId` of its call's events (new in 0.7.0). |
+| `evidence` | [`Evidence[]`](#evidence) | What the model was shown. First each file sent whole, in the order of its block: `{ tool: "inline", documentId, document, lines: [[1, lines]], whole: true }`, with no `callId` (new in 0.10.0), and right after it, for a file whose uploaded file was sent too, `{ tool: "original", documentId, document, pages: [[1, pages]] }`, with no `lines` and no `whole` (new in 0.99.9). Then what each tool call showed: the document, and the lines or pages, in call order. A call that failed, was not run, or was answered with a pointer to an earlier result adds none. Each of those has the `callId` of its call's events (new in 0.7.0). |
 | `toolTurns` | [`ToolTurn[]`](#toolturn) | The tool rounds of this question, as plain JSON, as the model last had them. Pass them back in `messages`, between this question and its answer, and a later question sees what was found here. Each result of a call made in this question has `tool_turns_left`, except a stand-in (`dropped: true`, see [`stubResult`](#stubresultcall-result-hadfiles)): a result shortened to make room, a pointer whose result was shortened, and the result of a call that showed pages. The pages are not kept: their stand-in says which pages were shown. A call's `problem` is left out. With `storeRounds: "compact"` (0.10.2), each large result is its stand-in ([`compactToolTurns`](#compacttoolturnsturns)). |
 | `plan` | [`DocumentPlan`](./library.md#documentplan) | Which documents went in whole (`inline`) and which were reached through tools (`searchable`). |
 | `missing` | `string[]`, optional | The documents of `documentIds` that were missing, and that the question was answered without (`onMissingDocuments` `"drop"`). Absent when none was. New in 0.9.0. |
@@ -1008,7 +1011,10 @@ What `send` must do with the request:
   that this adapter returned. **Without `raw`** (a stored round, or one an explorer of another
   adapter made), build the model turn from `calls`.
 - **The results** of a round go in call order, each with its call's `id`. The files of an answer
-  (the pages of `view_pages`) go where `capabilities.toolFiles` says.
+  (the pages of `view_pages`) go where `capabilities.toolFiles` says. They are of the kinds
+  `capabilities.toolFileTypes` lists: a PDF unless it lists images too (0.99.9).
+- **The files of a turn** (`ModelTextMessage.files`, 0.99.9) go first in that turn, before its
+  parts. The loop puts files of its own there only for adapters that declare `documents`.
 - **`toolChoice: "none"`** means the model must answer in text. The tools are still in `tools`.
 - **Text:** call `hooks.onText` as text arrives when it is given; return the whole text in
   `reply.text` either way, starting with what was streamed. Pass `hooks.signal` to the request: the
@@ -1065,14 +1071,18 @@ reference page.
 | `contextTokens` | `number` | none | The context window, in the model's tokens. The window of a question is the smallest of the library's `budget.contextTokens` and those its models declare. |
 | `maxRequestBytes` | `number` | none | The largest request body, in bytes. A question's `budget.maxRequestBytes` is the smallest of the library's and those its models declare. |
 | `toolFiles` | `"inside" \| "beside" \| "none"` | required | Where `send` puts a file that a tool returned (the pages of `view_pages`): `"inside"` the tool result, `"beside"` it in a user turn of its own, or `"none"` for a model that cannot be sent one. When any model of the question says `"none"`, `view_pages` is not offered. Since 0.7.1 a value that is none of the three (left out by an adapter written in JavaScript) counts as `"none"`. |
-| `pageTokens` | `number` | required | About what the model bills for one PDF page it is shown, in its tokens. The question counts the largest of its models': the pages of a question may take up to half of `budget.reservedTokens`. Since 0.7.1 a value that is missing, NaN, negative or not finite counts as 1,000, as `openAiCompatible()` declares by default: before, it took away the question's limit of pages and, once a page was shown, every count of the room left. |
+| `pageTokens` | `number` | required | About what the model bills for one page it is shown (a PDF page, or a page drawn as an image), in its tokens. The question counts the largest of its models': the pages of a question may take up to half of `budget.reservedTokens`. Since 0.7.1 a value that is missing, NaN, negative or not finite counts as 1,000, as `openAiCompatible()` declares by default: before, it took away the question's limit of pages and, once a page was shown, every count of the room left. |
+| `toolFileTypes` | [`readonly ToolFileType[]`](#toolfiletype-documentscapability-and-nativedocumentformat) | `["application/pdf"]` | The kinds of file a tool may hand this model; `toolFiles` says where they go. `view_pages` sends one small PDF when every model of the question takes `"application/pdf"`; else each page drawn as an image, a JPEG when every model takes `"image/jpeg"`, else a PNG when every model takes `"image/png"`; else it is not offered. Ignored with `toolFiles: "none"`. A value that is not a list counts as left out; types the loop does not know are ignored. New in 0.99.9. |
+| `documents` | [`DocumentsCapability`](#toolfiletype-documentscapability-and-nativedocumentformat) | none | The uploaded files this model reads natively in a user turn. When every model of the question declares it, small visual files sent whole go to it as the files themselves too, before their text (`ModelTextMessage.files`). Read leniently: unknown formats are dropped, a limit that is not a number above 0 is its default. The built-in adapters declare it only when you pass their `documents` option. New in 0.99.9. |
 | `tokenScale` | `number` | 1 | How many of this model's tokens one token of the library's estimate (`estimateTokens`, fitted to Gemini) comes to. A model that counts a third more for the same text says 1.33, and its window is that much smaller in the library's tokens. The question uses the largest of its models'. A value that is not above 0 counts as 1. |
 | `outputTokens` | `number` | none | Tokens set aside for the reply, when they come out of the same window as the prompt (Claude's `max_tokens`). The largest of the models' is kept free, but at least a quarter of the window is left for the prompt. |
 | `appendOnly` | `boolean` | `false` | True for a model whose earlier turns may not be rewritten (Claude ties its thinking blocks to the turns they were written in). When any model of the question says so, old tool results are not shortened to make room: when the room runs out, the question is answered with what it has, and an overflow is mended only by planning the documents again. When the model that explores is append-only, a note the loop adds after an empty or broken reply stays in its conversation for the rest of the question. |
 | `clearsToolResults` | `boolean` | `false` | True for a model whose provider may clear old tool results from the conversation on its side, before the model reads it: Claude's context editing with `clear_tool_uses`, or compaction. When any model of the question says so, no call is answered with a pointer to an earlier result: each call made again runs again, the same call twice in one turn runs twice, and pointers in stored rounds are sent as the stand-in that says to call again. The loop still counts every result as sent, so its room runs out where it would without it. `anthropic()` sets it from its `body`; set it in an adapter of your own whose provider does this. New in 0.6.0. |
 
 With an explorer, every field counts for the pair: the budget is planned for the smaller window
-and the larger scale, because both models get the same conversation. Guides:
+and the larger scale, because both models get the same conversation. Pages go only as a kind of
+file both take (`toolFileTypes`), and files go as they are only when both declare `documents`: the
+formats they share, with the smaller limits. Guides:
 [explorer model](../guides/explorer-model.md), [costs and limits](../guides/costs-and-limits.md).
 
 ### `ModelRequest`
@@ -1104,11 +1114,28 @@ One message of a [`ModelRequest`](#modelrequest): a turn of text, or a round of 
 ### `ModelTextMessage`
 
 ```ts
-type ModelTextMessage = { role: "user" | "assistant"; parts: ModelPart[] };
+type ModelTextMessage = { role: "user" | "assistant"; parts: ModelPart[]; files?: ToolFile[] };
 ```
 
 A turn of the user or of the model, as text and native parts. It is also a
 [`ChatMessage`](#chatmessage): pass one in `messages` to send parts in the provider's own form.
+
+`files` ([`ToolFile[]`](./tools.md#toolfile), new in 0.99.9) are uploaded files sent as they are,
+first in the turn, before its parts. The loop adds files of its own only when every model of the
+question declares [`documents`](#modelcapabilities): the small visual files sent whole, named
+`attached-1.pdf` and so on, with a line before the documents' text that names them. Files you put
+in a message are passed on as they are, and counted in the size of the request. Each built-in
+adapter sends what it can take, and throws a `TypeError` for another type before anything is sent:
+
+| Adapter | A PDF | An image (PNG, JPEG, GIF, WebP) | Another type |
+|---|---|---|---|
+| `gemini()` | `inlineData` | `inlineData` | `inlineData` of its type: the provider says whether it reads it |
+| `anthropic()` | A `document` block | An `image` block | `TypeError` |
+| `openAiCompatible()` | A `file` part | An `image_url` part | `TypeError` |
+| `openAiResponses()` | An `input_file` part | An `input_image` part | `TypeError` |
+
+An adapter of your own that does not read `files` drops them: declare `documents` only once it
+sends them.
 
 ### `ModelToolRound`
 
@@ -1247,6 +1274,35 @@ type GenerateUsage = { inputTokens?: number; cachedInputTokens?: number; outputT
 The tokens one part-read request used, as far as the provider said, for `onUsage`. The fields mean
 what they mean in [`ModelUsage`](#modelusage).
 
+### `ToolFileType`, `DocumentsCapability` and `NativeDocumentFormat`
+
+```ts
+type ToolFileType = "application/pdf" | "image/png" | "image/jpeg";
+type NativeDocumentFormat = "pdf" | "pptx";
+type DocumentsCapability = {
+  formats: readonly NativeDocumentFormat[];
+  maxFileBytes?: number;
+  maxPages?: number;
+};
+```
+
+New in 0.99.9. `ToolFileType` is a kind of file a tool may hand a model
+([`toolFileTypes`](#modelcapabilities)): a PDF, or a page drawn as an image
+([Pages as images](../guides/pdfs.md#pages-as-images)). `DocumentsCapability` is what a model reads
+as it is in a user turn ([`documents`](#modelcapabilities)):
+
+| Field | Default | What it is |
+|---|---|---|
+| `formats` | required | The formats it reads: `"pdf"`; `"pptx"` too on the Gemini API. |
+| `maxFileBytes` | 4,194,304 (`DEFAULT_NATIVE_FILE_BYTES`) | The most bytes of one file. |
+| `maxPages` | 10 (`DEFAULT_NATIVE_PAGES`) | The most pages of one file, slides for a deck. |
+
+The adapters check their `documents` option when they are made: a value that is not an object with
+a non-empty list of formats, a format the adapter does not send (`"pptx"` anywhere but `gemini()`),
+or a limit that is not a whole number above 0 is a `TypeError` (a `RangeError` for a number), such
+as `openAiCompatible(): documents.formats may name only "pdf", and names "pptx".` Which file goes is
+in [The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files).
+
 ## Usage
 
 ### `ModelUsage`
@@ -1344,7 +1400,7 @@ true }`, with no `callId`, since no tool call showed it.
 
 | Field | What it holds |
 |---|---|
-| `tool` | The tool that was called: `"search_document"`, `"read_document"`, `"get_document_overview"`, `"aggregate_table"`, `"analyze_whole_document"`, `"view_pages"`. Or `"inline"`: a file sent whole, every line of which was in the prompt (since 0.10.0). |
+| `tool` | The tool that was called: `"search_document"`, `"read_document"`, `"get_document_overview"`, `"aggregate_table"`, `"analyze_whole_document"`, `"view_pages"`. Or `"inline"`: a file sent whole, every line of which was in the prompt (since 0.10.0). Or `"original"`: the uploaded file of a file sent whole went to the model too, every page in `pages`, with no `lines` and no `whole`, right after its `"inline"` entry (since 0.99.9). |
 | `documentId` | The document's ID. |
 | `document` | The file's name, when the result gave it. |
 | `lines` | The lines the model was shown, merged and in order. A read: its lines. A search: its passages, or each matching line with the lines of context around it, the last matching line of the file included when the search showed it. An overview: the first 30 and the last 20 lines (all of them in a file of 30 lines or fewer). An `aggregate_table` call: its header line and the lines its groups list (the table's other rows were counted, not shown). A whole-file read with `output: "items"`: the line of each item (since 0.10.0). |

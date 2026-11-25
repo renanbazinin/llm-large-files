@@ -51,14 +51,21 @@ you run the examples, they load `dist/`: run `npm run build` first. They need No
 22.18 or a later 22.x, or Node 23.6 or later (Node runs their TypeScript directly), and a key, because they call a real model.
 
 The dev dependencies include the optional peers `jszip`, `unpdf` and `@cantoo/pdf-lib`, so the
-DOCX, PPTX and PDF tests run.
+DOCX, PPTX and PDF tests run. The fourth peer, `@napi-rs/canvas` (pages drawn as images, with
+unpdf 2 on Node 24), is not a dev dependency: a native binary of about 35 MB on every install, of no
+use with unpdf 1.4.0. The tests that draw real pages (`test/page-images-render.test.ts`,
+`test/timing/page-images.timing.test.ts`) are skipped without it. To run them, on Node 24:
+`npm install --save-dev --save-exact unpdf@2.1.0 @napi-rs/canvas@1.1.0`, then put package.json and
+package-lock.json back (`git checkout package.json package-lock.json && npm ci`): `npm install
+--no-save` does not install a package the root lists only as an optional peer.
 
 CI (`.github/workflows/ci.yml`) runs on every pull request and every push to `main`: Node 22, 24
 and 26, on Ubuntu and on Windows, where a rename can fail for a moment while another process has
 the file open, and `FileDocumentStore` retries it (`EPERM`, `EACCES`, `EBUSY`); and on Ubuntu, Node
 22.12.0 (the floor of `engines`) and 22.13.0. Each job runs `npm ci`, the typecheck, the tests, the
 build and `npm pack --dry-run`. Five more jobs run on Ubuntu: `unpdf-versions` runs the tests with
-other versions of the optional peer `unpdf`, `package` (Node 22.12.0, the newest 22, and 26) runs
+other versions of the optional peer `unpdf` (its rows of unpdf 2 with `@napi-rs/canvas` 1.1.0, so
+that real pages are drawn), `package` (Node 22.12.0, the newest 22, and 26) runs
 `scripts/check-tarball.mjs` on the packed tarball, `coverage` (Node 24) runs `npm run coverage`,
 which fails the job when a test fails or a total is under its threshold, `evals-replay` (Node 24)
 runs `npm run eval:replay`, and `perf` (Node 22) runs `npm run perf` alone on its runner: a bar
@@ -73,7 +80,7 @@ that no run of three met fails it. Files use LF line endings (`.gitattributes`).
   other than:
   - a file inside `src/`;
   - a Node built-in, with the `node:` prefix: `node:fs/promises`, not `fs/promises`;
-  - the optional peers `jszip`, `unpdf` and `@cantoo/pdf-lib`.
+  - the optional peers `jszip`, `unpdf`, `@cantoo/pdf-lib` and `@napi-rs/canvas`.
 
   Load a peer with `await import(...)` where it is needed, and its types with `import type`, so
   that the package works without it. When it is missing, throw an error that names it, as

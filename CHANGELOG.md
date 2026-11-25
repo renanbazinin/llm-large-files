@@ -123,8 +123,30 @@ and question IDs for requests sent again.
   seconds, then stops. Another question under the same ID is a `QuestionConflictError` (409). In
   memory, one registry per process ([Question IDs](docs/reference/ask.md#question-ids),
   [When the stream breaks](docs/guides/web-app.md#when-the-stream-breaks-a-question-id)).
-
-<!-- visual -->
+- **Page images for models that take no PDF** (G-13): `openAiCompatible({ imageInput: true })`, for
+  vLLM, DeepSeek and other servers that read images. `view_pages` then sends each page as a JPEG
+  of 1,568 pixels on its longest side (`PAGE_IMAGE_SIDE`), drawn with unpdf 2 and the optional
+  `@napi-rs/canvas`, which need Node 24. A look draws at most 5 pages, within the bytes left and 5
+  seconds, and timers and other requests run between two pages. An adapter of your own says what
+  it takes with `capabilities.toolFileTypes`: the loop sends a PDF when every model takes one,
+  else a JPEG, else a PNG. `openAiResponses()` with a `toolFilePlacement` takes both
+  ([Pages as images](docs/guides/pdfs.md#pages-as-images)).
+- **The `documents` capability**: with `gemini(endpoint, { documents: { formats: ["pdf"] } })`, or
+  the same option of `openAiCompatible()`, `openAiResponses()`, `anthropic()` and `askGemini`, a
+  small visual file sent whole also goes to the model as the file itself, before its text. That is
+  a PDF with a picture or a scanned page, or a slide deck (PPTX, Gemini API only), of at most 10
+  pages and 4 MiB, whose original is kept. A log, a table to count, a DOCX and a searched file never
+  go. The text still goes, so citations and counts work as before, and such a PDF gets no
+  `view_pages`. Off unless the adapters declare it; `nativeDocuments: false` turns it off for one
+  question ([The file itself](docs/guides/pdfs.md#the-file-itself-for-small-visual-files)).
+- `ModelTextMessage.files`, `PrepareOptions.nativeDocuments`, `PreparedContext.native`,
+  `ToolOptions.pageImages`, `PAGE_IMAGE_SIDE`, `DEFAULT_NATIVE_FILE_BYTES` and
+  `DEFAULT_NATIVE_PAGES`, for loops and adapters of your own. Evidence has an entry with
+  `tool: "original"` for a file sent as it is. Files an application puts in `ModelTextMessage.files`
+  go first in their turn: each built-in adapter sends a PDF or an image, and throws a `TypeError`
+  for a type it cannot send (`gemini()` sends any type as `inlineData`).
+- `@napi-rs/canvas` (`^0.1.69 || ^1.0.0`) is a new optional peer dependency, needed only for page
+  images.
 
 ### Changed: what works differently
 
@@ -145,6 +167,9 @@ and question IDs for requests sent again.
   status 409.
 - `sseMessageOf` and `writeSseEvents` keep `questionId` in `run.finish` and `run.error`, and in the
   result of `run.finish`, for a question that has one.
+- `anthropic()` sends a file that a tool returns as an `image` block when it is an image; it sent
+  every file as a `document` block. `openAiCompatible()` with `pdfInput` sends one as an
+  `image_url` part. Only a tool set of your own returned images before 0.99.9.
 
 <!-- every package -->
 

@@ -13,7 +13,7 @@ import { fromOpenAiMessages, openAiCompatible, openAiResponses, openAiToolTurns,
 import type { OpenAiCompatibleOptions, OpenAiMessage, OpenAiResponsesOptions } from "llm-large-files/openai";
 // What the signatures below use from the main entry:
 import { ModelRequestError } from "llm-large-files";
-import type { ChatMessage, ModelAdapter, ModelErrorKind, ToolTurn } from "llm-large-files";
+import type { ChatMessage, DocumentsCapability, ModelAdapter, ModelErrorKind, ToolTurn } from "llm-large-files";
 ```
 
 The entry point needs no OpenAI SDK: it posts JSON to the URL you give, with `fetch`.
@@ -46,7 +46,7 @@ The adapter it returns:
 | Member | Value |
 |---|---|
 | `id` | `options.id`, else `options.model`. It names the model in `usage.byModel` and in messages. |
-| `capabilities` | `toolFiles` is `"beside"` with `pdfInput`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set), so the loop counts a scale of 1 by default. No `outputTokens`, not `appendOnly`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
+| `capabilities` | `toolFiles` is `"beside"` with `pdfInput` or `imageInput`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set), so the loop counts a scale of 1 by default. With `imageInput` (0.99.9), `toolFileTypes` is `["image/png", "image/jpeg"]`, or `["application/pdf", "image/png", "image/jpeg"]` with `pdfInput` too; with `documents`, `documents` with its defaults filled in. Without those two options, the object of 0.10. No `outputTokens`, not `appendOnly`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
 | `send(request, hooks?)` | One chat request, described below. |
 | `requestBytes(request)` | The size in bytes of the JSON body of that request, without the two fields a stream adds. |
 | `generateText` | The part reader of whole-file reads, described below. With it, `analyze_whole_document` can be offered when this adapter is the model that uses the tools (the explorer, when there is one), unless `wholeDocumentAnalysis` is `false`. |
@@ -75,6 +75,11 @@ A chat request carries no output limit and no sampling field unless you put them
 - A turn of text is a message whose `content` is a string: its text parts, joined by a blank line.
   A turn with native parts has a list as `content`: `{ type: "text", text }` for each text part,
   and each native part as it is.
+- A turn with files (`ModelTextMessage.files`, 0.99.9) has a list as `content`, its files first: a
+  PDF as `{ type: "file", file: { filename, file_data: "data:application/pdf;base64,…" } }`, an
+  image (PNG, JPEG, GIF, WebP) as `{ type: "image_url", image_url: { url: "data:image/png;base64,…" } }`,
+  then its text parts as one `{ type: "text", text }`, joined by a blank line. A file of another
+  type is a `TypeError` before anything is sent.
 - User turns that follow each other are made one, because some servers (DeepSeek's reasoner, the
   chat templates of Mistral and Gemma models) refuse two user turns in a row.
 - A model turn of this question goes back as it came (`ModelReply.raw`), with any
@@ -83,9 +88,11 @@ A chat request carries no output limit and no sampling field unless you put them
   adapter) becomes an assistant message with `content: null` and `tool_calls`, the arguments as a
   JSON string. A call without an ID is given `call_{round}_{n}`.
 - Each result is a message `{ role: "tool", tool_call_id, content }`, `content` being the result as
-  JSON. With `pdfInput`, the files the tools returned (the pages of `view_pages`) follow in one user
-  message: for each file, a text part `"{file name} (returned by view_pages):"` and a part
-  `{ type: "file", file: { filename, file_data: "data:application/pdf;base64,…" } }`.
+  JSON. With `pdfInput` or `imageInput`, the files the tools returned (the pages of `view_pages`)
+  follow in one user message: for each file, a text part `"{file name} (returned by view_pages):"`
+  and a part `{ type: "file", file: { filename, file_data: "data:application/pdf;base64,…" } }`,
+  or, for a page drawn as an image (0.99.9),
+  `{ type: "image_url", image_url: { url: "data:image/jpeg;base64,…" } }`, with no `detail`.
 
 **Streaming.** A chat request is streamed when `hooks.onText` is given and `stream` is not `false`.
 Under `askWithFiles` that is the answering model's request when you pass `onText`; an explorer's
@@ -219,6 +226,8 @@ type OpenAiCompatibleOptions = {
   systemRole?: "system" | "developer" | undefined;
   answerWithoutTools?: "tool_choice" | "omit" | undefined;
   pdfInput?: boolean | undefined;
+  imageInput?: boolean | undefined; // new in 0.99.9
+  documents?: DocumentsCapability | undefined; // new in 0.99.9
   stream?: boolean | undefined;
   contextTokens?: number | undefined;
   maxRequestBytes?: number | undefined;
@@ -247,10 +256,12 @@ The options of [`openAiCompatible()`](#openaicompatibleoptions).
 | `systemRole` | `"system" \| "developer"` | `"system"` | The role of the system message, in chat requests and in part reads. `"developer"` for an endpoint that wants the newer name. |
 | `answerWithoutTools` | `"tool_choice" \| "omit"` | `"tool_choice"` | How the request that must be answered in text says so. `"tool_choice"` keeps the tools and sends `tool_choice: "none"`. `"omit"` leaves the tools out and sends no `tool_choice`, for a server that does not know `tool_choice`. |
 | `pdfInput` | `boolean` | `false` | Send the pages of `view_pages` to the model, as `file` parts in a user message after the tool messages of the round. It makes `capabilities.toolFiles` `"beside"`. Off, `toolFiles` is `"none"`, and `view_pages` is not offered to any model of the question. Turn it on only for a model that reads PDF input: a tool message holds text only, and many servers behind this API take no PDF at all. |
+| `imageInput` | `boolean` | `false` | Send the pages of `view_pages` as images: each page a JPEG of 1,568 pixels on its longest side, in an `image_url` part, in a user message after the tool messages. For a model that reads images and no PDF (vLLM, DeepSeek, most servers behind this API). It makes `toolFiles` `"beside"` and lists `"image/png"` and `"image/jpeg"` in `toolFileTypes`; with `pdfInput` too, PDF comes first and is used. Drawing pages needs `unpdf` 2 (Node 24 or later) and `@napi-rs/canvas` ([Pages as images](../guides/pdfs.md#pages-as-images)). New in 0.99.9. |
+| `documents` | [`DocumentsCapability`](./ask.md#toolfiletype-documentscapability-and-nativedocumentformat) | none | The files this model reads natively: `{ formats: ["pdf"] }` sends a small visual PDF sent whole as a `file` part before its text ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). Only `"pdf"`: Chat Completions reads no other file. A value that is not valid is a `TypeError` (a `RangeError` for a limit out of range) when the adapter is made: `openAiCompatible(): documents.formats may name only "pdf", and names "pptx".` New in 0.99.9. |
 | `stream` | `boolean` | `true` | Stream a chat request that has `onText`. `false` never streams, for a server without streaming. A request without `onText` is not streamed either way. |
 | `contextTokens` | `number` | none | The model's context window in tokens. Set as `capabilities.contextTokens`, it keeps the budget of a question within it. Without it the library's budget holds: 1,000,000 tokens unless you set another. |
 | `maxRequestBytes` | `number` | none | The largest request body the endpoint takes, in bytes. Set as `capabilities.maxRequestBytes`, it keeps the budget within it. Without it the library's budget holds: 10,000,000 bytes unless you set another. |
-| `pageTokens` | `number` | `1_000` | Tokens one PDF page shown by `view_pages` costs. The loop sizes the pages a question may look at from it. It matters only with `pdfInput`. |
+| `pageTokens` | `number` | `1_000` | Tokens one page shown by `view_pages` costs, as a PDF page or an image. The loop sizes the pages a question may look at from it, and counts each file sent as it is at its pages times this. It matters only with `pdfInput`, `imageInput` or `documents`. DeepSeek bills at most 384 tokens an image: 1,000 counts high, and only shows fewer pages. |
 | `tokenScale` | `number` | none, counted as 1 | This model's tokens for one token of the library's estimate, which is fitted to Gemini. A model whose tokenizer counts a third more for the same text takes 1.33, and its documents are planned for a window that much smaller. |
 | `timeoutMs` | `number` | `180_000` | The longest a part read's request may take, in milliseconds, each try counted apart, except that a request sent again with the other name of the output limit (see `maxTokensField`) shares the time of the first. A request that runs longer is aborted, and is an `OpenAiRequestError` of kind `"timeout"` and status 0 (since 0.10.0). 0 sets no limit (since 0.10.0; before, it aborted every part read at once). Not used for chat requests. |
 | `firstByteTimeoutMs` | `number` | `600_000` | The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count: a model that thinks sends nothing until it has thought, and a reply that is not streamed comes whole at the end. A request that gets nothing for that long is aborted with an `OpenAiRequestError` (`status` 0, `kind` `"timeout"`), which `askWithFiles` sends again once. 0, a negative or a non-finite number waits without end. The key and headers are resolved before the wait starts. Not used for part reads. |
@@ -288,7 +299,7 @@ The adapter it returns:
 | Member | Value |
 |---|---|
 | `id` | `options.id`, else `options.model`. It names the model in `usage.byModel` and in messages. |
-| `capabilities` | `toolFiles` is `toolFilePlacement`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set). No `outputTokens`, not `appendOnly`, not `clearsToolResults`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
+| `capabilities` | `toolFiles` is `toolFilePlacement`, else `"none"`. `pageTokens` is `options.pageTokens`, else 1,000. `contextTokens`, `maxRequestBytes` and `tokenScale` are there only when you set them (0 counts as not set). With a `toolFilePlacement` other than `"none"`, `toolFileTypes` is `["application/pdf", "image/png", "image/jpeg"]`: a PDF, or pages drawn as images when another model of the question takes no PDF. With `documents`, `documents` with its defaults filled in. No `outputTokens`, not `appendOnly`, not `clearsToolResults`. See [`ModelCapabilities`](./ask.md#modelcapabilities). |
 | `send(request, hooks?)` | One chat request, described below. |
 | `requestBytes(request)` | The size in bytes of the JSON body of that request, without `stream`, with `include` while the adapter still sends it. |
 | `generateText` | The part reader of whole-file reads, described below. With it, `analyze_whole_document` can be offered when this adapter is the model that uses the tools. |
@@ -328,6 +339,10 @@ supported: the adapter would read the queued response as a reply with no end.
   `content`: each native part as it is, and each text part as `{ type: "input_text", text }` in a
   user turn, `{ type: "output_text", text }` in an assistant turn. The API refuses `input_text` from
   the assistant.
+- A turn with files (`ModelTextMessage.files`) has a list as `content`, its files first: a PDF as
+  `input_file`, an image (PNG, JPEG, GIF, WebP) as `input_image` with `detail: "auto"`, then its
+  text parts as one `input_text` (`output_text` from the assistant), joined by a blank line. A file
+  of another type is a `TypeError` before anything is sent.
 - User turns that follow each other are made one, as `openAiCompatible()` does.
 - A model turn of this question goes back as it came (`ModelReply.raw`): every output item of the
   response, in order, with its ID: reasoning items with their encrypted content, messages, calls.
@@ -477,6 +492,7 @@ type OpenAiResponsesOptions = {
   analysisBody?: ((maxOutputTokens: number) => Record<string, unknown>) | undefined;
   encryptedReasoning?: boolean | undefined;
   toolFilePlacement?: "inside" | "beside" | "none" | undefined;
+  documents?: DocumentsCapability | undefined;
   stream?: boolean | undefined;
   contextTokens?: number | undefined;
   maxRequestBytes?: number | undefined;
@@ -502,7 +518,8 @@ The options of [`openAiResponses()`](#openairesponsesoptions). New in 0.99.9.
 | `body` | `Record<string, unknown>` | none | More fields for the body of every chat request: `reasoning` (`{ effort, summary }`), `max_output_tokens`, `prompt_cache_key`, `service_tier`, `text`, `truncation`, `include`, `store`. Spread last, so a field here replaces the adapter's own, `input`, `tools`, `store` and `stream` included; a field set to `undefined` is left out of the JSON. Not sent with part reads. |
 | `analysisBody` | `(maxOutputTokens: number) => Record<string, unknown>` | none | More fields for the body of each part read, given the output limit that request is sent with: `reasoning: { effort: "low" }`. Spread last. |
 | `encryptedReasoning` | `boolean` | asked for, until a server refuses it | Whether chat requests send `include: ["reasoning.encrypted_content"]`, so that a reasoning model's thinking goes back with the tool results of the next request. Left out, a request that a server refuses with HTTP 400 about `include` or encrypted content is sent again without it, and the adapter stops asking. `true` always asks, and throws that error. `false` never asks: a reasoning item that comes without encrypted content is then not sent back, unless `body.store` is `true`. |
-| `toolFilePlacement` | `"inside" \| "beside" \| "none"` | `"none"` | Where the pages of `view_pages` go: `"inside"` the `function_call_output`, as content parts after its JSON; `"beside"` it, in a user turn after the outputs of the round; `"none"`, nowhere. It sets `capabilities.toolFiles`: with `"none"`, `view_pages` is not offered to any model of the question. No one has checked yet which OpenAI or Azure models read a PDF given this way: try yours before you turn it on. |
+| `toolFilePlacement` | `"inside" \| "beside" \| "none"` | `"none"` | Where the pages of `view_pages` go: `"inside"` the `function_call_output`, as content parts after its JSON; `"beside"` it, in a user turn after the outputs of the round; `"none"`, nowhere. It sets `capabilities.toolFiles`: with `"none"`, `view_pages` is not offered to any model of the question. No one has checked yet which OpenAI or Azure models read a PDF given this way: try yours before you turn it on. A page drawn as an image goes as `input_image`, when another model of the question takes no PDF ([Pages as images](../guides/pdfs.md#pages-as-images)). |
+| `documents` | [`DocumentsCapability`](./ask.md#toolfiletype-documentscapability-and-nativedocumentformat) | none | The files this model reads natively: `{ formats: ["pdf"] }` sends a small visual PDF sent whole as an `input_file` part before its text ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). Only `"pdf"`. A value that is not valid is a `TypeError` when the adapter is made. |
 | `stream` | `boolean` | `true` | Stream a chat request that has `onText`. `false` never streams, for a server without streaming. A request without `onText` is not streamed either way. |
 | `contextTokens` | `number` | none | The model's context window in tokens. Set as `capabilities.contextTokens`, it keeps the budget of a question within it. Without it the library's budget holds. |
 | `maxRequestBytes` | `number` | none | The largest request body the endpoint takes, in bytes. Set as `capabilities.maxRequestBytes`, it keeps the budget within it. |
