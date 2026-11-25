@@ -36,6 +36,57 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.99.12 — not released yet
+
+Citations the user does not see. A chatbot can now show answers without their line citations, in
+the headings and in the text, while the model still writes them and the result keeps them. What
+the library sends a model does not change.
+
+### Upgrading: what you need to change
+
+Code written for 0.99.11 compiles as it is: the new option and the new field are optional.
+
+- **`result.citations` has one more field, `cited`.** A test of yours that compares
+  `result.citations` (or what `checkCitations` returns) whole, with `toEqual`, now sees it: compare
+  the fields you mean, or add the list.
+
+### New: what you can add
+
+- **`showCitations: false`** (`askWithFiles`, `askStream`, `askGemini`). The model is asked for
+  citations as before, and `result.citations` checks them, but the citations in parentheses,
+  "(report.docx L188-L200)", "(L12)", "(חוזה.docx שורות 188-200)", are taken out of `onText`, the
+  `text` events and `result.text`, with the space before each: `## Payment terms (L188-L200)`
+  becomes `## Payment terms`. Text from a "(" is held back until its ")" or the end of its line, so
+  a citation never shows for a moment. A citation may name the file by its name or its document ID,
+  "(contract-1 L3)", in backticks too. Emphasis around a citation alone (`**(L12)**`) and a list
+  item left empty (`- (L12)`) go with it, and so does a parenthesis of document IDs alone,
+  "(policy-1)", unless the ID is written in the files or is the file's name. What stays: a parenthesis with other words in it, code,
+  and a form with no file name that is written in the files the model read, such as `(L4-L5)` of a
+  medical report
+  ([Citations the user does not see](docs/reference/ask.md#citations-the-user-does-not-see)):
+
+  ```ts
+  const result = await askWithFiles({ files, model, documentIds, messages, showCitations: false });
+  ```
+
+- **`CitationCheck.cited`.** Every citation of the answer, in order: its file and document ID, its
+  first and last line, whether it names a line or a row, and whether the tools showed those lines
+  (`"supported"`, `"unsupported"`, `"unchecked"`). For a list of sources beside an answer shown
+  without them ([`CitationCheck`](docs/reference/ask.md#citationcheck)).
+- **`hideCitations(text, names?, content?)` and `CitationHider`.** The same hiding for a loop of
+  your own: over a whole text, or a piece at a time (`push`, then `flush` at the end of the reply),
+  with what the model read of the files (`addContent`, `addToolResult`).
+
+### Changed: what works differently
+
+Nothing. A prompt that asked for citations "next to the claims they support, not in headings" was
+tried and left out: in a live A/B on Gemini, the line in the tool guide made the model skip the
+whole-file read of the diary cases (3 of 6 runs passed, against 6 of 6 without it).
+
+### Fixed
+
+Nothing.
+
 ## 0.99.11 — 2026-11-25
 
 The docs, checked. Every TypeScript sample of the README and the docs is now compiled against the

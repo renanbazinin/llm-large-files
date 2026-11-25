@@ -12,10 +12,35 @@ export type CitationCheck = {
   unchecked: number;
   /** The citations of lines the tools did not show: the document's name, and the line. */
   unsupported: Array<{ document: string; line: number }>;
+  /**
+   * Every citation read, in the order of the answer, the unchecked ones too: for a list of sources
+   * beside the answer, or when the answer is shown without them (`AskOptions.showCitations`).
+   * `checkCitations` always gives it; optional so that a `CitationCheck` made by hand still
+   * compiles. New in 0.99.12.
+   */
+  cited?: LineCitation[];
+};
+
+/** A citation of an answer, as `checkCitations` read it (`CitationCheck.cited`). New in 0.99.12. */
+export type LineCitation = {
+  /** The file name it goes with, as the question names the file. None when no name was found and the question has several files. */
+  document?: string;
+  /** The ID of that file. When two files of the question have the name, the one that shows the lines, else the first. */
+  documentId?: string;
+  /** The first and last line it names ("L12-14": 12 and 14; "L12": 12 and 12). */
+  from: number;
+  to: number;
+  /** "line" ("L12", "line 12"), or "row" ("Row 12", and the Hebrew "שורה 12", which is both). */
+  form: "line" | "row";
+  /**
+   * "supported": the tools showed every line it names (a file sent whole shows all of its lines);
+   * "unsupported": they did not; "unchecked": no file was found for it, or it names a row of a workbook.
+   */
+  status: "supported" | "unsupported" | "unchecked";
 };
 
 /** A citation found in the text: where it is, the lines it names, and whether it names lines or rows. */
-type Cited = { start: number; end: number; from: number; to: number; form: "line" | "row"; bare: boolean };
+type Cited = { start: number; end: number; from: number; to: number; form: "line" | "row"; bare: boolean; kind: number };
 
 /** Where a file name is written in the text (`from` with its prefix letter, `start` without), and the documents of that name. */
 type Named = { from: number; start: number; end: number; ids: string[] };
@@ -98,7 +123,7 @@ function firstFrom<T>(items: T[], key: (item: T) => number, value: number): numb
  */
 function citationsIn(text: string): Cited[] {
   let kept: Cited[] = [];
-  for (const { pattern, form, bare } of FORMS) {
+  for (const [kind, { pattern, form, bare }] of FORMS.entries()) {
     const added: Cited[] = [];
     // The first citation kept that ends after the start of the match: the only one it may overlap first.
     let next = 0;
@@ -110,7 +135,7 @@ function citationsIn(text: string): Cited[] {
       const first = numberOf(match[1]!);
       const second = match[2] === undefined ? first : numberOf(match[2]);
       if (first < 1 || second < 1) continue;
-      added.push({ start, end, from: Math.min(first, second), to: Math.max(first, second), form, bare });
+      added.push({ start, end, from: Math.min(first, second), to: Math.max(first, second), form, bare, kind });
     }
     // The two lists, each in order and apart from the other, made one.
     const merged: Cited[] = [];
@@ -256,10 +281,12 @@ function firstNotShown(shown: NumberRange[] | "whole", from: number, to: number)
  * that document. An entry with `whole` (a file read whole, or sent whole) and no lines shows every
  * line; one with lines (`[[1, lines]]`) shows those, so a line past the end of the file is not
  * supported. Two documents of one name support it by either. A row ("Row 12", "שורה 12") of a
- * workbook (XLSX) is unchecked: it may be Excel's row, which is not the line. New in 0.10.0.
+ * workbook (XLSX) is unchecked: it may be Excel's row, which is not the line. Every citation read
+ * is listed in `cited`, in order, with what was found of it (since 0.99.12). New in 0.10.0.
  */
 export function checkCitations(text: string, evidence: Evidence[], names: Record<string, string>, formats?: Record<string, DocumentFormat>): CitationCheck {
-  const check: CitationCheck = { checked: 0, supported: 0, unchecked: 0, unsupported: [] };
+  const cited: LineCitation[] = [];
+  const check: CitationCheck = { checked: 0, supported: 0, unchecked: 0, unsupported: [], cited };
   if (typeof text !== "string" || !text) return check;
   const read = plain(text);
   // The name of each document: the one given, else the one its evidence says.
@@ -278,24 +305,410 @@ export function checkCitations(text: string, evidence: Evidence[], names: Record
   const only = nameById.size === 1 ? [...nameById.keys()] : undefined;
   const named = namesIn(read, byName);
   const parentheses = parenthesesOf(read);
-  for (const cited of citationsIn(read)) {
+  for (const one of citationsIn(read)) {
     // A part of a file name ("report-L3.docx") is not a citation.
-    const overlapping = named[firstFrom(named, (hit) => hit.end, cited.start + 1)];
-    if (overlapping && overlapping.start < cited.end) continue;
-    const around = parentheses(cited.start, cited.end);
-    const hit = nameOf(read, cited, named, around);
-    if (!hit && cited.bare && !around) continue;
+    const overlapping = named[firstFrom(named, (hit) => hit.end, one.start + 1)];
+    if (overlapping && overlapping.start < one.end) continue;
+    const around = parentheses(one.start, one.end);
+    const hit = nameOf(read, one, named, around);
+    if (!hit && one.bare && !around) continue;
     const ids = hit?.ids ?? only;
+    const lines = { from: one.from, to: one.to, form: one.form };
     // A row of a workbook may be Excel's row: there is no line to check it against.
-    const lined = ids?.filter((id) => cited.form === "line" || formats?.[id] !== "xlsx");
+    const lined = ids?.filter((id) => one.form === "line" || formats?.[id] !== "xlsx");
     if (!lined?.length) {
       check.unchecked++;
+      const id = ids?.[0];
+      cited.push({ ...(id !== undefined ? { document: nameById.get(id) ?? id, documentId: id } : {}), ...lines, status: "unchecked" });
       continue;
     }
     check.checked++;
-    const missing = lined.map((id) => firstNotShown(shown.get(id) ?? [], cited.from, cited.to));
-    if (missing.some((line) => line === undefined)) check.supported++;
+    const missing = lined.map((id) => firstNotShown(shown.get(id) ?? [], one.from, one.to));
+    const showing = missing.findIndex((line) => line === undefined);
+    const id = lined[Math.max(0, showing)]!;
+    cited.push({ document: nameById.get(id) ?? id, documentId: id, ...lines, status: showing >= 0 ? "supported" : "unsupported" });
+    if (showing >= 0) check.supported++;
     else check.unsupported.push({ document: nameById.get(lined[0]!) ?? lined[0]!, line: missing[0]! });
   }
   return check;
+}
+
+
+/** The most characters of a parenthesis that `CitationHider` holds back to see whether it is a citation. */
+const MOST_HELD = 200;
+/** A page named beside the lines: "p. 3", "pp. 3-4", "page 3", "עמ' 3", "עמוד 3". */
+const PAGE = String.raw`(?:pp?\.|pages?|עמ['׳]|עמודים|עמוד)\s*\d+(?:${RANGE_END}\d+)?`;
+/** A file name with no space in it and a known extension, named in a citation but not one of the question's files. */
+const FILE_NAME = new RegExp(String.raw`${EDGE_BEFORE}[\p{L}\p{N}_][\p{L}\p{N}_.\-]*\.(?:pdf|docx?|xlsx?|csv|tsv|txt|md|log|json|html?|pptx?)${EDGE_AFTER}`, "giu");
+/**
+ * What may stand in a parenthesis of citations besides them and file names: separators, quotes,
+ * backticks and emphasis around a name, "and", "see", the words for a line or a row
+ * ("(שורות L1–L306)"), and pages.
+ */
+const FILLER = new RegExp(String.raw`^(?:[\s,;:&/.\-–—־\x60"'״׳“”‘’*_]|${EDGE_BEFORE}(?:and|see|cf|ראו|ראה|ו|lines?|rows?|[בלמוהכש]{0,2}שור(?:ה|ות))${EDGE_AFTER}|${PAGE})*$`, "iu");
+/** Horizontal white space, which a citation takes with it. */
+const SPACE = /^[ \t  ]$/u;
+/** A list marker at the start of a line, once it is whole: "-", "+", "*", "1." or "1)". */
+const LIST_MARKER = /^(?:[-+*]|\d{1,9}[.)])$/;
+/** What may stand in a parenthesis of document IDs besides them: separators, quotes, backticks, emphasis and "and". */
+const ID_FILLER = new RegExp(String.raw`^(?:[\s,;&/\x60"'״׳“”‘’*_]|${EDGE_BEFORE}(?:and|ו)${EDGE_AFTER})*$`, "iu");
+/** The fields of a tool result that hold no text of a file: the outline's "L12 Title" labels, the hint on how to cite, notes, errors and document IDs. */
+const NOT_FILE_TEXT = /^(?:outline|cite|error|document_id|documentId)$|note$/;
+
+/** The keys by which `CitationHider` knows a citation form written in a file: its form, and its lines or one end of them. */
+function contentKeys(cited: Cited): string[] {
+  return cited.from === cited.to ? [`${cited.kind}:${cited.from}`] : [`${cited.kind}:${cited.from}-${cited.to}`, `${cited.kind}:${cited.from}`, `${cited.kind}:${cited.to}`];
+}
+
+/**
+ * Takes the citations in parentheses out of an answer as it is written, a piece at a time:
+ * "(report.docx L188-L200)", "(L12)", "(app.log L5, L9)", "(`חוזה.docx` שורות 188-200)", each with
+ * the space before it (at the start of a line, the space after it, the indentation kept), the
+ * emphasis around it ("**(L12)**"), and a list item left with nothing else ("- (L12)").
+ *
+ * What stays as it is written:
+ * - a parenthesis with any other words in it ("(see the table, L12)", "(tier L2)");
+ * - a citation outside parentheses ("line 12 of the contract says"), or in square brackets;
+ * - code: a fenced block, or an inline code span opened before the parenthesis ("`fn(L12)`");
+ * - a parenthesis with no file name in it ("(L4-L5)", "(line 12)") whose citation is written as
+ *   words of the files the model read (`addContent`): the vertebrae of a medical report, the
+ *   tiers of a support plan, the lines of a tax form.
+ *
+ * It holds back the text from a "(" until its ")", the end of its line or `MOST_HELD` characters;
+ * white space and emphasis until what follows them; and a list marker at the start of a line until
+ * the rest of its item. `push` gives what can be shown now, and `flush` the rest at the end, so the
+ * pieces together are always `hideCitations` of the whole text. New in 0.99.12.
+ */
+export class CitationHider {
+  private readonly byName: Map<string, string[]>;
+  /** The citation forms written in the files the model read (`contentKeys`). */
+  private readonly content = new Set<string>();
+  /**
+   * The document IDs a parenthesis may hold alone and go ("(policy-1)"), each with the pattern that
+   * finds it as a whole word, and those written in the files the model read, which stay.
+   */
+  private readonly ids = new Map<string, RegExp>();
+  private readonly idsInFiles = new Set<string>();
+  private out = "";
+  /** White space held back: it goes with a citation that follows it. */
+  private space = "";
+  /** A run of "*" or "_" held back after `space`, right before a "(": emphasis around a citation goes with it. */
+  private marks = "";
+  /** A parenthesis being read, from its "(", and how deep in parentheses its end is. */
+  private group: string | undefined;
+  private depth = 0;
+  /** After a citation that went from inside emphasis: the space and marks before it, held, and how many of the closing marks came. */
+  private wrapped: { space: string; marks: string; matched: number } | undefined;
+  /** A list marker read at the start of a line, and the whole marker with its indentation and space once it is one. */
+  private marker = "";
+  private bullet = "";
+  /** The line has had its chance at a list marker. */
+  private markerDone = false;
+  /** Nothing of the line was shown yet: its indentation and list marker may be held. */
+  private lineStart = true;
+  /** Nothing but white space on the line so far (for a fence, which must start a line). */
+  private onlyIndent = true;
+  /** A citation went from the line. */
+  private removedOnLine = false;
+  /** A citation at the start of a line went: the white space after it goes too. */
+  private skipSpace = false;
+  /** Inside a fenced code block; inside an inline code span, opened by a run of this many backticks. */
+  private fence = false;
+  private inlineTicks = 0;
+  /** The backticks of the run being read, and whether the run starts its line. */
+  private ticks = 0;
+  private ticksStartLine = false;
+
+  /**
+   * `names` gives each document ID's file name, as for `checkCitations`. An ID is a name too: the
+   * tool guide shows it beside the file name, and a model may cite "(contract-1 L3)". Not an ID of
+   * fewer than 3 characters or without a letter, which ordinary words and numbers would match.
+   * Such an ID may also stand alone in a parenthesis, and go: "(policy-1)" says nothing to the
+   * user. Not an ID that is its file's name, with or without the extension: "(report.docx)" names
+   * the file. `content` is text of the files the model read, as for `addContent`.
+   */
+  constructor(names: Record<string, string> = {}, content: readonly string[] = []) {
+    this.byName = new Map();
+    const add = (name: string, id: string) => this.byName.set(name, [...this.byName.get(name) ?? [], id]);
+    for (const [id, name] of Object.entries(names ?? {})) {
+      if (typeof name !== "string") continue;
+      add(name, id);
+      if (id.length < 3 || !/\p{L}/u.test(id)) continue;
+      add(id, id);
+      const key = plain(id).toLocaleLowerCase();
+      const file = plain(name).toLocaleLowerCase();
+      const dot = file.lastIndexOf(".");
+      if (key !== file && (dot < 0 || key !== file.slice(0, dot))) this.ids.set(id, new RegExp(String.raw`${EDGE_BEFORE}${escaped(plain(id))}${EDGE_AFTER}`, "giu"));
+    }
+    for (const text of content) this.addContent(text);
+  }
+
+  /**
+   * Text of a file the model read: a file sent whole, or what a tool showed of one. A citation form
+   * written in it ("L4-L5", "L2", "line 12"), found as `checkCitations` finds citations (whole
+   * words, any dash, "L" or "l"), keeps a parenthesis of that form with no file name in it: it is
+   * a word of the file, not a citation. A range is known by itself or by both of its ends. So does
+   * a document ID written in it, for a parenthesis that holds the ID alone.
+   */
+  addContent(text: string): void {
+    if (typeof text !== "string" || !text) return;
+    const read = plain(text);
+    for (const cited of citationsIn(read)) for (const key of contentKeys(cited)) this.content.add(key);
+    for (const [id, pattern] of this.ids) {
+      if (this.idsInFiles.has(id)) continue;
+      pattern.lastIndex = 0;
+      if (pattern.test(read)) this.idsInFiles.add(id);
+    }
+  }
+
+  /** `addContent` for the text of a tool result: every string in it, but the fields that hold no text of a file (`NOT_FILE_TEXT`). */
+  addToolResult(result: unknown): void {
+    const walk = (value: unknown): void => {
+      if (typeof value === "string") this.addContent(value);
+      else if (Array.isArray(value)) for (const item of value) walk(item);
+      else if (value !== null && typeof value === "object") for (const [key, item] of Object.entries(value)) if (!NOT_FILE_TEXT.test(key)) walk(item);
+    };
+    walk(result);
+  }
+
+  /** The text of `delta` that can be shown now, after what an earlier piece held back. */
+  push(delta: string): string {
+    this.out = "";
+    for (const char of delta) this.step(char);
+    return this.out;
+  }
+
+  /** What is still held back: the end of the answer came. A parenthesis never closed is shown as it was written. */
+  flush(): string {
+    this.out = "";
+    if (this.ticks > 0) this.endTicks();
+    while (this.group !== undefined) this.replay("");
+    if (this.wrapped) this.unwrap();
+    if (this.marker) this.notMarker();
+    if (this.lineStart && this.removedOnLine) this.bullet = "";
+    else this.out += this.bullet + this.space + this.marks;
+    this.bullet = this.space = this.marks = "";
+    this.lineStart = this.out ? this.out.endsWith("\n") : this.lineStart;
+    return this.out;
+  }
+
+  /** Shows `text`, after the list marker held for it. */
+  private show(text: string): void {
+    if (!text) return;
+    this.out += this.bullet + text;
+    this.bullet = "";
+    this.lineStart = text.endsWith("\n");
+  }
+
+  /** Shows what was held before `char`, then `char`. */
+  private showHeld(char: string): void {
+    const held = this.space + this.marks;
+    this.space = this.marks = "";
+    this.show(held + char);
+  }
+
+  /** A run of backticks ended: at the start of a line, three or more open or close a fence; elsewhere they open or close inline code. */
+  private endTicks(): void {
+    if (this.ticksStartLine && this.ticks >= 3) {
+      this.fence = !this.fence;
+      this.inlineTicks = 0;
+    } else if (!this.fence) {
+      if (this.inlineTicks === 0) this.inlineTicks = this.ticks;
+      else if (this.inlineTicks === this.ticks) this.inlineTicks = 0;
+    }
+    this.ticks = 0;
+  }
+
+  /**
+   * The parenthesis is not a citation, or it was not closed: its "(" is shown, and what followed
+   * it is read again, then `char`. A code span opened inside a parenthesis that closed ends with it.
+   */
+  private replay(char: string): void {
+    const group = this.group!;
+    const closed = this.depth === 0;
+    this.group = undefined;
+    this.depth = 0;
+    this.showHeld("(");
+    const before = this.inlineTicks;
+    for (const one of group.slice(1)) this.step(one);
+    if (this.ticks > 0) this.endTicks();
+    if (closed && before === 0) this.inlineTicks = 0;
+    if (char) this.step(char);
+  }
+
+  /** The emphasis held before a citation that went was not closed right after it: it opened more text. */
+  private unwrap(): void {
+    const { space, marks, matched } = this.wrapped!;
+    this.wrapped = undefined;
+    this.show(space + marks + marks.slice(0, matched));
+    // The space after the citation goes, as the citation was right after the marks.
+    if (matched === 0) this.skipSpace = true;
+  }
+
+  /** What was read as a list marker is not one: it is text, read again. */
+  private notMarker(): void {
+    const held = this.marker;
+    this.marker = "";
+    this.markerDone = true;
+    for (const one of held) this.step(one);
+  }
+
+  /** A citation went: what was held before it goes with it, or, at the start of a line, the space after it. */
+  private removed(): void {
+    this.removedOnLine = true;
+    if (this.marks) {
+      this.wrapped = { space: this.space, marks: this.marks, matched: 0 };
+      this.space = this.marks = "";
+    } else if (this.lineStart) this.skipSpace = true;
+    else this.space = "";
+  }
+
+  /** Whether the text inside a parenthesis is citations only, and not a word of the files (`addContent`). */
+  private citationsOnly(inside: string): boolean {
+    const read = plain(inside);
+    // The names: the question's files and IDs, and any other name with a known extension.
+    const spans: Array<[number, number]> = namesIn(read, this.byName).map((hit) => [hit.from, hit.end]);
+    for (const match of read.matchAll(FILE_NAME)) spans.push([match.index, match.index + match[0].length]);
+    const names = spans.length;
+    const cited: Cited[] = [];
+    for (const one of citationsIn(read)) {
+      // A part of a file name ("report-L3.docx") is not a citation.
+      if (spans.slice(0, names).some(([start, end]) => start < one.end && one.start < end)) continue;
+      spans.push([one.start, one.end]);
+      cited.push(one);
+    }
+    if (cited.length === 0) return this.idsOnly(read);
+    // With no file name, a form written in the files is their word: "(L4-L5)" of a medical report.
+    if (names === 0 && cited.some((one) => this.isContent(one))) return false;
+    // Code units, as the spans count them: a letter out of the basic plane is two.
+    const units = read.split("");
+    for (const [start, end] of spans) for (let index = start; index < end; index++) units[index] = " ";
+    return FILLER.test(units.join(""));
+  }
+
+  /**
+   * Whether the text inside a parenthesis is document IDs alone ("policy-1", "`policy-1`"), none of
+   * them written in the files the model read nor its file's name (`ids`).
+   */
+  private idsOnly(read: string): boolean {
+    const units = read.split("");
+    let found = false;
+    for (const [id, pattern] of this.ids) {
+      if (this.idsInFiles.has(id)) continue;
+      for (const match of read.matchAll(pattern)) {
+        found = true;
+        for (let index = match.index; index < match.index + match[0].length; index++) units[index] = " ";
+      }
+    }
+    return found && ID_FILLER.test(units.join(""));
+  }
+
+  private isContent(cited: Cited): boolean {
+    if (this.content.size === 0) return false;
+    if (cited.from === cited.to) return this.content.has(`${cited.kind}:${cited.from}`);
+    return this.content.has(`${cited.kind}:${cited.from}-${cited.to}`) || (this.content.has(`${cited.kind}:${cited.from}`) && this.content.has(`${cited.kind}:${cited.to}`));
+  }
+
+  /** One character of the answer. */
+  private step(char: string): void {
+    if (char !== "`" && this.ticks > 0) this.endTicks();
+    if (this.group !== undefined) {
+      if (char === "\n") return this.replay(char);
+      this.group += char;
+      if (char === "(") this.depth++;
+      else if (char === ")") this.depth--;
+      if (this.depth === 0) {
+        if (this.citationsOnly(this.group.slice(1, -1))) {
+          this.group = undefined;
+          this.removed();
+        } else this.replay("");
+      } else if (this.group.length > MOST_HELD) this.replay("");
+      return;
+    }
+    if (this.wrapped) {
+      const wrapped = this.wrapped;
+      if (char === wrapped.marks[wrapped.matched]) {
+        wrapped.matched++;
+        if (wrapped.matched === wrapped.marks.length) {
+          // "**(L12)**": the emphasis went with the citation, and so does the space before it.
+          this.wrapped = undefined;
+          if (this.lineStart) {
+            this.space = wrapped.space;
+            this.skipSpace = true;
+          }
+        }
+        return;
+      }
+      this.unwrap();
+    }
+    if (this.marker) {
+      if (/\d/.test(char) && /^\d{1,8}$/.test(this.marker)) return void (this.marker += char);
+      if ((char === "." || char === ")") && /^\d+$/.test(this.marker)) return void (this.marker += char);
+      if (SPACE.test(char) && LIST_MARKER.test(this.marker)) {
+        this.bullet = this.space + this.marker + char;
+        this.space = this.marker = "";
+        this.markerDone = true;
+        return;
+      }
+      this.notMarker();
+    }
+    if (char === "\n") {
+      if (!this.fence && this.lineStart && this.removedOnLine) {
+        // The line held nothing but citations, and a list marker or indentation: it goes, with its end.
+        this.bullet = this.space = this.marks = "";
+      } else this.showHeld("\n");
+      this.lineStart = true;
+      this.onlyIndent = true;
+      this.removedOnLine = false;
+      this.markerDone = false;
+      this.skipSpace = false;
+      this.inlineTicks = 0;
+      return;
+    }
+    if (char === "`") {
+      if (this.ticks === 0) this.ticksStartLine = this.onlyIndent;
+      this.ticks++;
+      this.onlyIndent = false;
+      this.skipSpace = false;
+      return this.showHeld(char);
+    }
+    if (this.fence || this.inlineTicks > 0) {
+      this.onlyIndent &&= SPACE.test(char);
+      return this.showHeld(char);
+    }
+    if (SPACE.test(char)) {
+      if (this.marks) this.showHeld("");
+      if (this.skipSpace) return;
+      if (this.bullet && this.lineStart) this.bullet += char;
+      else this.space += char;
+      return;
+    }
+    this.onlyIndent = false;
+    this.skipSpace = false;
+    if (this.lineStart && !this.markerDone && !this.bullet && (char === "-" || char === "+" || char === "*" || /\d/.test(char))) {
+      this.marker = char;
+      return;
+    }
+    this.markerDone = true;
+    if (char === "(") {
+      this.group = "(";
+      this.depth = 1;
+      return;
+    }
+    if (char === "*" || char === "_") {
+      this.marks += char;
+      return;
+    }
+    this.showHeld(char);
+  }
+}
+
+/**
+ * `text` without its citations in parentheses, as `CitationHider` takes them out: "Payment is due
+ * in 30 days (contract.docx L188-L200)." becomes "Payment is due in 30 days.". `names` gives each
+ * document ID's file name; `content` is text of the files the model read (`addContent`). New in 0.99.12.
+ */
+export function hideCitations(text: string, names: Record<string, string> = {}, content: readonly string[] = []): string {
+  const hider = new CitationHider(names, content);
+  return hider.push(text) + hider.flush();
 }

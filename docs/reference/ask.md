@@ -10,12 +10,13 @@ task, where there is one.
 import {
   askWithFiles, askStream, partialResultOf, DocumentsNotFoundError, UsageMeter, TOOL_TURN_VERSION,
   evidenceOf, mergeRanges, stubResult, compactToolTurns, DEFAULT_INPUT_TOKENS, answerInfoOf, checkCitations,
+  hideCitations, CitationHider,
   EXPLORER_INSTRUCTION, FINAL_ANSWER_REQUEST, FINAL_ANSWER_AFTER_PAGES, FINAL_ANSWER_WITHOUT_TOOLS,
   createQuestionRegistry, QUESTION_ID_PATTERN, QuestionConflictError,
 } from "llm-large-files";
 import type {
   AskOptions, AskLimits, AskResult, MissingDocumentsAction, MissingDocumentsContext,
-  ToolResultContext, ToolResultVerdict, CitationCheck, AnswerInfo,
+  ToolResultContext, ToolResultVerdict, CitationCheck, LineCitation, AnswerInfo,
   QuestionAskOptions, QuestionRegistry, QuestionRegistryOptions, QuestionRegistryStats,
   ChatMessage, ChatTurn, ToolTurn,
   ModelAdapter, ModelCapabilities, ModelRequest, ModelMessage, ModelTextMessage, ModelToolRound,
@@ -300,6 +301,7 @@ The options of `askWithFiles`.
 | `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
 | `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`, and all of them take one kind of file (`capabilities.toolFileTypes`: one small PDF, or, since 0.99.9, each page drawn as an image). It changes nothing for a library that keeps no originals. |
 | `nativeDocuments` | `boolean` | `true` | Send small visual files sent whole (a PDF with a picture or a scanned page, a deck) as the files themselves too, before their text, when every model of the question declares `capabilities.documents` and their original is kept. It changes nothing unless an adapter declares `documents`; `false` sends text only. Another value is a `TypeError` before any request ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). New in 0.99.9. |
+| `showCitations` | `boolean` | `true` | Whether the user sees the answer's line citations. `false`: the model is asked for them all the same (the requests are those of `true`), and `result.citations` checks and lists them (`cited`), but the citations in parentheses, such as `(report.docx L188-L200)`, `(L12)` or `(חוזה.docx שורות 188-200)`, are taken out of `onText`, the `text` events and `result.text`, each with the space before it. Text from a `(` is held back until its `)`, the end of its line or 200 characters, so a citation never shows for a moment. A parenthesis with other words in it, code, a form written in the files the model read (`(L4-L5)` of a medical report), and a citation written into a sentence ("line 12 of the contract says") stay. Another value is a `TypeError` before any request ([Citations the user does not see](#citations-the-user-does-not-see)). New in 0.99.12. |
 | `onText` | `(delta: string) => void` | none | The answer's text as it arrives. With it, `streamText` defaults to `true`, and the adapter streams when it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
 | `streamText` | `boolean` | `true` with `onText`, and in [`askStream`](#askstreamoptions); `false` otherwise | Whether to ask the model for the answer as it is written: the loop then passes `onText` to the adapter's `send` ([`SendHooks`](#sendhooks)), and an adapter that can stream does. A reply that fails after its first piece of text is not sent again: that text was shown. With `false`, the text of each reply comes once the reply is in, to `onText` and as `text` events, and a reply that fails can be sent again. A listener of the events alone (`onEvent` without `onText`) does not change how the model is asked. New in 0.7.0. |
 | `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry of a chat request ("The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…"), and "Writing the answer…" before the request for the answer. Show it as plain text: a tool call's line can quote the model's words. The retries of a whole-file read's requests are not told here: they come only as `retry` events. |
@@ -360,7 +362,7 @@ question that failed.
 
 | Field | Type | What it holds |
 |---|---|---|
-| `text` | `string` | Everything the answering model wrote, as `onText` got it: a remark made before a tool call, then `"\n\n"` and the answer. With an explorer, only what `model` wrote. `""` when nothing was written. |
+| `text` | `string` | Everything the answering model wrote, as `onText` got it: a remark made before a tool call, then `"\n\n"` and the answer. With an explorer, only what `model` wrote. `""` when nothing was written. With `showCitations: false`, without its citations in parentheses, as it was shown (since 0.99.12). |
 | `answered` | `boolean` | True when the last reply had text that is not blank, and the provider did not refuse the prompt. False when the prompt was refused (`blockReason`), or the last reply had no text: it was cut off or filtered before any text, or the request for the answer came back without text, and so did its second try. A turn whose tool call could not be read is not the answer, even with a remark in it: the answer is asked for (since 0.10.0; before, the remark was the answer). With `filteredAnswer: "drop"`, false for a filtered answer. `text` may then be empty, or hold a remark made before a tool call, or the start of a reply that was refused: show your own message ([`answerInfoOf`](#answerinfo) says which). |
 | `blockReason` | `string`, optional | Why the provider refused the prompt, in the adapter's words. Set only then. Nothing more is asked after a refusal. |
 | `steps` | `string[]` | Each finished step, in order: a line for each tool call, run or refused ("Search app.log (exact) for “timeout” — 12 matching lines", or "… — already shown above"), one for the calls of a turn over `callsPerTurn`, and one when the loop shortened older results, asked again after an empty or broken reply, or planned the documents again. The second try of the answer says "The model's answer was empty: it was asked again" or "The model called a tool instead of answering: it was asked again for the answer". The lines `onStep` got. Each is one line of plain text: a line break, a tab or another control character in what the model sent becomes one space with the blanks around it; the invisible characters that file text loses are dropped (text-direction overrides and isolates, zero-width spaces, word joiners, soft hyphens, tag characters); `](` becomes `] (`, so that a markdown link or picture stays text. A query is cut at 80 characters and a task at 100, never in the middle of a character. Steps still quote the model's words, HTML tags and web addresses included: show them as plain text, never as markdown or HTML. |
@@ -374,7 +376,7 @@ question that failed.
 | `usage` | [`UsageTotals`](#usagetotals) | Tokens and requests of the whole question, whole-file part reads included, in all and for each model by its `id`. The input of requests that reported none is in `estimatedInputTokens`. |
 | `lastUsage` | `Record<string, unknown>`, optional | The provider's own usage object of the last chat reply that had one, as it came. |
 | `finish` | `"complete" \| "cut" \| "filtered" \| "malformed_call" \| "other"`, optional | How the reply whose text is the answer ended (`ModelReply.finish`), or the last reply of the chat when none answered. Absent when the adapter does not say. `"filtered"` and `"cut"` come with an `answer_filtered` or `answer_cut` notice. New in 0.10.0. |
-| `citations` | [`CitationCheck`](#citationcheck), optional | The line citations of `text`, checked against the evidence of the question: a document sent whole, or read whole for an answer, counts as shown, every line it has; a read of items, the lines of its items. Set when the question had documents. New in 0.10.0. |
+| `citations` | [`CitationCheck`](#citationcheck), optional | The line citations of `text`, checked against the evidence of the question: a document sent whole, or read whole for an answer, counts as shown, every line it has; a read of items, the lines of its items. Set when the question had documents. With `showCitations: false`, read from the answer as the model wrote it, before its citations were taken out. New in 0.10.0. |
 | `questionId` | `string`, optional | `AskOptions.questionId`, when the question had one. Also in the result of `run.finish`, in the `partial` of `run.error`, and in what `partialResultOf` gives. New in 0.99.9. |
 
 Guides: [conversations](../guides/conversations.md) (`toolTurns`),
@@ -622,9 +624,18 @@ export function askMasked(options: AskOptions): Promise<AskResult> {
 ### `CitationCheck`
 
 ```ts
-type CitationCheck = { checked: number; supported: number; unchecked: number; unsupported: Array<{ document: string; line: number }> };
+type CitationCheck = { checked: number; supported: number; unchecked: number; unsupported: Array<{ document: string; line: number }>; cited?: LineCitation[] };
+type LineCitation = { document?: string; documentId?: string; from: number; to: number; form: "line" | "row"; status: "supported" | "unsupported" | "unchecked" };
 
 declare function checkCitations(text: string, evidence: Evidence[], names: Record<string, string>, formats?: Record<string, DocumentFormat>): CitationCheck;
+declare function hideCitations(text: string, names?: Record<string, string>, content?: readonly string[]): string;
+declare class CitationHider {
+  constructor(names?: Record<string, string>, content?: readonly string[]);
+  addContent(text: string): void;
+  addToolResult(result: unknown): void;
+  push(delta: string): string;
+  flush(): string;
+}
 ```
 
 The line citations of an answer, checked against what the tools showed (`AskResult.citations`).
@@ -671,6 +682,70 @@ that file is not supported.
 | `supported` | `number` | Of those, the ones inside what the tools showed. A file sent whole counts as shown. |
 | `unchecked` | `number` | Citations recognized but not matched: no file name when there are several files, or the row of a workbook. |
 | `unsupported` | `Array<{ document: string; line: number }>` | The citations of lines the tools did not show. |
+| `cited` | `LineCitation[]`, optional | Every citation read, in the order of the answer, the unchecked ones too. `checkCitations` always gives it; it is optional so that a `CitationCheck` made by hand still compiles. New in 0.99.12. |
+
+A `LineCitation` (new in 0.99.12):
+
+| Field | Type | What it holds |
+|---|---|---|
+| `document` | `string`, optional | The file name it goes with. None when no name was found and the question has several files. |
+| `documentId` | `string`, optional | The ID of that file. Of two files of one name, the one that shows the lines, else the first. |
+| `from`, `to` | `number` | The first and last line it names: `L12-14` is 12 and 14, `L12` is 12 and 12. |
+| `form` | `"line" \| "row"` | `"line"` for `L12` and `line 12`; `"row"` for `Row 12` and the Hebrew `שורה 12`, which is both. |
+| `status` | `"supported" \| "unsupported" \| "unchecked"` | Whether the tools showed every line it names (a file sent whole shows all of its lines), did not, or it could not be checked: no file found for it, or a row of a workbook. |
+
+#### Citations the user does not see
+
+With `showCitations: false` the model cites as it always does, and the library takes the
+citations out of what it shows. `result.citations.cited` keeps them, for a list of sources beside
+the answer or for checking it:
+
+```ts
+import { askWithFiles } from "llm-large-files";
+
+// files, model, documentIds and messages as in any question.
+const result = await askWithFiles({ files, model, documentIds, messages, showCitations: false });
+// "Payment is due in 30 days (contract.docx L188-L200)." was shown as "Payment is due in 30 days."
+const sources = (result.citations?.cited ?? [])
+  .filter((cited) => cited.status === "supported" && cited.document)
+  .map((cited) => (cited.from === cited.to ? `${cited.document}, line ${cited.from}` : `${cited.document}, lines ${cited.from}-${cited.to}`));
+```
+
+What goes is a parenthesis that holds citations alone: line and row citations in any of the forms
+above, file names (the question's, or any name with a known extension such as `.docx` or `.pdf`,
+also in backticks or quotes), document IDs (the tool guide shows them, and a model may cite
+`(contract-1 L3)`), separators, "and", "see", the words for a line or a row (`(שורות L1–L306)`) and
+pages (`p. 3`). With it go:
+
+- the space before it, or, at the start of a line, the space after it (the indentation stays):
+  `## Payment terms (L188-L200)` becomes `## Payment terms`, `30 days (L12).` becomes `30 days.`;
+- emphasis around it alone: `**(L12)**` goes whole, `**Title (L5)**` becomes `**Title**`;
+- a list item or a line left with nothing else: `- (L12)` goes, with its end of line.
+
+A parenthesis that holds only document IDs of the question goes the same way, as the IDs say
+nothing to the user: `לפי המדיניות (policy-1):` becomes `לפי המדיניות:`. An ID goes only when it has
+3 characters or more with a letter, is not its file's name (with or without the extension), and is
+not written in the files the model read.
+
+What stays as written:
+
+| Stays | Example | Why |
+|---|---|---|
+| A parenthesis with other words in it | `(see the table, L12)`, `(tier L2)`, `(1312ms, L22776)` | It says more than where. |
+| Code | `` `fn(L12)` ``, a fenced block | Code is shown as written. A backtick inside a parenthesis that is not a citation opens no code past its `)`. |
+| A form written in the files, with no file name | `(L4-L5)` of a medical report, `(L2)` of a support plan, `(line 12)` of a tax form | The form is a word of the file the model read (a file sent whole, or what a tool showed), found as `checkCitations` finds citations: whole words, any dash, `L` or `l`. `XL2` or `L20` in a file does not keep `(L2)`. `(mri.pdf L4-L5)`, with a name, goes. |
+| A document ID that is a word of the files, or the file's name | `(form-7)` of a file that says "use form-7", `(report.docx)` | It means something to the user. |
+| A citation outside parentheses, or in brackets | `line 12 of the contract says`, `[L12]` | Rare in answers (none and 3 in 160), and brackets may be a link. |
+| A parenthesis that does not close on its line within 200 characters | | The longest citation in 160 answers was 144 characters. |
+
+`hideCitations(text, names?, content?)` does the same over a whole text, and `CitationHider` a
+piece at a time, for a loop of your own: `push(delta)` gives what can be shown now, and `flush()`
+what it still holds when the reply ends; the pieces together are always `hideCitations` of the
+whole. `names` gives each document ID's file name, as for `checkCitations`. `content`,
+`addContent(text)` and `addToolResult(result)` give it what the model read of the files: a tool
+result is read but its outline, its hint on how to cite, its notes and its errors. `askWithFiles`
+gives it the files sent whole and every tool result, but a whole-file read's own notes (only the
+quotes of its items). Both are new in 0.99.12.
 
 ### `AnswerInfo`
 
