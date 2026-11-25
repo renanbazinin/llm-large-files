@@ -226,6 +226,45 @@ describe("createQuestionRegistry", () => {
     expect(model.requests).toHaveLength(1);
   });
 
+  it("a listener that changes run.finish changes neither another caller's event nor the kept answer", async () => {
+    const { files, meta } = await smallNote();
+    const gate = held();
+    const model = fakeModel([gate.scripted]);
+    const registry = createQuestionRegistry();
+    const asked = (): QuestionAskOptions => ({ files, model, owner: OWNER, documentIds: [meta.id], messages: question("When is the meeting?"), questionId: "q-1" });
+    const spoil = (event: AskEvent) => {
+      if (event.type !== "run.finish") return;
+      event.result.text = "redacted";
+      event.result.steps.push("x");
+    };
+    const one = registry.ask({ ...asked(), onEvent: spoil });
+    await gate.started;
+    const joined = recorder();
+    const two = registry.ask({ ...asked(), onEvent: joined.onEvent });
+    gate.open();
+    await Promise.all([one, two]);
+    const finish = joined.events.at(-1);
+    expect(finish).toMatchObject({ type: "run.finish", result: { text: "On Tuesday." } });
+    expect(finish?.type === "run.finish" && finish.result.steps).not.toContain("x");
+    const later = recorder();
+    const kept = await registry.ask({ ...asked(), onEvent: later.onEvent });
+    expect(model.requests).toHaveLength(1);
+    expect(kept.text).toBe("On Tuesday.");
+    expect(kept.steps).not.toContain("x");
+    expect(later.events).toEqual([finish]);
+  });
+
+  it("a listener that throws on the kept run.finish rejects that caller", async () => {
+    const { files, meta } = await smallNote();
+    const model = fakeModel([says("On Tuesday.")]);
+    const registry = createQuestionRegistry();
+    const asked = (): QuestionAskOptions => ({ files, model, owner: OWNER, documentIds: [meta.id], messages: question("When is the meeting?"), questionId: "q-1" });
+    await registry.ask(asked());
+    const thrown = new Error("The page went away.");
+    await expect(registry.ask({ ...asked(), onEvent: () => { throw thrown; } })).rejects.toBe(thrown);
+    expect(model.requests).toHaveLength(1);
+  });
+
   it("the kept answer expires after keepMs", async () => {
     const { files, meta } = await smallNote();
     const model = fakeModel([says("On Tuesday.")]);

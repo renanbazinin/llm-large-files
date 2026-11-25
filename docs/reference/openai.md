@@ -628,7 +628,8 @@ declare function openAiToolTurns(turns: ToolTurn[]): OpenAiMessage[];
 The tool rounds a question returned ([`AskResult.toolTurns`](./ask.md#askresult)) as Chat
 Completions messages, for an application that keeps its history in that form. Put them between the
 question and its answer. It throws only for a round of a newer version (`version` above
-`TOOL_TURN_VERSION`): the `TypeError` of `askWithFiles` (since 0.99.9).
+`TOOL_TURN_VERSION`), or whose `version` is not a number (NaN, or a string such as `"1"`): the
+`TypeError` of `askWithFiles` (since 0.99.9).
 
 Each round becomes an assistant message `{ role: "assistant", content: null, tool_calls }`, the
 arguments as a JSON string, followed by one `{ role: "tool", tool_call_id, content }` for each call,

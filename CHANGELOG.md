@@ -75,10 +75,10 @@ and question IDs for requests sent again.
   **What to do:** delete it, and set `capabilities.tokenScale` for a model that counts tokens
   differently.
 - **`geminiToolTurns`, `openAiToolTurns`, `anthropicToolTurns` and `compactToolTurns` refuse a
-  stored round of a newer version** with the `TypeError` of `askWithFiles`. They converted it as a
-  round of version 1.
-  **What to do:** nothing, unless servers of two versions answer one chat: leave such rounds out,
-  as with `askWithFiles`.
+  stored round of a newer version**, or one whose `version` is not a number (NaN, or a string such
+  as `"1"`), with the `TypeError` of `askWithFiles`. They converted it as a round of version 1.
+  **What to do:** store `version` as the number the round had. Unless servers of two versions
+  answer one chat, nothing else: there, leave such rounds out, as with `askWithFiles`.
 
 ### New: what you can add
 
@@ -89,8 +89,10 @@ and question IDs for requests sent again.
 - **`prepareUpload` can return `dedupe` and `appData`**, passed to `ingest`. A file uploaded again
   gives back the document stored before (`UploadedContext.reused`), and the file saved for that
   upload is removed. The application's data comes from the server, never from the client as sent,
-  and is checked before the body is read. A failing `onUploaded` never deletes a document stored
-  before ([Web app](docs/guides/web-app.md#the-same-file-twice-and-your-own-data-dedupe-and-appdata)).
+  and is checked before the body is read. The `onUploaded` of a reused upload never deletes the
+  document. An upload given a document whose own `onUploaded` is still running waits for it, and
+  is answered `409` when that hook failed and deleted it
+  ([Web app](docs/guides/web-app.md#the-same-file-twice-and-your-own-data-dedupe-and-appdata)).
 - **`openAiResponses()`** in `llm-large-files/openai` (A1): a model behind OpenAI's Responses API,
   for OpenAI's reasoning models with tools, which reason while they call the document tools.
   Through Chat Completions, newer OpenAI models refuse function tools unless the effort is

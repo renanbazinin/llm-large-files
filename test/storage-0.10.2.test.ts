@@ -43,6 +43,32 @@ async function stores(now: () => Date): Promise<Array<[string, DocumentStore]>> 
 }
 
 describe("files.list", () => {
+  it("leaves out metadata whose metaVersion is NaN, which getMeta refuses, and so does dedupe (0.99.9)", async () => {
+    const memory = new MemoryDocumentStore();
+    let bad: string | undefined;
+    const spoiled = (meta: DocumentMeta | undefined) => (meta !== undefined && meta.id === bad ? { ...meta, metaVersion: Number.NaN } : meta);
+    // A store of your own whose metadata of one document comes back with a version that is not one.
+    const store: DocumentStore = {
+      put: (document, context) => memory.put(document, context),
+      get: async (id, context) => {
+        const document = await memory.get(id, context);
+        return document && { ...document, meta: spoiled(document.meta)! };
+      },
+      getMeta: async (id, context) => spoiled(await memory.getMeta(id, context)),
+      delete: (id, context) => memory.delete(id, context),
+      list: async (context) => (await memory.list(context)).map((meta) => spoiled(meta)!),
+    };
+    const files = createLargeFiles({ requireOwner: false, store });
+    const spoilt = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), owner: "u1" });
+    const good = await files.ingest({ name: "b.txt", bytes: utf8("beta"), owner: "u1" });
+    bad = spoilt.id;
+    expect((await files.list!({ owner: "u1" })).map((meta) => meta.id)).toEqual([good.id]);
+    await expect(files.getMeta(spoilt.id, { owner: "u1" })).rejects.toMatchObject({ code: "NEWER_VERSION" });
+    // The same file again with dedupe is stored anew: the spoilt document is not taken for it.
+    const again = await files.ingest({ name: "a.txt", bytes: utf8("alpha"), owner: "u1", dedupe: true });
+    expect(again.id).not.toBe(spoilt.id);
+  });
+
   it("lists the documents of a scope the caller may use, the oldest first, without expired ones", async () => {
     const time = clock();
     for (const [kind, store] of await stores(time.now)) {

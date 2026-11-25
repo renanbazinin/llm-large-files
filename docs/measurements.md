@@ -885,7 +885,8 @@ ms for a stall, to 10 MB for memory. The records were taken on a laptop (Intel C
 cores, 8 GB) that ran other work too. GitHub's runners can be two to four times slower, and three
 times a busy laptop's record leaves room for that. Memory does not follow the speed of the machine,
 so it gets less room. One bar is lower: an ingest may take no more than the 5.5 times the log that
-[Deployment](./guides/deployment.md#memory-on-each-server) tells you to size for.
+[Deployment](./guides/deployment.md#memory-on-each-server) tells you to size for (548.8 MB, rounded
+down to 540 MB so that the bar keeps that promise).
 
 **When a bar is passed.** A measure with a value over its bar runs again, up to three runs, and
 each budget counts its best run. A bar that no run met fails the job. Change a bar only with a new
@@ -898,7 +899,7 @@ record on this page.
 | `uploads.peakMB`: memory above the uploads | 200 MB | 329 to 356 MB in all, with 191 MB of uploads in a process of about 70 MB (0.8.2) | 80 to 114 MB |
 | `uploads.heapAfterMB`: heap in use after | 20 MB | about 10 MB (0.8.2) | 7 to 8 MB |
 | `ingest.seconds`: the log of 100 MB | 50 s | 11.6 to 14.9 s for 95 MB (0.9.0) | 8.9 to 11.3 s |
-| `ingest.peakMB`: memory above the log | 550 MB | 342 to 347 MB for 95 MB (0.9.0) | 272 to 288 MB |
+| `ingest.peakMB`: memory above the log | 540 MB | 342 to 347 MB for 95 MB (0.9.0) | 272 to 288 MB |
 | `ingest.stallMs`: longest stall | 1,200 ms | 233 to 360 ms for 95 MB (0.9.0) | 123 to 205 ms |
 | `search.seconds`: one search | 6 s | 1.8 s (0.8.2) | 0.6 to 1.1 s |
 | `search.peakMB`: its memory | 100 MB | 49 MB above the process (0.8.2) | 64 to 72 MB |

@@ -233,6 +233,15 @@ describe("openAiResponses: requests", () => {
     await off.send(request("Hi"), { onText: () => undefined });
     expect(never.sent.map((sent) => "include" in sent.body)).toEqual([false, false]);
 
+    // An error about the encrypted content sent back, not about include: the request without
+    // include fails the same way, and the next one still asks for it.
+    const unverified = () => refusal("The encrypted content for item rs_1 could not be verified. Reason: Encrypted content organization_id did not match the target organization.", null);
+    const replayed = fakeFetch([unverified(), unverified(), reply([reasoning("rs_9", "enc-9"), message("ok")])]);
+    const shared = openAiResponses({ model: "gpt-5.5", fetch: replayed.fetch });
+    await expect(shared.send(request("Hi"))).rejects.toMatchObject({ name: "OpenAiRequestError", status: 400 });
+    expect((await shared.send(request("Hi"))).raw).toEqual([reasoning("rs_9", "enc-9"), message("ok")]);
+    expect(replayed.sent.map((sent) => "include" in sent.body)).toEqual([true, false, true]);
+
     // Another field refused is the request's own error: it is not sent again.
     const other = fakeFetch([new Response(JSON.stringify({ error: { message: "Unsupported parameter: 'temperature' is not supported with this model.", type: "invalid_request_error", param: "temperature", code: "unsupported_parameter" } }), { status: 400 })]);
     await expect(openAiResponses({ model: "m", body: { temperature: 0.2 }, fetch: other.fetch }).send(request("Hi"))).rejects.toMatchObject({ status: 400, param: "temperature", code: "unsupported_parameter" });

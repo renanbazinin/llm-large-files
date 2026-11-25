@@ -267,14 +267,19 @@ export function createQuestionRegistry(options: QuestionRegistryOptions = {}): Q
     running.set(key, entry);
     // The first caller is attached before the run starts: run.start is emitted at once.
     const answer = attach(entry, asked);
-    const onEvent = fan<AskEvent>(entry, (given) => given.onEvent);
+    // Each caller gets its own copy of run.finish, whose result shares its lists with the answer:
+    // a listener that changes it changes neither another caller's nor the kept one.
+    const onEvent = fan<AskEvent>(entry, (given) => {
+      const listener = given.onEvent;
+      return listener && ((event: AskEvent) => listener(event.type === "run.finish" ? copyOf(event) : event));
+    });
     void askWithFiles({
       ...asked,
       signal: entry.controller.signal,
       // As `askWithFiles` decides it for this caller: joiners do not change how the model is asked.
       streamText: asked.streamText ?? asked.onText !== undefined,
       onEvent: (event) => {
-        if (event.type === "run.finish") entry.finish = event;
+        if (event.type === "run.finish") entry.finish = copyOf(event);
         onEvent(event);
       },
       onText: fan<string>(entry, (given) => given.onText),

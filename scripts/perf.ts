@@ -87,7 +87,7 @@ export const BUDGETS: readonly Budget[] = [
   { id: "uploads.peakMB", measure: "uploads", field: "peakMB", unit: "MB", bar: 200, linuxOnly: true, what: "100 uploads at once: memory above the uploads", record: "329 to 356 MB in all, about 95 MB above the uploads and the process (0.8.2)" },
   { id: "uploads.heapAfterMB", measure: "uploads", field: "heapAfterMB", unit: "MB", bar: 20, linuxOnly: false, what: "100 uploads at once: heap in use after", record: "back at about 10 MB (0.8.2)" },
   { id: "ingest.seconds", measure: "ingest", field: "seconds", unit: "s", bar: 50, linuxOnly: false, what: "a 100 MB log: ingest", record: "11.6 to 14.9 s for 95 MB (0.9.0)" },
-  { id: "ingest.peakMB", measure: "ingest", field: "peakMB", unit: "MB", bar: 550, linuxOnly: true, what: "a 100 MB log: memory above the log", record: "342 to 347 MB for 95 MB (0.9.0); at most 5.5 times the log (Deployment)" },
+  { id: "ingest.peakMB", measure: "ingest", field: "peakMB", unit: "MB", bar: 540, linuxOnly: true, what: "a 100 MB log: memory above the log", record: "342 to 347 MB for 95 MB (0.9.0); at most 5.5 times the log (Deployment)" },
   { id: "ingest.stallMs", measure: "ingest", field: "stallMs", unit: "ms", bar: 1_200, linuxOnly: false, what: "a 100 MB log: longest stall", record: "233 to 360 ms for 95 MB (0.9.0)" },
   { id: "search.seconds", measure: "search", field: "seconds", unit: "s", bar: 6, linuxOnly: false, what: "one search of the 100 MB log", record: "1.8 s (0.8.2)" },
   { id: "search.peakMB", measure: "search", field: "peakMB", unit: "MB", bar: 100, linuxOnly: true, what: "one search: memory", record: "49 MB above the process (0.8.2)" },
@@ -582,5 +582,8 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   } catch (error) {
     console.error(error instanceof PerfError ? error.message : error);
     process.exitCode = 1;
+    // A child whose measured call failed may still hold a timer (its stall timer, or one the
+    // library left): end it now, so that the parent reports the error and not a timeout.
+    if (args[0] === "--child") process.stderr.write("", () => process.exit(1));
   }
 }

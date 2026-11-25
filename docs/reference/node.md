@@ -917,7 +917,7 @@ import { createDocumentHandlers, createIsolatedExtractors } from "llm-large-file
 
 const isolated = createIsolatedExtractors({ maxHeapMb: 512, concurrency: 2 });
 const files = createLargeFiles({ store: new FileDocumentStore("./data"), extractors: isolated.extractors });
-const documents = createDocumentHandlers(files);
+const documents = createDocumentHandlers(files, { getOwner: (request) => userIdOf(request) }); // your sign-in
 const server = createServer(/* your routes, with documents.upload */).listen(3000);
 
 // A SIGTERM listener replaces Node's own exit: stop the server there too, or it goes on serving.

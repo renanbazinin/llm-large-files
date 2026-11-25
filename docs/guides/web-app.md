@@ -412,6 +412,12 @@ const documents = createDocumentHandlers(files, {
   read, and nothing is stored.
 - **A reused document is never deleted by the handlers**, even when `onUploaded` throws: it was
   stored before, by another upload. The upload is answered with the hook's error all the same.
+- **The same file twice at once:** an upload given a document whose own upload is still in its
+  `onUploaded` waits for that hook. When the hook fails, it deletes its document, and the upload
+  that waited is answered `409` "The same file was being uploaded at the same time, and that upload
+  failed. Send the file again.", without its own `onUploaded`. The wait is within one process:
+  with several servers, an upload on another one can still be given a document that is deleted
+  right after.
 - **The file saved to `path`** for an upload that gave back a document stored before is removed
   before `onUploaded`, and its `path` is not told: no document refers to it.
 - **`appData`**: a JSON object of at most 16 KB (`MAX_APP_DATA_BYTES`), checked before the body is
@@ -1212,9 +1218,13 @@ import { gemini } from "llm-large-files/gemini";
 import { writeSseEvents } from "llm-large-files/node";
 import { endpoint, files } from "./large-files.js";
 
-/** Your app's chats, as in the route above, but `save` keeps one question per questionId: a second save replaces the first. */
+/**
+ * Your app's chats, as in the route above, but by questionId: `save` keeps one question per ID (a
+ * second save replaces the first), and `load` gives the history before the question saved under
+ * `questionId`, when one was, so that a request sent again asks with the messages of the first.
+ */
 export type ChatStore = {
-  load(sessionId: string, userId: string): Promise<{ documentIds: string[]; history: Array<ChatTurn | ToolTurn> } | undefined>;
+  load(sessionId: string, userId: string, questionId: string): Promise<{ documentIds: string[]; history: Array<ChatTurn | ToolTurn> } | undefined>;
   save(sessionId: string, turn: { questionId: string; question: string; toolTurns: ToolTurn[]; answer?: string; usage: UsageTotals }): Promise<void>;
 };
 
@@ -1232,7 +1242,8 @@ export function chatRoute(chats: ChatStore) {
       || typeof questionId !== "string" || !QUESTION_ID_PATTERN.test(questionId)) {
       return void res.status(400).json({ error: "Send a sessionId, a question and a questionId." });
     }
-    const chat = await chats.load(sessionId, userId);
+    // The history before this question: without the turn a first request may have saved already.
+    const chat = await chats.load(sessionId, userId, questionId);
     if (!chat) return void res.status(404).json({ error: "No such chat." });
 
     let stream: EventStream<AskEvent, AskResult>;
@@ -1300,6 +1311,11 @@ What it does, and why:
   the first one when the server had not yet seen its stream break. A request that left gets its
   own abort from `stream.result`, for which `partialResultOf` gives nothing. Keep the question by
   its `questionId`, so that a second save replaces the first.
+- **The history leaves out the question itself.** The first request may have saved its turn before
+  the request sent again loads the chat: a laptop that slept, whose server wrote the whole stream
+  into a connection already dead. `load` gives the history before the turn saved under this
+  `questionId`. With that turn in it, the messages differ from the first request's, and the
+  request sent again is a `409` in place of the kept answer.
 - **One process.** The registry is in memory. A request sent again that reaches another server
   runs the question again ([Deployment](./deployment.md#streamed-answers-behind-proxies)).
 

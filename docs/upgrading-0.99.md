@@ -236,7 +236,8 @@ Owner checks change who may call them (above). The rest is new and optional:
   `ingest`. With `dedupe: true`, a file uploaded again into the same chat answers `201` with the
   document stored before, and `onUploaded` is told `reused: true`: do not record it twice. Such a
   document is never deleted by the handlers, even when `onUploaded` throws, and the file saved to
-  `path` for that upload is removed. `appData` is checked before the body is read, kept in the
+  `path` for that upload is removed. An upload given a document whose own upload is still in its
+  `onUploaded` waits for it, and is answered `409` when that hook failed and deleted it. `appData` is checked before the body is read, kept in the
   metadata, and never answered. Build both on the server, not from what the client sent
   ([Web app](./guides/web-app.md#the-same-file-twice-and-your-own-data-dedupe-and-appdata)).
 
@@ -254,11 +255,15 @@ the package.
 ### Readers of stored rounds refuse a newer round
 
 `geminiToolTurns`, `openAiToolTurns`, `anthropicToolTurns` and `compactToolTurns` throw the
-`TypeError` of `askWithFiles` for a round whose `version` is above `TOOL_TURN_VERSION` (1). They
-converted it as a round of version 1. No round that 0.99.9 or an earlier version stored is refused.
+`TypeError` of `askWithFiles` for a round whose `version` is above `TOOL_TURN_VERSION` (1), or is
+not a number (NaN, or a string such as `"1"`, as a database column of text gives it back). They
+converted it as a round of version 1. No round that 0.99.9 or an earlier version stored, kept as it
+was returned, is refused.
 
-**Who:** apps that convert stored rounds while servers of a newer version answer the same chats.
-**What to do:** nothing for 0.99.9 ([Stored documents and rounds](#stored-documents-and-rounds)).
+**Who:** apps that convert stored rounds while servers of a newer version answer the same chats,
+and apps whose database gives `version` back as text.
+**What to do:** store `version` as the number it was
+([Stored documents and rounds](#stored-documents-and-rounds)).
 
 ## Rolling deploys
 

@@ -1424,8 +1424,8 @@ result is replaced by its [`stubResult`](#stubresultcall-result-hadfiles) stand-
 smaller, and errors and small results stay as they are. It returns copies, and makes the same
 rounds that `storeRounds: "compact"` gives, from rounds stored in full (by 0.10.1 and earlier, or
 by `"full"`). A later question takes them as any stored round: the model sees that the results were
-dropped to make room, and reads again what it needs. A round of a newer version is a `TypeError`,
-as in `askWithFiles` (since 0.99.9).
+dropped to make room, and reads again what it needs. A round of a newer version, or whose `version`
+is not a number, is a `TypeError`, as in `askWithFiles` (since 0.99.9).
 
 ```ts
 // Shrink the stored questions of a chat once it is older than a day.

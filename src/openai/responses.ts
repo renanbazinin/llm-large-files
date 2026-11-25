@@ -369,8 +369,10 @@ export function openAiResponses(options: OpenAiResponsesOptions): ModelAdapter {
           response = await post(bodyOf(request, stream, sent), watch.signal, stopped, lost, headers);
         } catch (error) {
           if (!refusesInclude(error, sent)) throw error;
-          includeNow = false;
           response = await post(bodyOf(request, stream, false), watch.signal, stopped, lost, headers);
+          // Only a request answered without `include` shows that `include` was refused: an error
+          // about the encrypted content sent back in `input` fails the same way without it.
+          includeNow = false;
         }
         return await readReply(response, stream, hooks, watch, lost);
       } finally {

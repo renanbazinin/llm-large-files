@@ -178,6 +178,78 @@ describe("prepareUpload's dedupe", () => {
     expect(await files.list({ owner: "alice" })).toEqual([expect.objectContaining({ id })]);
   });
 
+  it("makes an upload dedupe gives a document wait for that document's own onUploaded, and fail when it deleted it", async () => {
+    const { files, served } = spied();
+    const contexts: UploadedContext[] = [];
+    let open: () => void = () => undefined;
+    const base = await serve(served, {
+      getOwner: userOf,
+      prepareUpload: () => ({ dedupe: true }),
+      onUploaded: async (_document, context) => {
+        contexts.push(context);
+        if (context.reused) return;
+        // The first upload's hook is slow, then refuses the file: its document is deleted.
+        await new Promise<void>((resolve) => {
+          open = resolve;
+        });
+        throw Object.assign(new Error("This chat has too many files."), { status: 409 });
+      },
+    });
+    for (const [events, text] of [[false, "The meeting is on Tuesday."], [true, "The meeting is on Friday."]] as const) {
+      contexts.length = 0;
+      const first = upload(base, text);
+      await vi.waitFor(() => expect(contexts).toHaveLength(1));
+      // The second upload is given the same document by dedupe, and waits for the first hook.
+      const again = upload(base, text, "copy.txt", events);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(contexts).toHaveLength(1);
+      open();
+      expect((await first).status).toBe(409);
+      const answer = await again;
+      const failed = "The same file was being uploaded at the same time, and that upload failed. Send the file again.";
+      if (events) {
+        const streamed = await answer.text();
+        expect(streamed).toContain('"type":"ingest.error"');
+        expect(streamed).toContain(failed);
+      } else {
+        expect(answer.status).toBe(409);
+        expect(await answer.json()).toEqual({ error: failed });
+      }
+      // Its onUploaded never ran for the deleted document, and nothing is left stored.
+      expect(contexts).toHaveLength(1);
+      expect(await files.list({ owner: "alice" })).toEqual([]);
+    }
+  });
+
+  it("gives the document to an upload that waited, once its own upload's onUploaded kept it", async () => {
+    const { files, served } = spied();
+    const contexts: UploadedContext[] = [];
+    let open!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const base = await serve(served, {
+      getOwner: userOf,
+      prepareUpload: () => ({ dedupe: true }),
+      onUploaded: async (_document, context) => {
+        contexts.push(context);
+        if (contexts.length === 1) await gate;
+      },
+    });
+    const first = upload(base, "The meeting is on Tuesday.");
+    await vi.waitFor(() => expect(contexts).toHaveLength(1));
+    const again = upload(base, "The meeting is on Tuesday.", "copy.txt");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(contexts).toHaveLength(1);
+    open();
+    const { id } = (await (await first).json()) as { id: string };
+    const second = await again;
+    expect(second.status).toBe(201);
+    expect(((await second.json()) as { id: string }).id).toBe(id);
+    expect(contexts.map((context) => context.reused)).toEqual([undefined, true]);
+    expect(await files.list({ owner: "alice" })).toEqual([expect.objectContaining({ id })]);
+  });
+
   it("removes the file saved to prepareUpload's path when dedupe gives back a document stored before, and does not tell its path", async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-dedupe-"));
     const uploads = path.join(directory, "uploads");

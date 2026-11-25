@@ -200,7 +200,9 @@ export type DocumentHandlerOptions = {
    * (400 to 599) and message, or a 500 `{"error":"Upload failed."}`. The delete is waited for within
    * the library's `storeTimeoutMs` (since 0.10.0): past it, it goes on alone, and the upload is
    * answered all the same. A document `dedupe` gave back (`reused`) is never deleted (0.99.9): it
-   * was stored before, by another upload. New in 0.9.0.
+   * was stored before, by another upload. An upload given a document whose own upload is still in
+   * this hook waits for it, and is answered 409 without this hook when that hook failed and deleted
+   * the document (within one process). New in 0.9.0.
    */
   onUploaded?: (document: DocumentMeta, context: UploadedContext) => UploadedResult | Promise<UploadedResult>;
   /**
@@ -349,6 +351,8 @@ function systemErrorCode(error: unknown): string | undefined {
 
 /** What the handlers answer a scope that is gone (`DocumentScopeError` "scope_missing"): the chat was deleted. */
 const CHAT_GONE = "This chat no longer exists.";
+/** The answer of an upload that `dedupe` gave a document whose own upload then failed (0.99.9). */
+const SAME_FILE_FAILED = "The same file was being uploaded at the same time, and that upload failed. Send the file again.";
 
 /**
  * An error as the handlers answer it, `failed` saying what failed ("Upload failed"). See
@@ -764,6 +768,13 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
     throw new TypeError("createDocumentHandlers needs getScope: the library requires a scope on every call (requireScope).");
   }
   const idleMs = idleLimit(options.uploadIdleTimeoutMs);
+  /**
+   * The documents stored by an upload of this process whose `onUploaded` has not ended, by ID, and
+   * whether the hook kept the document (0.99.9). An upload that `dedupe` gives one of them waits
+   * for that hook: a failing `onUploaded` deletes the document, which must not be given to another
+   * upload meanwhile.
+   */
+  const firstUploads = new Map<string, Promise<boolean>>();
   /** The bodies held in memory, from the reading of each to the end of its ingest (`maxPendingUploadBytes`). */
   const memoryRoom = new Room(roomLimit("maxPendingUploadBytes", options.maxPendingUploadBytes, 2 * files.maxUploadBytes));
   const spool = spoolOf(options.uploadSpool);
@@ -917,6 +928,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
       /** Gives the upload's room back, once: when its ingest ended, so that an `onUploaded` that waits on a database of yours does not hold it, or when the upload failed. */
       const release = () => held?.release();
       let file: BodyFile | undefined;
+      /** Ends this upload's claim in `firstUploads`, once: whether its `onUploaded` kept the document. */
+      let firstDone: (kept: boolean) => void = () => undefined;
       try {
         let body: Uint8Array | undefined;
         if (prepared.path !== undefined || spooled) {
@@ -950,6 +963,22 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
           ...(prepared.dedupe ? { dedupe: true } : {}),
           ...(prepared.appData !== undefined ? { appData: prepared.appData } : {}),
         };
+        // The document this upload stored, while its `onUploaded` runs (`firstUploads`): claimed as
+        // soon as the ingest gives it, so that an upload given it by `dedupe` finds the claim.
+        const claim = (meta: DocumentMeta): DocumentMeta => {
+          if (reusedHere(meta) || firstUploads.has(meta.id)) return meta;
+          let settle!: (kept: boolean) => void;
+          const outcome = new Promise<boolean>((resolve) => {
+            settle = resolve;
+          });
+          firstUploads.set(meta.id, outcome);
+          firstDone = (kept) => {
+            firstDone = () => undefined;
+            if (firstUploads.get(meta.id) === outcome) firstUploads.delete(meta.id);
+            settle(kept);
+          };
+          return meta;
+        };
         /**
          * Starts the upload's ingest, once. A body in memory is then the ingest's alone: it is
          * freed when the ingest ends, while `onUploaded` may still run. The input is built in
@@ -961,19 +990,29 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
          */
         const start: StartIngest = (more) => {
           const input = { name, ...(mimeType ? { mimeType } : {}), ...chosen, ...caller, signal: gone.signal, ...more };
-          if (file) return file.settle(files.ingest({ ...input, source: { path: file.path } }), (meta) => !reusedHere(meta));
+          if (file) return file.settle(files.ingest({ ...input, source: { path: file.path } }).then(claim), (meta) => !reusedHere(meta));
           const bytes = body!;
           body = undefined;
-          return files.ingest({ ...input, bytes });
+          return files.ingest({ ...input, bytes }).then(claim);
         };
         // The path is told only for the application's own file: the spool's is gone by then.
         const saved = file?.kept ? file.path : undefined;
         const hook = async (meta: DocumentMeta): Promise<Hooked> => {
           // A document stored before (`dedupe`): never deleted here, and its upload's file is gone.
-          const reused = reusedHere(meta);
-          const hooked = await uploaded(meta, request, caller, gone.signal.aborted, saved, reused);
+          // When the upload that stored it is still in its `onUploaded`, this one waits: that hook
+          // deletes the document when it fails. A document gone by then is not given out.
+          if (reusedHere(meta)) {
+            const first = firstUploads.get(meta.id);
+            const lost = first !== undefined
+              ? !(await first)
+              : options.onUploaded !== undefined && await Promise.resolve().then(() => files.getMeta(meta.id, caller)).then((found) => found === undefined, () => false);
+            if (lost) return { failure: new HttpError(409, SAME_FILE_FAILED) };
+            return uploaded(meta, request, caller, gone.signal.aborted, saved, true);
+          }
+          const hooked = await uploaded(meta, request, caller, gone.signal.aborted, saved, false);
           // The document is deleted: the file saved for it goes too.
-          if ("failure" in hooked && !reused) await file?.remove();
+          if ("failure" in hooked) await file?.remove();
+          firstDone("failure" in hooked ? false : true);
           return hooked;
         };
         try {
@@ -993,6 +1032,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         }
       } finally {
         release();
+        // A document whose hook never ran (the answer failed first) is stored: it is kept.
+        firstDone(true);
         // Whatever happened: the spool's file is gone, and so is the application's unless its document is stored.
         await file?.end();
       }
