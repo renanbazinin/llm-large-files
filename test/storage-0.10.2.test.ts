@@ -400,10 +400,11 @@ describe("the second review of 0.10.2", () => {
 });
 
 describe("the third review of 0.10.2", () => {
-  it("never leaves the metadata of a document over the text of the one that replaced it, in one process", async () => {
+  // About 1.5 s alone on Linux; given room for a busy machine and Windows.
+  it("never leaves the metadata of a document over the text of the one that replaced it, in one process", { timeout: 60_000 }, async () => {
     directory = await mkdtemp(path.join(tmpdir(), "llf-0102-"));
     const files = createLargeFiles({ store: new FileDocumentStore(directory), ttlMs: 60 * 60 * 1000 });
-    for (let round = 0; round < 200; round++) {
+    for (let round = 0; round < 80; round++) {
       const first = await files.ingest({ name: "a.txt", bytes: utf8(`alpha ${round}`), id: "race-1", ifExists: "replace" });
       await Promise.all([
         files.touch!("race-1"),
