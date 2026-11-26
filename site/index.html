@@ -1,0 +1,2069 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llm-large-files: answers about files larger than the context window</title>
+<meta name="description" content="A small Node.js library that lets an LLM answer questions about books, logs and other files larger than its request limit or context window. Files that fit are sent whole. The rest become a short card with tools to search and read them. Answers cite line numbers.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F8F7F3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101216" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="website">
+<meta property="og:title" content="llm-large-files">
+<meta property="og:description" content="Let an LLM answer questions about files larger than its request limit or context window.">
+<script>document.documentElement.classList.add("js");try{var t=localStorage.getItem("llf-theme");if(t==="dark"||t==="light")document.documentElement.dataset.theme=t}catch(e){}</script>
+<link rel="icon" href="./assets/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="./assets/site.css">
+<link rel="stylesheet" href="./assets/fig-workflow.css">
+<link rel="stylesheet" href="./assets/fig-ledger.css">
+<script type="module" src="./assets/site.js"></script>
+<script type="module" src="./assets/fig-workflow.js" onerror="document.documentElement.classList.remove('js')"></script>
+<script type="module" src="./assets/fig-ledger.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+<div class="container">
+<a class="brand" href="#top">
+<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><rect width="16" height="16" rx="3" fill="#1A1C20"/><path fill="#FFE98A" d="M0 6h16v4H0z"/><path fill="#E9E7E2" d="M3 3h6v2H3zm0 8h6v2H3z"/><path fill="#1A1C20" d="M3 7h6v2H3z"/></svg>
+llm-large-files
+</a>
+<nav class="site-nav" aria-label="Sections">
+<ul class="nav-inline">
+<li><a href="#workflow">Workflow</a></li>
+<li><a href="#start">Quickstart</a></li>
+<li><a href="#models">Models</a></li>
+<li><a href="#formats">Formats</a></li>
+<li><a href="#web-app">Web app</a></li>
+<li><a href="#measured">Measured</a></li>
+<li><a href="#deeper">In detail</a></li>
+<li><a href="#docs">Docs</a></li>
+</ul>
+<details class="nav-menu">
+<summary>Sections</summary>
+<ul>
+<li><a href="#workflow">Workflow</a></li>
+<li><a href="#start">Quickstart</a></li>
+<li><a href="#models">Models</a></li>
+<li><a href="#formats">Formats</a></li>
+<li><a href="#web-app">Web app</a></li>
+<li><a href="#measured">Measured</a></li>
+<li><a href="#deeper">In detail</a></li>
+<li><a href="#docs">Docs</a></li>
+<li class="nav-out"><a href="https://github.com/renanbazinin/llm-large-files">GitHub</a></li>
+<li><a href="https://www.npmjs.com/package/llm-large-files">npm</a></li>
+</ul>
+</details>
+</nav>
+<div class="header-links">
+<a href="https://github.com/renanbazinin/llm-large-files">GitHub</a>
+<a href="https://www.npmjs.com/package/llm-large-files">npm</a>
+</div>
+<button class="theme-toggle" type="button" data-js data-theme-toggle aria-label="Switch to dark theme">
+<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path fill="currentColor" d="M8 1.75a6.25 6.25 0 0 1 0 12.5z"/></svg>
+</button>
+</div>
+</header>
+
+<main id="main" tabindex="-1">
+
+<!-- ============ Hero ============ -->
+<section class="hero" id="top" aria-labelledby="top-h">
+<div class="container hero-grid">
+<div class="hero-top">
+<p class="hero-meta">npm · MIT · Node 22.12+ · no runtime dependencies · <a href="#models">adapters</a> for Gemini, OpenAI-compatible endpoints and Claude</p>
+<h1 id="top-h">Let an LLM answer questions about files larger than its request limit or context window.</h1>
+</div>
+<div class="hero-main">
+<p class="lead">Your users upload a 50&nbsp;MB log or a 900-page book. Your model connector accepts 10&nbsp;MB per request and 1M tokens of context. This library sends the files that fit, turns the rest into a short card with tools to search and read them, and returns an answer that cites line numbers.</p>
+<div class="hero-cta">
+<div class="cmd" data-copy data-copy-label="the install command"><code>npm install llm-large-files</code></div>
+<a class="btn btn-primary" href="#start">Quickstart</a>
+<span class="hero-links">
+<a href="#workflow">How it works</a>
+<a href="https://github.com/renanbazinin/llm-large-files">GitHub</a>
+</span>
+</div>
+<p class="small muted">It's a small library, not a framework: no model SDK, no server and no UI are required.</p>
+</div>
+<!-- The widths are computed from site/data/run.json: 1,000,000 / 3,260,485 and 145,173 / 3,260,485. -->
+<figure class="gap" aria-labelledby="gap-h">
+<dl class="gap-group" aria-label="Bytes">
+<div class="gap-row" title="The example of the text: a log of 50 MB"><dt>an uploaded log <span class="tag tag-toobig">too big</span></dt><dd><span class="gap-val">50 MB</span><span class="gap-track" aria-hidden="true"><span class="gap-bar is-toobig" style="--w:100%"></span></span></dd></div>
+<div class="gap-row" title="main.budget.maxRequestBytes: 10,000,000 bytes, the default"><dt>one request</dt><dd><span class="gap-val">10 MB</span><span class="gap-track" aria-hidden="true"><span class="gap-bar" style="--w:20%"></span></span></dd></div>
+</dl>
+<dl class="gap-group" aria-label="Tokens">
+<div class="gap-row" title="files.log.estimatedTokens: 3,260,485 (files.log.bytes: 5,236,281)"><dt>app.log, 5 MB <span class="tag tag-toobig">too big</span></dt><dd><span class="gap-val">about 3.3M tokens</span><span class="gap-track" aria-hidden="true"><span class="gap-bar is-toobig" style="--w:100%"></span></span></dd></div>
+<div class="gap-row" title="main.budget.contextTokens: 1,000,000"><dt>the window</dt><dd><span class="gap-val">1M tokens</span><span class="gap-track" aria-hidden="true"><span class="gap-bar" style="--w:30.6703%"></span></span></dd></div>
+<div class="gap-row" title="main.requests.3.estimatedInputTokens: 145,173"><dt>the largest request of the sample question</dt><dd><span class="gap-val">about 145K tokens</span><span class="gap-track" aria-hidden="true"><span class="gap-bar is-accent" style="--w:4.4525%"></span></span></dd></div>
+</dl>
+<figcaption><b id="gap-h">The gap, to scale.</b> app.log is this page's sample file; its tokens are the library's estimate. The sample question is shown below.</figcaption>
+</figure>
+</div>
+</section>
+
+<!-- ============ Figure 1: the workflow ============ -->
+<section class="section section-workflow" id="workflow">
+<div class="container">
+<figure class="fig fig-workflow" id="fig-workflow" data-stages="7" data-current="7" aria-labelledby="wf-title">
+
+<div class="fig-bar wf-bar">
+<div class="wf-heading">
+<h2 class="fig-title" id="wf-title">From upload to an answer that cites its lines</h2>
+<p class="micro mono muted">a sample run: <span data-rec="files.handbook.name">handbook.md</span> and <span data-rec="files.log.name">app.log</span></p>
+</div>
+<div class="wf-transport" data-transport></div>
+</div>
+
+<!-- The map. Every node is text; every wire is aria-hidden. Widths, sizes and counts are from site/data/run.json. -->
+<div class="wf-map" role="group" aria-label="The workflow: what happens once per file, the store, and what happens once per question">
+<i class="wf-sentinel" data-sentinel aria-hidden="true"></i>
+
+<div class="wf-flow wf-flow-file">
+<p class="wf-lane">once per file</p>
+<div class="wf-node wf-upload" data-stage="1"><b>upload</b><span>a file from a user</span></div>
+<span class="wf-wire wf-w-ingest" data-stage="2" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg><i class="wf-ah"></i></span>
+<div class="wf-node wf-ingest" data-stage="2"><b>ingest</b><span>once per file</span><ul class="wf-chips"><li>extract</li><li>normalize</li><li>profile</li><li>line index</li></ul></div>
+<span class="wf-wire wf-w-store" data-stage="3" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H50V100"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H50V100"/></svg><i class="wf-ah wf-ah-d"></i></span>
+</div>
+
+<div class="wf-shelf" data-stage="3">
+<p class="wf-shelf-name"><b>store</b><span>memory, disk, or your own</span></p>
+<ul class="wf-docs">
+<li><b data-rec="files.handbook.name">handbook.md</b> <span title="As a card writes it. files.handbook.bytes: 393,207">384 KB</span></li>
+<li><b data-rec="files.log.name">app.log</b> <span title="As its card writes it. files.log.bytes: 5,236,281">5 MB</span></li>
+</ul>
+</div>
+
+<div class="wf-flow wf-flow-ask">
+<p class="wf-lane">once per question</p>
+<div class="wf-node wf-question" data-stage="4"><b>question</b><span>from the same user</span></div>
+<span class="wf-wire wf-w-plan" data-stage="4" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg><i class="wf-ah"></i></span>
+<p class="wf-tap wf-tap-meta" data-stage="4"><span class="wf-wire wf-v" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M50 0V100"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M50 0V100"/></svg><i class="wf-ah wf-ah-d"></i></span><span class="visually-hidden">from the store: </span>metadata</p>
+<div class="wf-node wf-plan" data-stage="4"><b>plan</b><span>whole or card: smallest first</span></div>
+<span class="wf-wire wf-fork" data-stage="5" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path class="wf-p-big" d="M0 25H100"/><path class="wf-p-fit" d="M12 25V66Q12 75 20 75H100"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path class="wf-p-big" d="M0 25H100"/><path class="wf-p-fit" d="M12 25V66Q12 75 20 75H100"/></svg><i class="wf-dot"></i><i class="wf-ah wf-ah-big"></i><i class="wf-ah wf-ah-fit"></i><i class="wf-m wf-m-big"></i><i class="wf-m wf-m-fit"></i></span>
+<p class="wf-arm wf-arm-toobig" data-stage="5"><span class="tag tag-toobig">too big</span></p>
+<div class="wf-node wf-card" data-stage="5"><b>card + tools</b><span>a few KB in place of the file</span></div>
+<span class="wf-wire wf-w-loop" data-stage="6" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg><i class="wf-ah"></i></span>
+<p class="wf-tap wf-tap-lines" data-stage="6"><span class="wf-wire wf-v" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M50 0V100"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M50 0V100"/></svg><i class="wf-ah wf-ah-d"></i></span><span class="visually-hidden">from the store: </span>lines, by number</p>
+<div class="wf-node wf-loop" data-stage="6" data-beats="3">
+<b>tool loop</b><span>run the calls · fit the results · repeat</span>
+<span class="wf-ret" aria-hidden="true"><svg class="wf-rest"><rect y="-40" width="100%" height="70" rx="12"/></svg><svg class="wf-ink"><rect y="-40" width="100%" height="70" rx="12"/></svg><i class="wf-ah"></i></span>
+<p class="wf-count" title="3 of the 4 requests of the sample question held tool calls"><span class="wf-pips" aria-hidden="true"><i></i><i></i><i></i></span><span data-rec="main.requests.2.turn">3</span> turns</p>
+</div>
+<span class="wf-wire wf-w-answer" data-stage="7" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg><i class="wf-ah"></i></span>
+<p class="wf-arm wf-arm-fits" data-stage="5"><span class="tag tag-fits">fits</span></p>
+<div class="wf-node wf-whole" data-stage="5"><b>whole text</b><span>lines numbered, in the first user turn</span></div>
+<div class="wf-rail" data-stage="7"><span class="wf-wire" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H100"/></svg></span><p class="wf-rail-note">if every file fits and none is a table: one request, no tools</p></div>
+<span class="wf-wire wf-join" data-stage="7" aria-hidden="true"><svg class="wf-rest" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H50V0"/></svg><svg class="wf-ink" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50H50V0"/></svg><i class="wf-ah wf-ah-u"></i><i class="wf-m wf-m-a"></i><i class="wf-m wf-m-b"></i></span>
+<div class="wf-node wf-answer is-now" data-stage="7"><b>answer</b><span>cites lines</span><span class="cite">(<span data-rec="main.cited.0.document">app.log</span> L<span data-rec="main.cited.0.line">41872</span>)</span></div>
+</div>
+</div>
+
+<!-- The room ruler: 0 to main.budget.contextTokens (1,000,000). Each width is a recorded number of tokens over that. -->
+<div class="wf-ruler">
+<p class="wf-ruler-title"><b>Room in the request</b> <span>the sample question, in tokens, on the scale of the window</span></p>
+<div class="wf-scale">
+<div class="wf-track">
+<span class="wf-seg wf-seg-rest" data-stage="4" style="--w:0.3278%" title="The rest of the request: 3,278 estimated tokens (main.requests.0.estimatedInputTokens − main.result.plan.inlineTokens − main.firstUserTurn.estimatedTokens.card)"></span>
+<span class="wf-seg wf-seg-fits" data-stage="5" style="--w:13.7343%" title="handbook.md, whole: 137,343 estimated tokens (main.result.plan.inlineTokens)"><span class="wf-seg-label" aria-hidden="true">handbook.md</span></span>
+<span class="wf-seg wf-seg-card" data-stage="5" style="--w:0.1871%" title="The card of app.log: 1,871 estimated tokens (main.firstUserTurn.estimatedTokens.card)"><span class="wf-seg-label" aria-hidden="true">card</span></span>
+<span class="wf-seg wf-seg-tools" data-stage="6" style="--w:0.2681%" title="Tool results: 2,681 estimated tokens (main.requests.3.estimatedInputTokens − main.requests.0.estimatedInputTokens)"><span class="wf-seg-label" aria-hidden="true">tool results</span></span>
+<span class="wf-free" style="--w:6.4%" title="Kept free of documents: 64,000 tokens (main.budget.reservedTokens). Tool results may grow the request until half of it is left, and that half is kept for the answer"><span class="wf-seg-label" aria-hidden="true">kept free of documents</span></span>
+<span class="wf-tick" style="--x:20%"></span>
+</div>
+<ol class="wf-ticks">
+<li style="--x:0%">0</li>
+<li style="--x:20%"><span data-rec-num="main.budget.inlineTokens">200,000</span><span class="wf-tick-note" aria-hidden="true">room for whole files</span></li>
+<li class="wf-end"><span data-rec-num="main.budget.contextTokens">1,000,000</span><span class="wf-tick-note" aria-hidden="true">the window</span></li>
+</ol>
+<div class="wf-over">
+<span class="wf-over-bar" data-stage="2" aria-hidden="true"></span>
+<p class="wf-over-label"><span><b data-rec="files.log.name">app.log</b>, on the same scale: not in the request</span> <span class="wf-flag">past the window by <span title="files.log.estimatedTokens − main.budget.contextTokens: 3,260,485 − 1,000,000">2,260,485</span> tokens</span></p>
+</div>
+</div>
+<ul class="legend wf-legend">
+<li><span class="sw"></span>the rest of the request <b title="main.requests.0.estimatedInputTokens − main.result.plan.inlineTokens − main.firstUserTurn.estimatedTokens.card: the system text, the tool guide, the tool declarations, the question">3,278</b></li>
+<li><span class="sw sw-fits"></span>handbook.md, whole <b data-rec-num="main.result.plan.inlineTokens">137,343</b></li>
+<li><span class="sw sw-toobig"></span>the card of app.log <b data-rec-num="main.firstUserTurn.estimatedTokens.card">1,871</b></li>
+<li><span class="sw sw-accent"></span>tool results <b title="main.requests.3.estimatedInputTokens − main.requests.0.estimatedInputTokens">2,681</b></li>
+<li><span class="sw sw-free"></span>kept free of documents <b data-rec-num="main.budget.reservedTokens">64,000</b></li>
+<li><span class="wf-sw-tick"></span>room for whole files <b data-rec-num="main.budget.inlineTokens">200,000</b></li>
+<li><span class="wf-sw-end"></span>the window <b data-rec-num="main.budget.contextTokens">1,000,000</b></li>
+</ul>
+<p class="small wide">app.log is about <span data-rec-num="files.log.estimatedTokens">3,260,485</span> tokens. The largest request of this question was about <span data-rec-num="main.requests.3.estimatedInputTokens">145,173</span>. Tokens shown. Request bytes are budgeted the same way.</p>
+</div>
+
+<!-- The stages. Without JavaScript all seven show, one under the other. -->
+<div class="wf-panel" id="wf-panel">
+<ol class="wf-stages">
+
+<li class="wf-stage" data-stage="1">
+<div class="wf-stage-head"><p class="label">stage 1 of 7</p><h3>Upload</h3><p>A user uploads a file. Up to 100 MB by default.</p></div>
+<div class="wf-spec">
+<table class="table wf-files">
+<caption>The two files of the sample run</caption>
+<thead><tr><th scope="col">File</th><th scope="col" class="num">Size</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code data-rec="files.handbook.name">handbook.md</code></th><td class="num"><code data-rec-num="files.handbook.bytes">393,207</code> bytes</td></tr>
+<tr><th scope="row"><code data-rec="files.log.name">app.log</code></th><td class="num"><code data-rec-num="files.log.bytes">5,236,281</code> bytes</td></tr>
+</tbody>
+</table>
+<dl class="gap-group wf-upload-scale" aria-label="The two files against the upload limit">
+<div class="gap-row"><dt>handbook.md</dt><dd><span class="gap-val"><span data-rec-num="files.handbook.bytes">393,207</span> bytes</span><span class="gap-track" aria-hidden="true"><span class="gap-bar is-fits" style="--w:0.375%"></span></span></dd></div>
+<div class="gap-row"><dt>app.log</dt><dd><span class="gap-val"><span data-rec-num="files.log.bytes">5,236,281</span> bytes</span><span class="gap-track" aria-hidden="true"><span class="gap-bar is-toobig" style="--w:4.9937%"></span></span></dd></div>
+<div class="gap-row"><dt>the upload limit, by default (<code>maxUploadBytes</code>)</dt><dd><span class="gap-val">100 MB</span><span class="gap-track" aria-hidden="true"><span class="gap-bar" style="--w:100%"></span></span></dd></div>
+</dl>
+<p class="small muted wf-upload-note">Drawn to scale: the limit is 104,857,600 bytes. Both files are far under it. What decides between whole and card is the size in tokens, at stage 4.</p>
+</div>
+</li>
+
+<li class="wf-stage" data-stage="2">
+<div class="wf-stage-head"><p class="label">stage 2 of 7</p><h3>Ingest</h3><p>Ingest runs once per file: it extracts the text by format, normalizes it, profiles it, and indexes its lines, so a tool can read a range by number.</p></div>
+<div class="wf-spec wf-spec-2">
+<div class="listing">
+<div class="listing-head"><b>what ingest returned for app.log</b><span>the metadata, in part</span></div>
+<pre class="language-json" data-rec-excerpt="files.log">{
+  …
+  "name": "app.log",
+  …
+  "format": "log",
+  "bytes": 5236281,
+  …
+  "lines": 60000,
+  "estimatedTokens": 3260485,
+  …
+}</pre>
+</div>
+<div class="listing">
+<div class="listing-head"><b>its log profile</b><span>levels and the time range</span></div>
+<pre class="language-json" data-rec-excerpt="files.log.logProfile">{
+  "levels": {
+    "INFO": 58773,
+    "WARN": 892,
+    "ERROR": 334,
+    "FATAL": 1
+  },
+  "firstTimestamp": "2026-11-19T08:00:00Z",
+  "lastTimestamp": "2026-11-19T16:18:15Z",
+  …
+}</pre>
+</div>
+</div>
+</li>
+
+<li class="wf-stage" data-stage="3">
+<div class="wf-stage-head"><p class="label">stage 3 of 7</p><h3>Store</h3><p>The text, its metadata and the line index go to a store: in memory, on disk with expiry, or your own. Each document belongs to an owner.</p></div>
+<div class="wf-spec wf-spec-2">
+<div class="listing">
+<div class="listing-head"><b>handbook.md</b><span>its id and its owner</span></div>
+<pre class="language-json" data-rec-excerpt="files.handbook">{
+  "id": "doc_d549dadf0eeb43908461480eea085b75",
+  …
+  "owner": "user-42",
+  …
+  "name": "handbook.md",
+  …
+  "expiresAt": "2026-11-28T16:20:10.792Z"
+}</pre>
+</div>
+<div class="listing">
+<div class="listing-head"><b>app.log</b><span>its id and its owner</span></div>
+<pre class="language-json" data-rec-excerpt="files.log">{
+  "id": "doc_d4677697689d4e4e864a45a372db0c2a",
+  …
+  "owner": "user-42",
+  …
+  "name": "app.log",
+  …
+  "expiresAt": "2026-11-28T16:20:10.761Z"
+}</pre>
+</div>
+</div>
+</li>
+
+<li class="wf-stage" data-stage="4">
+<div class="wf-stage-head"><p class="label">stage 4 of 7</p><h3>Question and plan</h3><p>When the user asks, the library plans the request: which documents go in whole (inline) and which get a card and the tools (searchable). The smallest go in whole first, while they fit the room for document text: half the window, 200,000 tokens at most (<code>budget.inlineTokens</code>). One budget covers tokens and request bytes.</p></div>
+<div class="wf-spec wf-spec-3">
+<div class="wf-ask">
+<p class="label">the question</p>
+<p class="wf-q" data-rec="main.question">What caused the outage, and when? Cite lines.</p>
+<p class="label">the library's notice</p>
+<p class="step is-note" data-k="i" data-rec="main.requests.0.notices.0.message">Too large to read at once: app.log. Searching instead…</p>
+</div>
+<div class="listing">
+<div class="listing-head"><b>the budget</b><span>tokens and bytes</span></div>
+<pre class="language-json" data-rec-excerpt="main.budget">{
+  "contextTokens": 1000000,
+  "maxRequestBytes": 10000000,
+  "inlineTokens": 200000,
+  "reservedTokens": 64000,
+  …
+}</pre>
+</div>
+<div class="listing">
+<div class="listing-head"><b>the plan</b><span>documents by name</span></div>
+<pre class="language-json" data-rec="main.result.plan">{
+  "inline": [
+    "handbook.md"
+  ],
+  "searchable": [
+    "app.log"
+  ],
+  "inlineTokens": 137343,
+  "inlineBytes": 436117
+}</pre>
+</div>
+</div>
+</li>
+
+<li class="wf-stage" data-stage="5">
+<div class="wf-stage-head"><p class="label">stage 5 of 7</p><h3>Fits, or too big</h3><p>handbook.md fits: its whole text goes into the first user turn, lines numbered. app.log does not: a card of a few KB takes its place, and the model gets tools.</p></div>
+<div class="wf-spec wf-spec-2">
+<div class="listing edge-toobig">
+<div class="listing-head"><b>too big: the card of app.log</b><span><span data-rec-num="main.firstUserTurn.estimatedTokens.card">1,871</span> estimated tokens · <a href="#card">the whole card</a></span></div>
+<pre class="language-text" data-rec-excerpt="main.firstUserTurn.card">--- Large attached file: app.log ---
+document_id: doc_d4677697689d4e4e864a45a372db0c2a
+log · 5 MB · 60,000 lines · about 3.3M tokens
+This file is NOT in your context. Use the document tools to search it and to read line ranges.
+Log levels: INFO 58,773, WARN 892, ERROR 334, FATAL 1
+Time range: 2026-11-19T08:00:00Z → 2026-11-19T16:18:15Z
+Most frequent problems (count, first line):
+  [FATAL ×1, L41872] FATAL Primary database unreachable, failing over to replica &lt;ip&gt;
+  [ERROR ×334, L5745] ERROR Connection timeout after &lt;n&gt;ms to &lt;ip&gt;
+  …
+--- End large attached file: app.log ---</pre>
+</div>
+<div class="listing edge-fits">
+<div class="listing-head"><b>fits: handbook.md, whole</b><span><span data-rec-num="main.firstUserTurn.inlineFrame.totalLines">4,868</span> numbered lines</span></div>
+<pre><span class="card-l" data-rec="main.firstUserTurn.inlineFrame.first">--- Attached file [mark a8a86ae4]: "handbook.md" (markdown, 4,868 lines; it ends only at the line with mark a8a86ae4) ---
+</span><span class="card-l" data-rec="main.firstUserTurn.inlineFrame.lines.0">1| # Operations Handbook
+</span><span class="card-l" data-rec="main.firstUserTurn.inlineFrame.lines.1">2| 
+</span><span class="card-l" data-rec="main.firstUserTurn.inlineFrame.lines.2">3| This handbook is the working reference of the operations teams: how we run the storefront services, what we do when they fail, and who decides what. Each section is a runbook that one person on call can follow alone.
+</span><span class="card-l" data-rec="main.firstUserTurn.inlineFrame.lines.3">4| 
+</span><span class="card-l" data-rec="main.firstUserTurn.inlineFrame.lines.4">5| # 1 About this handbook
+</span><span class="card-l">…
+</span><span class="card-l" data-rec="main.firstUserTurn.inlineFrame.last">--- End attached file [mark a8a86ae4] ---</span></pre>
+</div>
+</div>
+</li>
+
+<li class="wf-stage" data-stage="6">
+<div class="wf-stage-head"><p class="label">stage 6 of 7</p><h3>The tool loop</h3><p>The model calls tools. The loop runs the calls of a turn, fits their results to the room left, and sends the request again. It repeats until the model answers.</p></div>
+<div class="wf-spec wf-spec-75">
+<ol class="wf-turns">
+<li class="wf-turn" data-turn="1"><p class="wf-turn-head"><b>request 1</b> <span><span data-rec-num="main.requests.0.estimatedInputTokens">142,492</span> estimated tokens · <code>tool_turns_left</code> <span data-rec="main.requests.0.tools.0.toolTurnsLeft">10</span></span></p>
+<ol class="steps">
+<li class="step" data-k="S" data-rec="main.result.steps.0">Search app.log (exact) for “FATAL” — 1 matching line</li>
+<li class="step" data-k="S" data-rec="main.result.steps.1">Search app.log (exact) for “Connection timeout”, counted by hour — 334 matching lines in 6 groups</li>
+</ol></li>
+<li class="wf-turn" data-turn="2"><p class="wf-turn-head"><b>request 2</b> <span><span data-rec-num="main.requests.1.estimatedInputTokens">143,050</span> estimated tokens · <code>tool_turns_left</code> <span data-rec="main.requests.1.tools.0.toolTurnsLeft">9</span></span></p>
+<ol class="steps">
+<li class="step" data-k="R" data-rec="main.result.steps.2">Read app.log lines 41860-41884</li>
+<li class="step" data-k="S" data-rec="main.result.steps.3">Search app.log (exact) for “promoted to primary” — 1 matching line</li>
+</ol></li>
+<li class="wf-turn" data-turn="3"><p class="wf-turn-head"><b>request 3</b> <span><span data-rec-num="main.requests.2.estimatedInputTokens">144,832</span> estimated tokens · <code>tool_turns_left</code> <span data-rec="main.requests.2.tools.0.toolTurnsLeft">8</span></span></p>
+<ol class="steps">
+<li class="step" data-k="S" data-rec="main.result.steps.4">Search app.log (exact) for “Connection timeout”, the last ones — 334 matching lines</li>
+</ol></li>
+<li class="wf-turn" data-turn="4"><p class="wf-turn-head"><b>request 4</b> <span><span data-rec-num="main.requests.3.estimatedInputTokens">145,173</span> estimated tokens · no tool calls: its text is the answer</span></p></li>
+</ol>
+<ul class="wf-facts">
+<li>The tools showed the model <b data-rec="main.linesShown.count">25</b> of the <b data-rec-num="main.linesShown.of">60,000</b> lines of app.log.</li>
+<li>Over the whole question their results added <b title="main.requests.3.estimatedInputTokens − main.requests.0.estimatedInputTokens">2,681</b> estimated tokens to the request.</li>
+<li>Each request carries handbook.md whole again, which is most of its size.</li>
+<li><a href="#loop">The loop, request by request</a></li>
+</ul>
+</div>
+</li>
+
+<li class="wf-stage is-now" data-stage="7">
+<div class="wf-stage-head"><p class="label">stage 7 of 7</p><h3>The answer</h3><p>The answer cites line numbers. With it come the steps, the evidence, the citations checked against what the tools showed, and the usage.</p></div>
+<div class="wf-spec wf-spec-543">
+<div class="wf-answer-text">
+<p class="label">the scripted model's answer</p>
+<p data-rec="main.result.text">The outage was caused by the primary database at 10.4.2.17 becoming unreachable: at 13:49:04 UTC on 2026-11-19 the log has "FATAL Primary database unreachable, failing over to replica 10.4.2.18" <span class="cite">(app.log L41872)</span>. Connection timeouts to 10.4.2.17 had been rising before it: 2 to 3 an hour until 12:00, then 13 in the hour from 12:00 and 312 in the hour from 13:00, the last of them 10 seconds after the FATAL line <span class="cite">(app.log L41876)</span>. The replica 10.4.2.18 was promoted to primary at 13:49:20, 16 seconds after the FATAL line <span class="cite">(app.log L41878)</span>, and no timeout is logged after that. That is the sequence the handbook's failover procedure describes: the pool fails over on its own, and the timeouts must stop after the promotion <span class="cite">(handbook.md L2631, L2633)</span>.</p>
+</div>
+<div class="listing" style="--digits:5">
+<div class="listing-head"><b>app.log</b><span>lines 41871-41874 of <span data-rec-num="files.log.lines">60,000</span></span></div>
+<div class="listing-lines">
+<div class="ln"><span class="ln-n" data-rec="main.cited.0.before.1.line">41871</span><span class="ln-t" data-rec="main.cited.0.before.1.text">2026-11-19T13:49:04Z INFO checkout-api POST /api/v2/cart/96512/items 201 390ms region=eu-west</span></div>
+<div class="ln is-marked"><span class="ln-n" data-rec="main.cited.0.line">41872</span><span class="ln-t" data-rec="main.cited.0.text">2026-11-19T13:49:04Z FATAL Primary database unreachable, failing over to replica 10.4.2.18</span></div>
+<div class="ln"><span class="ln-n" data-rec="main.cited.0.after.0.line">41873</span><span class="ln-t" data-rec="main.cited.0.after.0.text">2026-11-19T13:49:06Z ERROR Connection timeout after 5000ms to 10.4.2.17</span></div>
+<div class="ln"><span class="ln-n" data-rec="main.cited.0.after.1.line">41874</span><span class="ln-t" data-rec="main.cited.0.after.1.text">2026-11-19T13:49:09Z ERROR Connection timeout after 3000ms to 10.4.2.17</span></div>
+</div>
+</div>
+<div class="wf-spec">
+<div class="listing edge-mark">
+<div class="listing-head"><b>result.citations</b><span>the library's check</span></div>
+<pre class="language-json" data-rec="main.result.citations">{
+  "checked": 5,
+  "supported": 5,
+  "unchecked": 0,
+  "unsupported": []
+}</pre>
+</div>
+<p class="small muted">The check says that each cited line was shown to the model. It does not say that the answer is right.</p>
+</div>
+</div>
+</li>
+
+</ol>
+</div>
+
+<figcaption>A sample run, recorded with a scripted model at version <span data-rec="meta.version">0.99.11</span>: the card, the tool results, the step lines and the sizes are what the library printed. No model is called from this page.</figcaption>
+</figure>
+
+<p class="wf-measured small wide"><span class="tag">measured</span> A live run, not the sample above: with <code>gemini-3.8-flash</code> on the Gemini API in November 2026, at version 0.1.0, a 5 MB log of 60,000 lines, over the 1M window, got the right root cause of an outage, citing the right lines (checked with grep), in about 60 s over 11 tool calls. It is one run, not a benchmark. <a href="#measured">Measured, with the conditions</a></p>
+
+<dl class="wf-three">
+<div>
+<dt><span class="tag tag-fits">fits</span></dt>
+<dd>A file fits when it is within the room for whole files, 200,000 tokens by default, and within the request size. Its whole text goes into the first user turn, with its lines numbered. If every file fits, the question is one request, with no tools. A table sent whole still gets tools, so its counts and sums are exact.</dd>
+</div>
+<div>
+<dt><span class="tag tag-toobig">too big</span></dt>
+<dd>A card of a few KB takes the file's place: its format, size and line count, and what the profile found. For a log: level counts, the time range, the most frequent errors grouped by shape. For a book: an outline of headings with line numbers. Then the first 25 lines.</dd>
+</div>
+<div>
+<dt><span class="tag tag-answer">answer</span></dt>
+<dd>The answer cites line numbers, like <code>(app.log L1203)</code>. <code>result.steps</code> has one line per tool call. <code>result.citations</code> checks each citation against what the tools showed. <code>result.usage</code> sums every request.</dd>
+</div>
+</dl>
+</div>
+</section>
+
+<!-- ============ Quickstart ============ -->
+<section class="section" id="start" aria-labelledby="start-h">
+<div class="container">
+<header class="section-head">
+<p class="label">quickstart</p>
+<h2 id="start-h">Ingest when a file is uploaded. Ask when the user asks.</h2>
+<p class="lead"><code>files.ingest</code> extracts the text of a file and indexes its lines, once. <code>askGemini</code>, or <code>askWithFiles</code> with any model, runs the loop for each question and returns the answer with what it did to get there.</p>
+</header>
+<div class="tabs" role="group" aria-label="Quickstart samples">
+<input type="radio" name="start-tabs" id="start-tab-1" checked><label for="start-tab-1">Gemini on Vertex AI</label>
+<input type="radio" name="start-tabs" id="start-tab-2"><label for="start-tab-2">Any model</label>
+<input type="radio" name="start-tabs" id="start-tab-3"><label for="start-tab-3">Gemini API or a gateway</label>
+<div class="tab-panel">
+<h3 class="tab-title">Gemini on Vertex AI</h3>
+<p class="small muted start-note">With an access token from Application Default Credentials. <code>google-auth-library</code> is your application's, not a dependency of this package.</p>
+<pre class="code" data-src="README.md"><code class="language-ts">import { readFile } from "node:fs/promises";
+import { GoogleAuth } from "google-auth-library";
+import { createLargeFiles, FileDocumentStore } from "llm-large-files";
+import { askGemini, vertexAi } from "llm-large-files/gemini";
+
+const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
+const userId = "user-42"; // the signed-in user: every call names its owner
+
+// When a user uploads a file:
+const doc = await files.ingest({ name: "app.log", bytes: await readFile("./app.log"), owner: userId });
+
+// When they ask about it:
+const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
+const endpoint = vertexAi({
+  project: process.env.GOOGLE_CLOUD_PROJECT!,
+  model: "gemini-3.8-flash",
+  accessToken: async () =&gt; (await auth.getAccessToken())!, // asked for on each request
+});
+const result = await askGemini({
+  files,
+  endpoint,
+  owner: userId,
+  documentIds: [doc.id],
+  messages: [{ role: "user", text: "What caused the outage, and when? Cite lines." }],
+  onText: (delta) =&gt; process.stdout.write(delta), // optional: the answer as it streams
+});</code></pre>
+</div>
+<div class="tab-panel">
+<h3 class="tab-title">Any model</h3>
+<p class="small muted start-note">With another provider, name the model yourself. This pair is a sample: the Claude adapter and a DeepSeek endpoint have not been run live (<a href="#measured">Measured</a>). The library assumes a window of 1M tokens: for a smaller one, set <code>budget.contextTokens</code>.</p>
+<pre class="code" data-src="README.md"><code class="language-ts">import { askWithFiles } from "llm-large-files";
+import { openAiCompatible } from "llm-large-files/openai";
+import { anthropic } from "llm-large-files/anthropic";
+
+// OpenAI, Azure OpenAI, DeepSeek, LiteLLM, vLLM, Ollama, OpenRouter: anything that speaks Chat Completions.
+const deepseek = openAiCompatible({ baseUrl: "https://api.deepseek.com/v1", apiKey: process.env.DEEPSEEK_API_KEY!, model: "deepseek-v4-pro" });
+// Claude. `fallbacks` lets another model answer when a safety classifier declines the request.
+const claude = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claude-opus-5-5", fallbacks: "default" });
+
+const withClaude = await askWithFiles({
+  files,               // `files`, `doc` and `userId` are those of the quickstart
+  owner: userId,
+  model: claude,       // writes the answer
+  explorer: deepseek,  // optional: a second model, of any provider, that searches and reads
+  documentIds: [doc.id],
+  messages: [{ role: "user", text: "What caused the outage, and when? Cite lines." }],
+  onText: (delta) =&gt; process.stdout.write(delta),
+});
+
+withClaude.answered;  // false when the last reply had no text (a blocked prompt, a reply cut off before any text, a tool call that could not be read): show your own message
+withClaude.usage;     // { requests: 5, inputTokens: 32662, cachedInputTokens: 6086, outputTokens: 750, thoughtTokens: 0, byModel: { … } }
+withClaude.evidence;  // [{ tool: "read_document", documentId, document: "app.log", lines: [[34100, 34110]] }, …]
+withClaude.toolTurns; // pass these back in `messages`, between this question and its answer: a follow-up then needs no new search</code></pre>
+</div>
+<div class="tab-panel">
+<h3 class="tab-title">Gemini API or a gateway</h3>
+<p class="small muted start-note">With a key for the Gemini API, or your own proxy of Generate Content, swap the endpoint.</p>
+<pre class="code" data-src="README.md"><code class="language-ts">import { geminiApi, type GeminiEndpoint } from "llm-large-files/gemini";
+
+const withKey = geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.8-flash" });
+
+// Your own proxy of Generate Content. Its headers are sent exactly as given.
+const viaGateway: GeminiEndpoint = {
+  url: "https://llm-gateway.example.com/v1/gemini:generateContent",
+  streamUrl: "https://llm-gateway.example.com/v1/gemini:streamGenerateContent?alt=sse", // without it, no streaming
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.GATEWAY_KEY}` },
+};</code></pre>
+</div>
+</div>
+<div class="start-back">
+<h3>What comes back</h3>
+<p class="small muted wide">The values are those of this page's sample question, recorded with a scripted model.</p>
+<dl class="defs start-defs">
+<div>
+<dt>result.steps</dt>
+<dd>One line for each tool call, in order, with the loop's own notices among them. Show it as plain text, never as HTML: the steps quote what the model sent.
+<ol class="steps">
+<li class="step" data-k="S" data-rec="main.result.steps.0">Search app.log (exact) for “FATAL” — 1 matching line</li>
+<li class="step" data-k="S" data-rec="main.result.steps.1">Search app.log (exact) for “Connection timeout”, counted by hour — 334 matching lines in 6 groups</li>
+<li class="step" data-k="R" data-rec="main.result.steps.2">Read app.log lines 41860-41884</li>
+<li class="step" data-k="S" data-rec="main.result.steps.3">Search app.log (exact) for “promoted to primary” — 1 matching line</li>
+<li class="step" data-k="S" data-rec="main.result.steps.4">Search app.log (exact) for “Connection timeout”, the last ones — 334 matching lines</li>
+</ol>
+</dd>
+</div>
+<div>
+<dt>result.evidence</dt>
+<dd>What the model was shown: each file sent whole, then the lines or pages of each tool call. The entry of the third call:
+<pre class="listing language-json" data-rec="main.result.evidence.3">{
+  "tool": "read_document",
+  "documentId": "doc_d4677697689d4e4e864a45a372db0c2a",
+  "document": "app.log",
+  "lines": [
+    [
+      41860,
+      41884
+    ]
+  ],
+  "callId": "call_3"
+}</pre>
+</dd>
+</div>
+<div>
+<dt>result.usage</dt>
+<dd>Requests and tokens of the whole question, in all and for each model. The scripted model reports no usage, so the library's own estimate stands in.
+<pre class="listing language-json" data-rec="main.result.usage">{
+  "requests": 4,
+  "inputTokens": 0,
+  "cachedInputTokens": 0,
+  "outputTokens": 0,
+  "thoughtTokens": 0,
+  "byModel": {
+    "fake-model": {
+      "requests": 4,
+      "inputTokens": 0,
+      "cachedInputTokens": 0,
+      "outputTokens": 0,
+      "thoughtTokens": 0
+    }
+  },
+  "unmeasuredRequests": 4,
+  "estimatedInputTokens": 575547
+}</pre>
+</dd>
+</div>
+<div>
+<dt>result.citations</dt>
+<dd>The line citations of the answer, checked against what the model was shown. It says that the lines were shown, not that the answer is right.
+<pre class="listing language-json" data-rec="main.result.citations">{
+  "checked": 5,
+  "supported": 5,
+  "unchecked": 0,
+  "unsupported": []
+}</pre>
+</dd>
+</div>
+<div>
+<dt>result.toolTurns</dt>
+<dd>The tool rounds as plain JSON. Pass them back in <code>messages</code>, and a follow-up question often needs no new search. They hold the text of the documents: keep them on the server.</dd>
+</div>
+<div>
+<dt>result.answered</dt>
+<dd><code data-rec="main.result.answered">true</code> here. <code>false</code> when the last reply had no text or the provider refused the prompt: show your own message.</dd>
+</div>
+</dl>
+</div>
+</div>
+</section>
+
+<!-- ============ Any model ============ -->
+<section class="section" id="models" aria-labelledby="models-h">
+<div class="container">
+<header class="section-head">
+<p class="label">models</p>
+<h2 id="models-h">One loop, any model.</h2>
+<p class="lead">A provider is an adapter: one object that turns the loop's request into the provider's, and its reply back. These come with the package, and each posts JSON with <code>fetch</code>, with no provider SDK. Your application chooses the model: the package has no default.</p>
+</header>
+<table class="table table-stack models-table" role="table">
+<caption>The adapters, and what has been run against a real provider</caption>
+<thead role="rowgroup">
+<tr role="row">
+<th role="columnheader" scope="col">For</th>
+<th role="columnheader" scope="col">Import</th>
+<th role="columnheader" scope="col">What it is</th>
+<th role="columnheader" scope="col">Live runs on record</th>
+</tr>
+</thead>
+<tbody role="rowgroup">
+<tr role="row">
+<th role="rowheader" scope="row">Gemini API</th>
+<td role="cell"><code>geminiApi()</code> <small>from <code>llm-large-files/gemini</code></small></td>
+<td role="cell">Gemini with an API key. <code>askGemini</code> is <code>askWithFiles</code> with a Gemini model.</td>
+<td role="cell" data-th="Live runs"><span class="tag models-yes">run live</span> <small>From 0.1.0 to 0.5.0, and 0.10.0.</small></td>
+</tr>
+<tr role="row">
+<th role="rowheader" scope="row">Vertex AI</th>
+<td role="cell"><code>vertexAi()</code> <small>from <code>llm-large-files/gemini</code></small></td>
+<td role="cell">Gemini on Google Cloud, with an access token asked for on each request.</td>
+<td role="cell" data-th="Live runs"><span class="tag models-yes">run live</span> <small>0.3.0, 0.3.5, and the code on main before 0.6.0. Nothing of 0.10.0.</small></td>
+</tr>
+<tr role="row">
+<th role="rowheader" scope="row">OpenAI-compatible endpoints</th>
+<td role="cell"><code>openAiCompatible()</code> <small>from <code>llm-large-files/openai</code></small></td>
+<td role="cell">A model behind a Chat Completions endpoint: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp.</td>
+<td role="cell" data-th="Live runs"><span class="tag models-yes">run live on Gemini's OpenAI layer only</span> <small>Every other server: tested against fake servers.</small></td>
+</tr>
+<tr role="row">
+<th role="rowheader" scope="row">OpenAI Responses API</th>
+<td role="cell"><code>openAiResponses()</code> <small>from <code>llm-large-files/openai</code></small></td>
+<td role="cell">For OpenAI's reasoning models with tools. New in 0.99.9.</td>
+<td role="cell" data-th="Live runs"><span class="tag models-no">not run live</span> <small>Tested against fake servers.</small></td>
+</tr>
+<tr role="row">
+<th role="rowheader" scope="row">Claude</th>
+<td role="cell"><code>anthropic()</code> <small>from <code>llm-large-files/anthropic</code></small></td>
+<td role="cell">Claude through the Messages API, or a gateway that speaks the same API.</td>
+<td role="cell" data-th="Live runs"><span class="tag models-no">not run live</span> <small>Tested against the request and response shapes of the Messages API documentation.</small></td>
+</tr>
+<tr role="row">
+<th role="rowheader" scope="row">Your own adapter</th>
+<td role="cell"><code>ModelAdapter</code> <small>a type of <code>llm-large-files</code></small></td>
+<td role="cell">One object with an <code>id</code>, its <code>capabilities</code> and a <code>send</code> method, plus <code>generateText</code> to read whole files in parts.</td>
+<td role="cell" data-th="Live runs"><small>Yours to run. The <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/own-adapter-and-loop.md">guide</a> has a complete adapter for a made-up provider.</small></td>
+</tr>
+</tbody>
+</table>
+<p class="small muted models-under">Every live run on record is of November 2026, of a version up to 0.10.0, and on a Gemini model. What each run was: <a href="#measured">Measured</a>.</p>
+<div class="models-explorer">
+<h3>One model to explore, another to answer</h3>
+<div class="split">
+<div class="stack">
+<p>The model you name does both halves of the work on a large file: it explores the file, then it answers. Name a second model for the first half, and the many requests of a search go to it: it can be a cheaper or faster one. <code>model</code> gets what the tools returned and writes the answer in one request.</p>
+<p>Left out or empty, nothing changes: one model does both. With <code>askWithFiles</code> the explorer can be of another provider. No such pair has been run live.</p>
+</div>
+<div class="callout">
+<p class="callout-title">Eleven live checks</p>
+<p class="small">In the eleven checks with <code>gemini-3.5-flash-lite</code> exploring, the answering model was right every time, from what the explorer found. Flash-Lite models only, on the Gemini API and Vertex AI, November 2026, for 0.3.5. Not checked: models larger than Flash-Lite, and Gemini 4. <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md#an-explorer-model-035">Measurements</a> · <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/explorer-model.md">The guide</a></p>
+</div>
+</div>
+<pre class="code" data-src="README.md"><code class="language-ts">// In place of the quickstart's endpoint:
+const endpoint = vertexAi({
+  project: process.env.GOOGLE_CLOUD_PROJECT!,
+  model: "gemini-3.8-flash",                        // writes the answer
+  explorerModel: process.env.GEMINI_EXPLORER_MODEL, // optional: searches and reads
+  accessToken: async () =&gt; (await auth.getAccessToken())!, // `auth` is the quickstart's
+});</code></pre>
+</div>
+</div>
+</section>
+
+<!-- ============ What it reads ============ -->
+<section class="section" id="formats" aria-labelledby="formats-h">
+<div class="container">
+<header class="section-head">
+<p class="label">formats</p>
+<h2 id="formats-h">What it reads.</h2>
+<p class="lead">Every format becomes text with numbered lines. Here is what each one keeps.</p>
+</header>
+<div class="formats-grid">
+<div class="tile">
+<h3 class="tile-title mono">Text and Markdown</h3>
+<p class="tile-note">The file as it is, in UTF-8, UTF-16 or one of five older encodings. Markdown's <code>#</code> headings form the outline.</p>
+</div>
+<div class="tile">
+<h3 class="tile-title mono">Logs</h3>
+<p class="tile-note">As text, plus a profile of the log: its levels, its time range, its most frequent errors.</p>
+</div>
+<div class="tile">
+<h3 class="tile-title mono">JSON and JSONL</h3>
+<p class="tile-note">As text. Minified JSON becomes lines of at most 2,000 characters.</p>
+</div>
+<div class="tile">
+<h3 class="tile-title mono">CSV and TSV</h3>
+<p class="tile-note">As text, a line a row. <code>aggregate_table</code> reads every row for exact sums, averages and groups.</p>
+</div>
+<div class="tile">
+<h3 class="tile-title mono">HTML</h3>
+<p class="tile-note">The text a browser shows: headings, lists, tables as rows of cells, a link with its address. No scripts or styles.</p>
+</div>
+<div class="tile">
+<h3 class="tile-title mono">DOCX</h3>
+<p class="tile-note">Headings, clause numbers as Word shows them, tables as rows of cells, then notes, comments, headers and footers.</p>
+<p class="tile-foot">Needs <code>jszip</code></p>
+</div>
+<div class="tile">
+<h3 class="tile-title mono">PPTX</h3>
+<p class="tile-note">Slides in the order of the slide show, each with its tables and its speaker notes.</p>
+<p class="tile-foot">Needs <code>jszip</code></p>
+</div>
+<div class="tile">
+<h3 class="tile-title mono">XLSX</h3>
+<p class="tile-note">Every sheet, a line a row with its row number in the sheet, and the values Excel last computed.</p>
+<p class="tile-foot">Needs <code>jszip</code></p>
+</div>
+<div class="tile">
+<h3 class="tile-title mono">PDF</h3>
+<p class="tile-note">The text layer, page by page, with tables rebuilt so that empty cells stay empty. Pages with a picture are marked.</p>
+<p class="tile-foot">Needs <code>unpdf</code>, and <code>@cantoo/pdf-lib</code> for the marks</p>
+</div>
+<div class="tile">
+<h3 class="tile-title mono">Scanned PDF</h3>
+<p class="tile-note">Nothing to search. Taken only when PDFs are kept, which is off by default, up to 30 pages: the model looks at the pages. No OCR is built in.</p>
+<p class="tile-foot">Needs <code>unpdf</code> and <code>@cantoo/pdf-lib</code></p>
+</div>
+</div>
+<p class="small muted formats-under">Refused, with a message for the user: binary and compressed files, Office files of before 2007, files with a password. More in <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/pdfs.md#formats">PDFs and other formats</a>.</p>
+<h3 class="formats-also-h">What else it handles</h3>
+<dl class="formats-also">
+<div><dt>Logs</dt><dd>Detected automatically. The card shows level counts, the time range, and the most frequent errors grouped by shape.</dd></div>
+<div><dt>Books and documents</dt><dd>An outline of headings with line numbers: Markdown, "Chapter 12", numbered sections, Hebrew chapter titles.</dd></div>
+<div><dt>Counting</dt><dd>Exact counts of matching lines, per hour, per code or per message shape, in one search. Exact sums over table rows, with no code run.</dd></div>
+<div><dt>Citations</dt><dd>Answers cite line numbers, of files sent whole too. <code>result.citations</code> checks each against what the tools showed.</dd></div>
+<div><dt>Every language</dt><dd>Search finds a Hebrew word with any prefix letter and words with or without accents, and splits a query the way each script writes its words.</dd></div>
+<div><dt>One budget</dt><dd>It covers tokens and request bytes: files fit your context window and your connector's payload limit. It assumes 1M tokens and 10&nbsp;MB: set <code>budget.contextTokens</code> for your model's window. <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/costs-and-limits.md">Costs and limits</a></dd></div>
+<div><dt>Reliability</dt><dd>Retries, waits on a silent model, recovery from a request too large, and a time limit on every store call. A question that fails throws <code>DocumentsNotFoundError</code>, <code>DocumentStoreError</code>, or a <code>ModelRequestError</code> whose <code>kind</code> (<code>"rate_limit"</code>, <code>"quota"</code>, <code>"timeout"</code>, <code>"context_overflow"</code>, …) tells you what to show the user. <code>partialResultOf(error)</code> gives what it found and paid for. <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/errors-and-reliability.md">Errors and reliability</a></dd></div>
+<div><dt>Storage</dt><dd>In memory, on disk with expiry, or your own store (Redis, S3, a database). A document expires after 72 hours by default.</dd></div>
+<div><dt>Older encodings</dt><dd>A text file that is not UTF-8 is read as Hebrew, Arabic, Cyrillic, Japanese or Western European text in its older encoding. Others are not recognized.</dd></div>
+</dl>
+</div>
+</section>
+
+<!-- ============ Add it to a web app ============ -->
+<section class="section" id="web-app" aria-labelledby="web-app-h">
+<div class="container">
+<header class="section-head">
+<p class="label">web app</p>
+<h2 id="web-app-h">Add it to a web app.</h2>
+<p class="lead">Node HTTP handlers for upload, list, get and delete. <code>askStream</code> gives typed events to send to the browser over Server-Sent Events. Documents belong to an owner, checked on every call by default.</p>
+</header>
+<div class="tabs" role="group" aria-label="Web app samples">
+<input type="radio" name="web-tabs" id="web-tab-1" checked><label for="web-tab-1">Server routes</label>
+<input type="radio" name="web-tabs" id="web-tab-2"><label for="web-tab-2">Browser upload</label>
+<input type="radio" name="web-tabs" id="web-tab-3"><label for="web-tab-3">Chat route</label>
+<div class="tab-panel">
+<h3 class="tab-title">Server routes</h3>
+<p class="small muted web-note">Four handlers for any Node HTTP server. The paths are yours: the library mounts none.</p>
+<pre class="code" data-src="README.md"><code class="language-ts">import express from "express";
+import { createDocumentHandlers } from "llm-large-files/node";
+
+const app = express();
+// `files` is the quickstart's. getOwner names the signed-in user (here, set on req.user by your
+// auth middleware): each upload is then theirs alone.
+const documents = createDocumentHandlers(files, {
+  getOwner: (req) =&gt; (req as typeof req &amp; { user?: { id: string } }).user?.id,
+});
+app.post("/api/documents", documents.upload); // mount before express.json(): the body is the raw file
+app.get("/api/documents", documents.list); // the user's documents, the oldest first (new in 0.99.9)
+app.get("/api/documents/:id", (req, res) =&gt; documents.get(req, res, req.params.id));
+app.delete("/api/documents/:id", (req, res) =&gt; documents.remove(req, res, req.params.id));</code></pre>
+</div>
+<div class="tab-panel">
+<h3 class="tab-title">Browser upload</h3>
+<p class="small muted web-note">The body is the file as raw bytes, not a form. Uploads are taken up to 100 MB and kept for 72 hours by default.</p>
+<pre class="code" data-src="README.md"><code class="language-ts">const response = await fetch("/api/documents", {
+  method: "POST",
+  headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) },
+  body: file,
+});
+const summary = await response.json(); // 201: { id, name, format, lines, estimatedTokens, expiresAt, … }; otherwise { error }</code></pre>
+</div>
+<div class="tab-panel">
+<h3 class="tab-title">Chat route</h3>
+<p class="small muted web-note">The chat route is your code around <code>askStream</code> and <code>writeSseEvents</code>. This sample keeps no history.</p>
+<pre class="code" data-src="README.md"><code class="language-ts">import { askStream } from "llm-large-files";
+import { writeSseEvents } from "llm-large-files/node";
+
+app.post("/api/chat", express.json(), async (req, res) =&gt; {
+  const stream = askStream({
+    files, model: claude, // `claude` is the adapter of "Any model"
+    owner: (req as typeof req &amp; { user?: { id: string } }).user?.id,
+    documentIds: [String(req.body.documentId)],
+    messages: [{ role: "user", text: String(req.body.question) }],
+  });
+  await writeSseEvents(res, stream); // one SSE message per event; stops the question if the page leaves
+});</code></pre>
+</div>
+</div>
+<div class="split web-second">
+<div class="web-side">
+<h3>The events of a question</h3>
+<p class="small muted">In order: <code>run.start</code> is always first, and one of <code>run.finish</code> or <code>run.error</code> is always last.</p>
+<dl class="web-events">
+<div><dt>run.start</dt><dd>Always first. It names the models and the documents.</dd></div>
+<div><dt>plan</dt><dd>Which documents go in whole, and which are reached through tools.</dd></div>
+<div><dt>request.start</dt><dd>A model request starts.</dd></div>
+<div><dt>retry</dt><dd>That request failed and is sent again after a wait.</dd></div>
+<div><dt>text</dt><dd>Answer text arrives. Joined, the deltas are the answer.</dd></div>
+<div><dt>request.end</dt><dd>The request ended, after any retries.</dd></div>
+<div><dt>tool.start</dt><dd>A tool call starts: its <code>label</code>, one line of plain text.</dd></div>
+<div><dt>tool.progress</dt><dd>How far a whole-file read is.</dd></div>
+<div><dt>tool.end</dt><dd>The call ended: its outcome, its step line, what it showed.</dd></div>
+<div><dt>notice</dt><dd>What the question did that is not a request or a tool call.</dd></div>
+<div><dt>run.finish</dt><dd>Always last when the question returns, with the result.</dd></div>
+<div><dt>run.error</dt><dd>Always last when it throws: the error, in words for users.</dd></div>
+</dl>
+</div>
+<figure>
+<div class="listing">
+<div class="listing-head"><b>the events of the sample question</b><span>recorded with a scripted model</span></div>
+<ol class="plain web-stream">
+<li><span data-rec="main.events.0.seq">1</span><b data-rec="main.events.0.type">run.start</b><span><i>models.answer</i> <span data-rec="main.events.0.models.answer">fake-model</span></span></li>
+<li><span data-rec="main.events.1.seq">2</span><b data-rec="main.events.1.type">plan</b><span><i>inline</i> <span data-rec="main.events.1.inline.0.name">handbook.md</span> <i>searchable</i> <span data-rec="main.events.1.searchable.0.name">app.log</span></span></li>
+<li><span data-rec="main.events.2.seq">3</span><b data-rec="main.events.2.type">notice</b><span><i>message</i> <span data-rec="main.events.2.message">Too large to read at once: app.log. Searching instead…</span></span></li>
+<li><span data-rec="main.events.3.seq">4</span><b data-rec="main.events.3.type">request.start</b><span><span data-rec="main.events.3.requestId">req_1</span> <i>estimatedInputTokens</i> <span data-rec="main.events.3.estimatedInputTokens">142492</span></span></li>
+<li><span data-rec="main.events.4.seq">5</span><b data-rec="main.events.4.type">request.end</b><span><span data-rec="main.events.4.requestId">req_1</span> <i>toolCalls</i> <span data-rec="main.events.4.toolCalls">2</span></span></li>
+<li><span data-rec="main.events.5.seq">6</span><b data-rec="main.events.5.type">tool.start</b><span><i>label</i> <span data-rec="main.events.5.label">Search app.log (exact) for “FATAL”</span></span></li>
+<li><span data-rec="main.events.6.seq">7</span><b data-rec="main.events.6.type">tool.start</b><span><i>label</i> <span data-rec="main.events.6.label">Search app.log (exact) for “Connection timeout”, counted by hour</span></span></li>
+<li><span data-rec="main.events.7.seq">8</span><b data-rec="main.events.7.type">tool.end</b><span><i>step</i> <span data-rec="main.events.7.step">Search app.log (exact) for “FATAL” — 1 matching line</span></span></li>
+<li><span data-rec="main.events.8.seq">9</span><b data-rec="main.events.8.type">tool.end</b><span><i>step</i> <span data-rec="main.events.8.step">Search app.log (exact) for “Connection timeout”, counted by hour — 334 matching lines in 6 groups</span></span></li>
+<li><span>…</span><span><i>Events 10 to 22: two more turns, then the answer in one text event.</i></span></li>
+<li><span data-rec="main.events.22.seq">23</span><b data-rec="main.events.22.type">run.finish</b><span><i>result.answered</i> <span data-rec="main.events.22.result.answered">true</span> <i>result.turns</i> <span data-rec="main.events.22.result.turns">4</span></span></li>
+</ol>
+</div>
+<figcaption>One field or two of each event. By default events carry no tool results, which hold the text of the documents. They do carry the answer, the steps, and what the model asked for in its own words, which can quote the documents. <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/events.md">Every event and its fields</a>.</figcaption>
+</figure>
+</div>
+<div class="grid grid-2 web-notes">
+<div class="callout">
+<p class="callout-title">Owners</p>
+<p class="small">Owner checks are on by default since 0.99.9. <code>getOwner</code> returns the ID of your signed-in user, and the library compares that one string: the sign-in is your application's. A request without a user is answered 401 "Sign in first.", and a document of another owner reads as missing, never as forbidden. <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/security.md#ownership">Security</a></p>
+</div>
+<div class="callout is-warn">
+<p class="callout-title">Uploads you do not trust</p>
+<p class="small">The handlers read each upload in your server's process. Ingest limits the text, the pages and the time of one file, and refuses the zip bombs and the PDFs built to hold a server that its checks recognize. It does not refuse every file built to hurt a server: a crafted PDF of 732 bytes ran a heap of 512 MB out of memory at ingest.</p>
+<p class="small">Read files you do not trust in child processes with a heap limit and a kill timer: pass <code>createIsolatedExtractors()<wbr>.extractors</code> to <code>createLargeFiles</code>, and give the server a memory limit too. <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/security.md#uploads">Security</a> · <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/deployment.md#uploads-and-ingest">Deployment</a></p>
+</div>
+</div>
+</div>
+</section>
+
+<!-- ============ Measured ============ -->
+<section class="section" id="measured" aria-labelledby="measured-h">
+<div class="container">
+<header class="section-head">
+<p class="label">measured</p>
+<h2 id="measured-h">Measured, with the conditions.</h2>
+<p class="lead">These are live runs, each with its model, date and setup. One run is not a benchmark. What has not been run live is listed too.</p>
+</header>
+<div class="measured-grid">
+<div class="tile measured-first">
+<p class="tile-num">about 60 s, 11 tool calls</p>
+<p class="tile-title">The right root cause of an outage, citing the right lines, from a log too large for the window</p>
+<p class="tile-note">A 5 MB log of 60,000 lines, over the 1M window. <code>gemini-3.8-flash</code> on the Gemini API, November 2026, for 0.1.0. One run, its cited lines checked with grep.</p>
+<p class="tile-foot"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md#large-files-with-one-model-010">Measurements<span class="visually-hidden">: the large log</span></a></p>
+</div>
+<div class="tile">
+<p class="tile-num">24 of 24</p>
+<p class="tile-title">Count questions over tables sent whole, answered right, on each of two models</p>
+<p class="tile-note"><code>gemini-3.5-flash-lite</code> and <code>gemini-3.8-flash</code> on the Gemini API, 2026-11-24, for 0.10.0. Three runs of each case, synthetic files.</p>
+<p class="tile-foot"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md#tables-sent-whole-p1s-live-gate">Measurements<span class="visually-hidden">: count questions over tables</span></a></p>
+</div>
+<div class="tile">
+<p class="tile-num">42 of 42</p>
+<p class="tile-title">Hebrew lookups answered right, on each of the same two models</p>
+<p class="tile-note">The same runs: the Gemini API, 2026-11-24, for 0.10.0, synthetic files. Hebrew questions were answered in Hebrew in 75 of 75.</p>
+<p class="tile-foot"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md#tables-sent-whole-p1s-live-gate">Measurements<span class="visually-hidden">: Hebrew lookups</span></a></p>
+</div>
+<div class="tile">
+<p class="tile-num">11 of 11</p>
+<p class="tile-title">Live checks with <code>gemini-3.5-flash-lite</code> exploring: the answering model was right in every one</p>
+<p class="tile-note"><code>gemini-3.5-flash-lite</code> exploring, Flash-Lite models only, on the Gemini API and Vertex AI, November 2026, for 0.3.5. Larger models and Gemini 4 were not checked.</p>
+<p class="tile-foot"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md#an-explorer-model-035">Measurements<span class="visually-hidden">: an explorer model</span></a></p>
+</div>
+<div class="tile">
+<p class="tile-num">110 of 110</p>
+<p class="tile-title">Questions about single cells of PDF tables, right from the rebuilt rows. From the text in file order: 44</p>
+<p class="tile-note"><code>gemini-3.5-flash-lite</code>, live, for 0.2.0. Seven PDFs made by Word and Chrome, on which the rules were tuned.</p>
+<p class="tile-foot"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md#pdf-tables-020">Measurements<span class="visually-hidden">: PDF tables</span></a></p>
+</div>
+<div class="tile">
+<p class="tile-num">8.9 to 11.3 s</p>
+<p class="tile-title">To ingest a log of 100 MB and 1,180,000 lines. One exact search of it, once stored: 0.6 to 1.1 s</p>
+<p class="tile-note">No model here. 0.10.2 on a laptop (Intel Core i5-8250U, 4 cores, 8 GB), Node 22.23.5, 2026-11-25, 5 to 7 runs each.</p>
+<p class="tile-foot"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md#performance-budgets-0999">Measurements<span class="visually-hidden">: ingest and search times</span></a></p>
+</div>
+<div class="tile measured-miss">
+<p><span class="tag tag-warn">a miss</span></p>
+<p class="tile-num">492 of 1,200</p>
+<p class="tile-title">Matching lines that a whole-file read listed when asked for every one. The result said that it was incomplete</p>
+<p class="tile-note">Live, for 0.2.0, model not recorded. Without reaching a cap, the model skipped items too: 91 of 120. Counting and listing are the job of <code>search_document</code> in exact or regex mode, whose total is exact.</p>
+<p class="tile-foot"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md#reading-a-whole-file">Measurements<span class="visually-hidden">: a whole-file read that missed items</span></a></p>
+</div>
+</div>
+<div class="callout is-warn measured-not">
+<p class="callout-title">Not run live</p>
+<dl>
+<div><dt>Claude: <code>anthropic()</code></dt><dd>The whole adapter. It is tested against the request and response shapes of the Messages API documentation.</dd></div>
+<div><dt>OpenAI Responses API: <code>openAiResponses()</code></dt><dd>The whole adapter, new in 0.99.9: no key was at hand. It is tested against fake servers.</dd></div>
+<div><dt>OpenAI-compatible: <code>openAiCompatible()</code></dt><dd>Every server but Gemini's OpenAI layer: OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp. <code>pdfInput</code> was never run to an answer, and <code>imageInput</code> and <code>documents</code> were not run live when they were built.</dd></div>
+<div><dt>Vertex AI: <code>vertexAi()</code></dt><dd>Everything of 0.10.0, among it Model Armor, <code>LANGUAGE</code> and labels.</dd></div>
+<div><dt>Gemini API: <code>geminiApi()</code></dt><dd>Gemini 2.5 with pages and in explorer pairs, and <code>documents</code>, new in 0.99.9.</dd></div>
+</dl>
+<p class="small">Every live result is of November 2026 and of a version from 0.1.0 to 0.10.0. The samples on this page are not live results: they were recorded with a scripted model.</p>
+</div>
+<blockquote class="measured-quote">
+<p>Each result is a measurement at one point in time, with the models named. It is not a guarantee. Another model, a later version of the same model, another provider or other files can give other results.</p>
+<footer>From <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md">Measurements</a>, which has every live result with its date, model and setup.</footer>
+</blockquote>
+</div>
+</section>
+
+<!-- ============ What it is not ============ -->
+<section class="section" id="not" aria-labelledby="not-h">
+<div class="container">
+<header class="section-head">
+<p class="label">limits</p>
+<h2 id="not-h">What it is not.</h2>
+<p class="lead">Three limits to know before you build on it.</p>
+</header>
+<div class="grid grid-3 not-grid">
+<div class="not-item">
+<h3>Not a framework</h3>
+<p>It is one tool loop and a few adapters. No model SDK, no server and no UI are required. The loop offers the model only the library's own tools: a model that must also call your application's tools runs in your own loop, with <code>files.prepare()</code> and <code>files.tools()</code>.</p>
+</div>
+<div class="not-item">
+<h3>Not a promise that a model reads everything</h3>
+<p>A whole-file read can miss items: asked to list every one of 1,200 matching lines, one returned 492 and said that the result was incomplete. Exact counts come from <code>search_document</code> in exact or regex mode and from <code>aggregate_table</code>. A citation that checks out means the cited lines were shown to the model, not that the answer is right.</p>
+</div>
+<div class="not-item">
+<h3>Not a sandbox for hostile files</h3>
+<p>Ingest limits one file and refuses what its checks recognize. It does not refuse every file built to hurt a server, and it does not filter or detect instructions written inside a file. Read uploads you do not trust in child processes with <code>createIsolatedExtractors</code>, and show answers and steps as plain text.</p>
+</div>
+</div>
+</div>
+</section>
+
+<!-- ============ In more detail ============ -->
+<section class="section band" id="deeper" aria-labelledby="deeper-h">
+<div class="container">
+<header class="section-head">
+<p class="label">in more detail</p>
+<h2 id="deeper-h">What the model gets, and what the loop does with it.</h2>
+<p class="lead">The part above is the whole idea. This part is for when you want to know why a question behaved as it did.</p>
+</header>
+<nav aria-label="In more detail">
+<ul class="link-row">
+<li><a href="#card">The card</a></li>
+<li><a href="#tools">Six tools</a></li>
+<li><a href="#loop">The loop</a></li>
+<li><a href="#whole-file">Whole-file reads</a></li>
+<li><a href="#pages">Pages of a PDF</a></li>
+</ul>
+</nav>
+<section class="sub" id="card">
+<div class="sub-head">
+<h3>The card.</h3>
+<p>What the model sees in place of the file. This is the card of app.log, as the library wrote it for the sample question: <span class="num" title="main.firstUserTurn.estimatedTokens.card: 1871">1,871</span> estimated tokens stand in for <span class="num" title="files.log.estimatedTokens: 3260485">3,260,485</span>.</p>
+</div>
+<div class="card-fig">
+<ol class="card-key" aria-label="The six parts of the card">
+<li><b>Name and <code>document_id</code></b> The frame lines name the file. Every tool call takes the <code>document_id</code>.</li>
+<li><b>Format, size, lines, estimated tokens</b> For a PDF, a PPTX or an XLSX, also its pages, slides or sheets.</li>
+<li><b>Not in your context</b> The line that tells the model the file is not in its context, and what the tools can do with it.</li>
+<li><b>Log levels and time range</b> For a log: the count of each level, and the first and last timestamps.</li>
+<li><b>The most frequent problems</b> Grouped by shape: a number becomes <code>&lt;n&gt;</code>, an IP address <code>&lt;ip&gt;</code>. Each has its count and the line of its first occurrence. FATAL comes first, then ERROR, then WARN. The card shows the first 8 of the 15 that the profile keeps.</li>
+<li><b>The first 25 lines</b> Numbered as <code>read_document</code> numbers them, each cut to 300 characters.</li>
+</ol>
+<div class="card-main">
+<div class="listing edge-toobig">
+<div class="listing-head"><b>the card of app.log</b><span>in the first user turn</span></div>
+<pre class="card-pre" data-rec="main.firstUserTurn.card"><span class="card-seg" data-n="1"><span class="card-l">--- Large attached file: app.log ---
+</span><span class="card-l">document_id: doc_d4677697689d4e4e864a45a372db0c2a
+</span></span><span class="card-seg" data-n="2"><span class="card-l">log · 5 MB · 60,000 lines · about 3.3M tokens
+</span></span><span class="card-seg" data-n="3"><span class="card-l">This file is NOT in your context. Use the document tools to search it and to read line ranges.
+</span></span><span class="card-seg" data-n="4"><span class="card-l">Log levels: INFO 58,773, WARN 892, ERROR 334, FATAL 1
+</span><span class="card-l">Time range: 2026-11-19T08:00:00Z → 2026-11-19T16:18:15Z
+</span></span><span class="card-seg" data-n="5"><span class="card-l" style="--h:2">Most frequent problems (count, first line):
+</span><span class="card-l">  [FATAL ×1, L41872] FATAL Primary database unreachable, failing over to replica &lt;ip&gt;
+</span><span class="card-l">  [ERROR ×334, L5745] ERROR Connection timeout after &lt;n&gt;ms to &lt;ip&gt;
+</span><span class="card-l">  [WARN ×277, L173] WARN Slow query took &lt;n&gt;ms on table orders
+</span><span class="card-l">  [WARN ×130, L512] WARN Slow query took &lt;n&gt;ms on table payments
+</span><span class="card-l">  [WARN ×127, L119] WARN Slow query took &lt;n&gt;ms on table inventory
+</span><span class="card-l">  [WARN ×125, L213] WARN Slow query took &lt;n&gt;ms on table sessions
+</span><span class="card-l">  [WARN ×123, L6] WARN Slow query took &lt;n&gt;ms on table carts
+</span><span class="card-l">  [WARN ×110, L409] WARN Slow query took &lt;n&gt;ms on table products
+</span></span><span class="card-seg" data-n="6"><span class="card-l" style="--h:2">First lines:
+</span><span class="card-l" style="--h:5">  1| 2026-11-19T08:00:00Z INFO checkout-api GET /api/v2/orders/234311 200 130ms region=us-east
+</span><span class="card-l" style="--h:5">  2| 2026-11-19T08:00:00Z INFO search GET /api/v1/suggest?q=rug 200 56ms region=ap-south
+</span><span class="card-l" style="--h:5">  3| 2026-11-19T08:00:01Z INFO checkout-api POST /api/v2/checkout 201 75ms region=ap-south
+</span><span class="card-l" style="--h:5">  4| 2026-11-19T08:00:02Z INFO payments POST /api/v1/refunds 201 92ms region=eu-west
+</span><span class="card-l" style="--h:5">  5| 2026-11-19T08:00:02Z INFO inventory GET /api/v1/stock/SKU-7420 200 68ms region=us-east
+</span><span class="card-l" style="--h:5">  6| 2026-11-19T08:00:02Z WARN Slow query took 2646ms on table carts
+</span><span class="card-l" style="--h:5">  7| 2026-11-19T08:00:03Z INFO checkout-api GET /api/v2/cart/46700 200 101ms region=eu-west
+</span><span class="card-l" style="--h:5">  8| 2026-11-19T08:00:03Z INFO search GET /api/v1/search?q=clock 200 57ms region=ap-south
+</span><span class="card-l" style="--h:5">  9| 2026-11-19T08:00:04Z INFO payments GET /api/v1/payments/248250 200 120ms region=eu-west
+</span><span class="card-l">  10| 2026-11-19T08:00:05Z INFO search GET /api/v1/products/2679/similar 200 51ms region=us-east
+</span><span class="card-l">  11| 2026-11-19T08:00:06Z INFO payments GET /api/v1/payments/134586 200 113ms region=ap-south
+</span><span class="card-l">  12| 2026-11-19T08:00:07Z INFO checkout-api POST /api/v2/checkout 201 90ms region=us-east
+</span><span class="card-l">  13| 2026-11-19T08:00:08Z INFO checkout-api POST /api/v2/checkout 201 100ms region=ap-south
+</span><span class="card-l">  14| 2026-11-19T08:00:09Z INFO checkout-api GET /api/v2/cart/68549 200 20ms region=eu-west
+</span><span class="card-l">  15| 2026-11-19T08:00:10Z INFO checkout-api POST /api/v2/checkout 201 131ms region=eu-west
+</span><span class="card-l">  16| 2026-11-19T08:00:10Z INFO search GET /api/v1/search?q=desk 200 10ms region=us-east
+</span><span class="card-l">  17| 2026-11-19T08:00:10Z INFO payments POST /api/v1/payments/authorize 200 90ms region=eu-west
+</span><span class="card-l">  18| 2026-11-19T08:00:11Z INFO checkout-api GET /api/v2/cart/23930 200 18ms region=ap-south
+</span><span class="card-l">  19| 2026-11-19T08:00:11Z INFO inventory PUT /api/v1/stock/SKU-3293 204 97ms region=eu-west
+</span><span class="card-l">  20| 2026-11-19T08:00:12Z INFO payments POST /api/v1/payments/926319/capture 200 64ms region=eu-west
+</span><span class="card-l">  21| 2026-11-19T08:00:12Z INFO search GET /api/v1/suggest?q=des 200 42ms region=eu-west
+</span><span class="card-l">  22| 2026-11-19T08:00:12Z INFO checkout-api GET /api/v2/cart/50020 200 129ms region=us-east
+</span><span class="card-l">  23| 2026-11-19T08:00:12Z INFO inventory PUT /api/v1/stock/SKU-8848 204 137ms region=eu-west
+</span><span class="card-l">  24| 2026-11-19T08:00:13Z INFO search GET /api/v1/suggest?q=cha 200 52ms region=eu-west
+</span><span class="card-l">  25| 2026-11-19T08:00:14Z INFO payments POST /api/v1/payments/149264/capture 200 50ms region=us-east
+</span></span><span class="card-seg"><span class="card-l">--- End large attached file: app.log ---</span></span></pre>
+</div>
+<p>A model can often aim its first call from the card alone: a FATAL line with its line number, or a heading of the outline. This card names line <code data-rec="main.cited.0.line">41872</code>, and that is the line the scripted model's answer cites first: <span class="cite">(app.log L41872)</span>. The rest of the profile and the whole outline are in <code>get_document_overview</code>.</p>
+</div>
+</div>
+<div class="card-more">
+<div class="card-notes">
+<h4>For a book or a document</h4>
+<p>There is no log profile. The card holds an outline in its place: the first 40 headings, each with its line number, and how many there are in all.</p>
+</div>
+<div class="card-book">
+<div class="listing edge-toobig">
+<div class="listing-head"><b>the card of handbook.md</b><span>an excerpt</span></div>
+<pre data-rec-excerpt="toolQuestions.wholeRead.card"><span class="card-l">--- Large attached file: handbook.md ---
+</span><span class="card-l">document_id: doc_d549dadf0eeb43908461480eea085b75
+</span><span class="card-l">markdown · 384 KB · 4,868 lines · about 108K tokens
+</span><span class="card-l">This file is NOT in your context. Use the document tools to search it, read line ranges, or analyze all of it.
+</span><span class="card-l">Outline (40 of 114 headings):
+</span><span class="card-l" style="--h:4">  L1 Operations Handbook
+</span><span class="card-l" style="--h:4">  L5 1 About this handbook
+</span><span class="card-l" style="--h:4">  L9   1.1 Audience and scope
+</span><span class="card-l" style="--h:4">  L58   1.2 The format of a runbook
+</span><span class="card-l">  …
+</span><span class="card-l" style="--h:4">  L1659 5 Monitoring and alerts
+</span><span class="card-l">First lines:
+</span><span class="card-l">  …
+</span><span class="card-l">--- End large attached file: handbook.md ---</span></pre>
+</div>
+<p class="small muted">Recorded in a window of <span title="toolQuestions.wholeRead.options.budget.contextTokens: 128000">128,000</span> tokens, where handbook.md does not fit. In the sample question it fits, is sent whole, and has no card.</p>
+</div>
+</div>
+</section>
+<section class="sub" id="tools">
+<div class="sub-head tool-head">
+<h3>Six tools.</h3>
+<p>A model reaches a large file only through these, and only the documents of the question. A tool that fails returns an error the model can read, so it can try another way.</p>
+<p class="small">Each tool is declared only when it applies to the files of the question. The sample question was offered three: <code data-rec="main.requests.0.toolsOffered.0">search_document</code>, <code data-rec="main.requests.0.toolsOffered.1">read_document</code> and <code data-rec="main.requests.0.toolsOffered.2">get_document_overview</code>. A log holds no table. A whole-file read was not offered: app.log would take about 37 parts against a limit of 30, and the scripted model of that question has no part reader. When every file fits in the prompt, none is a table that the tools count and none has pages to look at, no tool is offered, and the question is one request.</p>
+</div>
+<figure class="tool-fig">
+<div class="tabs tool-bench" role="group" aria-label="The six tools">
+<input type="radio" name="tool-tabs" id="tool-tab-search" checked><label class="mono" for="tool-tab-search">search_document</label>
+<input type="radio" name="tool-tabs" id="tool-tab-read"><label class="mono" for="tool-tab-read">read_document</label>
+<input type="radio" name="tool-tabs" id="tool-tab-overview"><label class="mono" for="tool-tab-overview">get_document_overview</label>
+<input type="radio" name="tool-tabs" id="tool-tab-aggregate"><label class="mono" for="tool-tab-aggregate">aggregate_table</label>
+<input type="radio" name="tool-tabs" id="tool-tab-whole"><label class="mono" for="tool-tab-whole">analyze_whole_document</label>
+<input type="radio" name="tool-tabs" id="tool-tab-pages"><label class="mono" for="tool-tab-pages">view_pages</label>
+<div class="tab-panel tool-panel">
+<h4 class="tool-name" data-k="S">search_document</h4>
+<dl class="tool-facts">
+<div><dt class="tool-part">purpose</dt><dd>Finds the lines that contain a text or match a regex, and counts every one of them. Or ranks the passages that match keywords best. In all of a file, or in a range of its lines.</dd></div>
+<div><dt class="tool-part">offered when</dt><dd>At least one document of the question is too large for the prompt, or a table is sent whole. It reaches those documents and those tables. Any other document whose text is in the prompt is not searched.</dd></div>
+</dl>
+<div class="tool-body">
+<div class="tool-args">
+<h5 class="tool-part">arguments</h5>
+<table class="table" aria-label="Arguments of search_document">
+<thead><tr><th scope="col">Argument</th><th scope="col">What it means, and its default</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>query</code></th><td>Keywords, an exact text, or a regex of at most 300 characters. <span class="tool-def">required</span></td></tr>
+<tr><th scope="row"><code>mode</code></th><td><code>keywords</code> ranks passages. <code>exact</code> finds the lines that contain the text. <code>regex</code> finds the lines that match a JavaScript regular expression. <span class="tool-def">default <code>keywords</code></span></td></tr>
+<tr><th scope="row"><code>max_results</code></th><td>What is shown, never what is counted: 10 passages, 50 lines or 200 groups at most. <span class="tool-def">default 5 passages, 20 lines, 50 groups</span></td></tr>
+<tr><th scope="row"><code>group_by</code></th><td>exact and regex: count the matching lines by <code>capture</code>, <code>minute</code>, <code>hour</code>, <code>day</code> or <code>shape</code>, and show none. <span class="tool-def">default none</span></td></tr>
+<tr><th scope="row"><code>order</code></th><td>exact and regex: <code>last</code> shows the last matching lines, in file order. <span class="tool-def">default <code>first</code></span></td></tr>
+<tr><th scope="row"><code>context_lines</code></th><td>exact and regex: lines shown before and after each match, 5 at most. <span class="tool-def">default <code>0</code></span></td></tr>
+<tr><th scope="row"><code>from_line</code><br><code>to_line</code></th><td>Search only a part of the file. <span class="tool-def">default <code>1</code>, the last line</span></td></tr>
+</tbody>
+</table>
+<p class="small"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/tools.md#search_document">All arguments and results</a></p>
+</div>
+<div class="tool-call">
+<h5 class="tool-part">a call and its result</h5>
+<div class="tabs tool-modes" role="group" aria-label="Four recorded searches">
+<input type="radio" name="tool-search" id="tool-search-keywords" checked><label for="tool-search-keywords">keywords</label>
+<input type="radio" name="tool-search" id="tool-search-hour"><label for="tool-search-hour">exact, counted by hour</label>
+<input type="radio" name="tool-search" id="tool-search-last"><label for="tool-search-last">exact, the last ones</label>
+<input type="radio" name="tool-search" id="tool-search-regex"><label for="tool-search-regex">regex</label>
+<div class="tab-panel">
+<h6 class="tab-title">keywords</h6>
+<p class="small">The passages that match a question best, each with its lines and a score.</p>
+<div class="listing edge-accent tool-io">
+<div class="listing-head"><b>call</b><span data-rec="tools.search_keywords.tool">search_document</span></div>
+<pre class="language-json" data-rec="tools.search_keywords.args">{
+  "document_id": "doc_d4677697689d4e4e864a45a372db0c2a",
+  "query": "why did the database fail over to the replica",
+  "mode": "keywords",
+  "max_results": 2
+}</pre>
+<div class="listing-head"><b>result</b><span><span data-rec="tools.search_keywords.resultCharacters">3507</span> characters, an excerpt</span></div>
+<pre class="language-json" data-rec-excerpt="tools.search_keywords.result">{
+  "document": "app.log",
+  "mode": "keywords",
+  "passages": [
+    {
+      "lines": "41870-41887",
+      "score": 34.13,
+      …
+    },
+    {
+      "lines": "3678-3695",
+      "score": 0.03,
+      …
+    }
+  ],
+  "tool_turns_left": 10
+}</pre>
+<div class="listing-head"><b>passages[0].text</b><span>4 of its 18 numbered lines</span></div>
+<pre data-rec-excerpt="tools.search_keywords.result.passages.0.text"><span class="tool-l">41870| 2026-11-19T13:49:04Z INFO inventory POST /api/v1/reservations 201 205ms region=ap-south
+</span><span class="tool-l">41871| 2026-11-19T13:49:04Z INFO checkout-api POST /api/v2/cart/96512/items 201 390ms region=eu-west
+</span><span class="tool-l">41872| 2026-11-19T13:49:04Z FATAL Primary database unreachable, failing over to replica 10.4.2.18
+</span><span class="tool-l">41873| 2026-11-19T13:49:06Z ERROR Connection timeout after 5000ms to 10.4.2.17
+</span><span class="tool-l">…</span></pre>
+</div>
+<p class="tool-sub">its step line</p>
+<p class="step" data-k="S" data-rec="tools.search_keywords.step">Search app.log (keywords) for “why did the database fail over to the replica” — 2 passages</p>
+</div>
+<div class="tab-panel">
+<h6 class="tab-title">exact, counted by hour</h6>
+<p class="small">One call counts every matching line in each hour, and shows no line.</p>
+<div class="listing edge-accent tool-io">
+<div class="listing-head"><b>call</b><span data-rec="tools.search_group_by_hour.tool">search_document</span></div>
+<pre class="language-json" data-rec="tools.search_group_by_hour.args">{
+  "document_id": "doc_d4677697689d4e4e864a45a372db0c2a",
+  "query": "Connection timeout",
+  "mode": "exact",
+  "group_by": "hour"
+}</pre>
+<div class="listing-head"><b>result</b><span><span data-rec="tools.search_group_by_hour.resultCharacters">576</span> characters, an excerpt</span></div>
+<pre class="language-json" data-rec-excerpt="tools.search_group_by_hour.result">{
+  "document": "app.log",
+  "mode": "exact",
+  "total_matching_lines": 334,
+  "group_by": "hour",
+  "total_groups": 6,
+  "groups": [
+    {
+      "key": "2026-11-19 08:00",
+      "count": 2,
+      "first_line": 5745,
+      "last_line": 6750
+    },
+    …
+    {
+      "key": "2026-11-19 12:00",
+      "count": 13,
+      "first_line": 29715,
+      "last_line": 36006
+    },
+    {
+      "key": "2026-11-19 13:00",
+      "count": 312,
+      "first_line": 36087,
+      "last_line": 41876
+    }
+  ],
+  "tool_turns_left": 10
+}</pre>
+</div>
+<p class="tool-sub">its step line</p>
+<p class="step" data-k="S" data-rec="tools.search_group_by_hour.step">Search app.log (exact) for “Connection timeout”, counted by hour — 334 matching lines in 6 groups</p>
+</div>
+<div class="tab-panel">
+<h6 class="tab-title">exact, the last ones</h6>
+<p class="small">The last matching lines, in the order of the file. The note names the last match and the first.</p>
+<div class="listing edge-accent tool-io">
+<div class="listing-head"><b>call</b><span data-rec="tools.search_last.tool">search_document</span></div>
+<pre class="language-json" data-rec="tools.search_last.args">{
+  "document_id": "doc_d4677697689d4e4e864a45a372db0c2a",
+  "query": "Connection timeout",
+  "mode": "exact",
+  "order": "last",
+  "max_results": 3
+}</pre>
+<div class="listing-head"><b>result</b><span><span data-rec="tools.search_last.resultCharacters">545</span> characters, in full</span></div>
+<pre class="language-json" data-rec="tools.search_last.result">{
+  "document": "app.log",
+  "mode": "exact",
+  "total_matching_lines": 334,
+  "order": "last",
+  "note": "These are the last 3 of the 334 matching lines, in the order of the file: the last match is on line 41876, and the first on line 5745.",
+  "matches": [
+    {
+      "line": 41873,
+      "text": "2026-11-19T13:49:06Z ERROR Connection timeout after 5000ms to 10.4.2.17"
+    },
+    {
+      "line": 41874,
+      "text": "2026-11-19T13:49:09Z ERROR Connection timeout after 3000ms to 10.4.2.17"
+    },
+    {
+      "line": 41876,
+      "text": "2026-11-19T13:49:14Z ERROR Connection timeout after 10000ms to 10.4.2.17"
+    }
+  ],
+  "tool_turns_left": 10
+}</pre>
+</div>
+<p class="tool-sub">its step line</p>
+<p class="step" data-k="S" data-rec="tools.search_last.step">Search app.log (exact) for “Connection timeout”, the last ones — 334 matching lines</p>
+</div>
+<div class="tab-panel">
+<h6 class="tab-title">regex</h6>
+<p class="small">The first matching lines and the last one. The note says how many are shown, and <code>next_from_line</code> where to go on.</p>
+<div class="listing edge-accent tool-io">
+<div class="listing-head"><b>call</b><span data-rec="tools.search_regex.tool">search_document</span></div>
+<pre class="language-json" data-rec="tools.search_regex.args">{
+  "document_id": "doc_d4677697689d4e4e864a45a372db0c2a",
+  "query": "Slow query took 4[5-9]\\d\\dms on table orders",
+  "mode": "regex",
+  "max_results": 5
+}</pre>
+<div class="listing-head"><b>result</b><span><span data-rec="tools.search_regex.resultCharacters">828</span> characters, an excerpt</span></div>
+<pre class="language-json" data-rec-excerpt="tools.search_regex.result">{
+  "document": "app.log",
+  "mode": "regex",
+  "total_matching_lines": 21,
+  "note": "6 of the 21 matching lines are shown: the first 5 and the last (line 59262). To see the ones in between, search again with from_line 15177, or count them with group_by.",
+  "next_from_line": 15177,
+  "matches": [
+    {
+      "line": 5066,
+      "text": "2026-11-19T08:42:12Z WARN Slow query took 4608ms on table orders"
+    },
+    …
+    {
+      "line": 59262,
+      "text": "2026-11-19T16:12:02Z WARN Slow query took 4668ms on table orders"
+    }
+  ],
+  "tool_turns_left": 10
+}</pre>
+</div>
+<p class="tool-sub">its step line</p>
+<p class="step" data-k="S" data-rec="tools.search_regex.step">Search app.log (regex) for “Slow query took 4[5-9]\d\dms on table orders” — 21 matching lines</p>
+</div>
+</div>
+</div>
+<div class="tool-limits">
+<h5 class="tool-part">limits</h5>
+<ul>
+<li><code>total_matching_lines</code> counts every matching line of the file, not only those shown. It is exact unless the scan stopped early, which the result says.</li>
+<li>A regex is tested against each line on its own. One regex search stops after 3,000 ms of matching, and the regex searches of one question share 6,000 ms.</li>
+<li>A passage is a run of whole lines: about 1,500 characters, or 40 lines at most. Its <code>score</code> only orders the results.</li>
+</ul>
+<p class="tool-why"><b>why the last match is always shown</b> An exact or regex search shows the first matching lines and the last one in the file. The last match is there for a question about when something last happened: shown only the first ones and the count, a model named a wrong line as the last.</p>
+<p class="tool-why"><b>why there is no term index</b> Keyword search ranks passages by BM25, computed when the search runs from substring hits. There is no term index to build or keep up to date, it works in any language, and "timeout" also matches "timeouts".</p>
+</div>
+</div>
+</div>
+<div class="tab-panel tool-panel">
+<h4 class="tool-name" data-k="R">read_document</h4>
+<dl class="tool-facts">
+<div><dt class="tool-part">purpose</dt><dd>Reads a range of lines, numbered, and says where to go on.</dd></div>
+<div><dt class="tool-part">offered when</dt><dd>With <code>search_document</code>, on the same condition.</dd></div>
+</dl>
+<div class="tool-body">
+<div class="tool-args">
+<h5 class="tool-part">arguments</h5>
+<table class="table" aria-label="Arguments of read_document">
+<thead><tr><th scope="col">Argument</th><th scope="col">What it means, and its default</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>start_line</code></th><td>The first line to read, counted from 1. <span class="tool-def">required</span></td></tr>
+<tr><th scope="row"><code>end_line</code></th><td>The last line to read. A line number out of range is clamped, not refused. <span class="tool-def">default <code>start_line + 199</code></span></td></tr>
+</tbody>
+</table>
+<p class="small"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/tools.md#read_document">All arguments and results</a></p>
+</div>
+<div class="tool-call">
+<h5 class="tool-part">a call and its result</h5>
+<div class="listing edge-accent tool-io">
+<div class="listing-head"><b>call</b><span data-rec="tools.read_document.tool">read_document</span></div>
+<pre class="language-json" data-rec="tools.read_document.args">{
+  "document_id": "doc_d4677697689d4e4e864a45a372db0c2a",
+  "start_line": 41866,
+  "end_line": 41880
+}</pre>
+<div class="listing-head"><b>result</b><span><span data-rec="tools.read_document.resultCharacters">1471</span> characters, an excerpt</span></div>
+<pre class="language-json" data-rec-excerpt="tools.read_document.result">{
+  "document": "app.log",
+  "lines": "41866-41880",
+  "total_lines": 60000,
+  …
+  "next_start_line": 41881,
+  "tool_turns_left": 10
+}</pre>
+<div class="listing-head"><b>text</b><span>6 of its 15 numbered lines</span></div>
+<pre data-rec-excerpt="tools.read_document.result.text"><span class="tool-l">41866| 2026-11-19T13:49:03Z INFO checkout-api POST /api/v2/checkout 201 65ms region=eu-west
+</span><span class="tool-l">…
+</span><span class="tool-l">41871| 2026-11-19T13:49:04Z INFO checkout-api POST /api/v2/cart/96512/items 201 390ms region=eu-west
+</span><span class="tool-l">41872| 2026-11-19T13:49:04Z FATAL Primary database unreachable, failing over to replica 10.4.2.18
+</span><span class="tool-l">41873| 2026-11-19T13:49:06Z ERROR Connection timeout after 5000ms to 10.4.2.17
+</span><span class="tool-l">41874| 2026-11-19T13:49:09Z ERROR Connection timeout after 3000ms to 10.4.2.17
+</span><span class="tool-l">…
+</span><span class="tool-l">41880| 2026-11-19T13:49:22Z INFO inventory GET /api/v1/stock/SKU-4862 200 90ms region=us-east</span></pre>
+</div>
+<p class="tool-sub">its step line</p>
+<p class="step" data-k="R" data-rec="tools.read_document.step">Read app.log lines 41866-41880</p>
+</div>
+<div class="tool-limits">
+<h5 class="tool-part">limits</h5>
+<ul>
+<li>200 lines by default, 600 lines a call at most.</li>
+<li>When the numbered text does not fit the result, the range is shortened until it fits, and <code>next_start_line</code> says where to go on.</li>
+</ul>
+<p class="tool-why"><b>why it reads by line number</b> A search result, a problem on the card and a heading of the outline all name lines, and the tool guide tells the model to read around search hits before it relies on them. A range is read through the line index, which holds where each line starts.</p>
+</div>
+</div>
+</div>
+<div class="tab-panel tool-panel">
+<h4 class="tool-name" data-k="O">get_document_overview</h4>
+<dl class="tool-facts">
+<div><dt class="tool-part">purpose</dt><dd>Returns more than the card: the whole log profile, the whole outline, the first and last lines, and about how many parts a whole-file read would take.</dd></div>
+<div><dt class="tool-part">offered when</dt><dd>With <code>search_document</code> and <code>read_document</code>. It does not reach a table sent whole.</dd></div>
+</dl>
+<div class="tool-body">
+<div class="tool-args">
+<h5 class="tool-part">arguments</h5>
+<table class="table" aria-label="Arguments of get_document_overview">
+<thead><tr><th scope="col">Argument</th><th scope="col">What it means, and its default</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>document_id</code></th><td>The file, by the id that its card prints. It is the only argument. <span class="tool-def">required</span></td></tr>
+</tbody>
+</table>
+<p class="small"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/tools.md#get_document_overview">All arguments and results</a></p>
+</div>
+<div class="tool-call">
+<h5 class="tool-part">a call and its result</h5>
+<div class="listing edge-accent tool-io">
+<div class="listing-head"><b>call</b><span data-rec="tools.get_document_overview.tool">get_document_overview</span></div>
+<pre class="language-json" data-rec="tools.get_document_overview.args">{
+  "document_id": "doc_d4677697689d4e4e864a45a372db0c2a"
+}</pre>
+<div class="listing-head"><b>result</b><span><span data-rec="tools.get_document_overview.resultCharacters">5981</span> characters, an excerpt</span></div>
+<pre class="language-json" data-rec-excerpt="tools.get_document_overview.result">{
+  "document": "app.log",
+  "format": "log",
+  "size": "5 MB",
+  "lines": 60000,
+  "estimated_tokens": 3260485,
+  "parts_for_whole_document_analysis": 37,
+  "whole_document_analysis": "Not available for this file: it would take about 37 parts, and the limit is 30. Use search_document and read_document.",
+  "log_profile": {
+    "levels": {
+      "INFO": 58773,
+      "WARN": 892,
+      "ERROR": 334,
+      "FATAL": 1
+    },
+    "firstTimestamp": "2026-11-19T08:00:00Z",
+    "lastTimestamp": "2026-11-19T16:18:15Z",
+    "topIssues": [
+      {
+        "template": "FATAL Primary database unreachable, failing over to replica &lt;ip&gt;",
+        "level": "FATAL",
+        "count": 1,
+        "firstLine": 41872
+      },
+      …
+    ]
+  },
+  …
+  "outline": [],
+  "tool_turns_left": 10
+}</pre>
+<div class="listing-head"><b>last_lines</b><span>the last 2 of its 20 numbered lines</span></div>
+<pre data-rec-excerpt="tools.get_document_overview.result.last_lines"><span class="tool-l">…
+</span><span class="tool-l">59999| 2026-11-19T16:18:15Z INFO checkout-api GET /api/v2/cart/84577 200 10ms region=eu-west
+</span><span class="tool-l">60000| 2026-11-19T16:18:15Z INFO inventory POST /api/v1/reservations 201 87ms region=us-east</span></pre>
+</div>
+<p class="small muted tool-from">The two lines left out before <code>outline</code> are <code>first_lines</code> and <code>last_lines</code>. The outline of a log is empty.</p>
+<p class="tool-sub">its step line</p>
+<p class="step" data-k="O" data-rec="tools.get_document_overview.step">Overview of app.log</p>
+</div>
+<div class="tool-limits">
+<h5 class="tool-part">limits</h5>
+<ul>
+<li>The first 30 lines and the last 20.</li>
+<li>Up to 15 problems in the profile of a log: FATAL first, then ERROR, then WARN, the most frequent first within each.</li>
+<li>An outline of at most 400 headings. The card shows the first 40 of them, and the first 8 problems.</li>
+</ul>
+<p class="tool-why"><b>why the count of parts is an estimate</b> It is estimated from the metadata, without reading the text, to within a part or two. The overview says when it is over the limit of a whole-file read: here, about 37 parts against 30.</p>
+</div>
+</div>
+</div>
+<div class="tab-panel tool-panel">
+<h4 class="tool-name" data-k="A">aggregate_table</h4>
+<dl class="tool-facts">
+<div><dt class="tool-part">purpose</dt><dd>Counts, sums, averages, and finds minimums and maximums over the rows of one table, with filters and groups. It reads every row. A table is a CSV or TSV file, a sheet of a workbook, or a <code>| cell |</code> table of another document.</dd></div>
+<div><dt class="tool-part">offered when</dt><dd>With the text tools, when a searchable document may hold a table: its format is <code>csv</code>, <code>xlsx</code>, <code>docx</code>, <code>pptx</code>, <code>pdf</code>, <code>html</code> or <code>markdown</code>. A table sent whole gets it too.</dd></div>
+</dl>
+<div class="tool-body">
+<div class="tool-args">
+<h5 class="tool-part">arguments</h5>
+<table class="table" aria-label="Arguments of aggregate_table">
+<thead><tr><th scope="col">Argument</th><th scope="col">What it means, and its default</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>metrics</code></th><td><code>count</code>, or an operation and a column: <code>sum:Revenue</code>, <code>avg:Price</code>, <code>min:Date</code>, <code>max:Amount</code>, <code>count_distinct:Customer</code>. <span class="tool-def">default <code>["count"]</code></span></td></tr>
+<tr><th scope="row"><code>group_by</code></th><td>Up to 3 columns. A column of ISO dates may end in <code>:year</code>, <code>:month</code> or <code>:day</code>. <span class="tool-def">default none</span></td></tr>
+<tr><th scope="row"><code>filters</code></th><td>Rows kept: all must match. <code>op</code> is <code>=</code>, <code>!=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>, <code>contains</code>, <code>not_contains</code>, <code>starts_with</code>, <code>empty</code> or <code>not_empty</code>. <span class="tool-def">default none</span></td></tr>
+<tr><th scope="row"><code>table</code></th><td>The name or number of a sheet in a workbook, the number of a table in other files. <span class="tool-def">default the first</span></td></tr>
+<tr><th scope="row"><code>limit</code></th><td>Groups shown, 200 at most. <span class="tool-def">default <code>50</code></span></td></tr>
+</tbody>
+</table>
+<p class="small"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/tools.md#aggregate_table">All arguments and results</a></p>
+</div>
+<div class="tool-call">
+<h5 class="tool-part">a call and its result</h5>
+<div class="listing edge-accent tool-io">
+<div class="listing-head"><b>call</b><span data-rec="tools.aggregate_table.tool">aggregate_table</span></div>
+<pre class="language-json" data-rec="tools.aggregate_table.args">{
+  "document_id": "doc_c46fe0ea971e4a1191b2c10d422df154",
+  "metrics": [
+    "count",
+    "sum:Amount"
+  ],
+  "group_by": [
+    "Region"
+  ],
+  "filters": [
+    {
+      "column": "Status",
+      "op": "=",
+      "value": "late"
+    }
+  ]
+}</pre>
+<div class="listing-head"><b>result</b><span><span data-rec="tools.aggregate_table.resultCharacters">522</span> characters, an excerpt</span></div>
+<pre class="language-json" data-rec-excerpt="tools.aggregate_table.result">{
+  "document": "orders-2026.csv",
+  "table": "the CSV file",
+  "header_line": 1,
+  "columns": [
+    "Order",
+    "Date",
+    "Region",
+    "Status",
+    "Amount"
+  ],
+  "rows_read": 5000,
+  "rows_matched": 612,
+  "total_groups": 4,
+  "groups": [
+    {
+      "group": {
+        "Region": "North"
+      },
+      "count": 160,
+      "sum:Amount": 78420,
+      "lines": [
+        39,
+        41,
+        62
+      ]
+    },
+    …
+  ],
+  "tool_turns_left": 10
+}</pre>
+</div>
+<p class="small muted tool-from">The three groups left out have the same fields: West, South and East.</p>
+<p class="tool-sub">its step line</p>
+<p class="step" data-k="A" data-rec="tools.aggregate_table.step">Aggregate orders-2026.csv: count, sum:Amount by Region where Status = late — 612 rows, 4 groups</p>
+</div>
+<div class="tool-limits">
+<h5 class="tool-part">limits</h5>
+<ul>
+<li>One table a call, and up to 3 columns to group by. 10,000 groups are counted one by one.</li>
+<li>A sum or an average leaves out the cells that are not numbers, and says how many.</li>
+<li>Each group lists the lines of its first 3 rows, to cite.</li>
+</ul>
+<p class="tool-why"><b>why it runs no code</b> It reads every row once, and runs no code. A model that adds up thousands of rows by reading them needs hundreds of calls and gets it wrong; this answers in one.</p>
+</div>
+</div>
+</div>
+<div class="tab-panel tool-panel">
+<h4 class="tool-name" data-k="W">analyze_whole_document</h4>
+<dl class="tool-facts">
+<div><dt class="tool-part">purpose</dt><dd>Reads a whole file in parts, with other model calls, and answers a task that needs all of it: a full summary, a timeline, items that must be judged by meaning. It is slow and costly.</dd></div>
+<div><dt class="tool-part">offered when</dt><dd>The model that explores has a part reader (<code>generateText</code>), <code>wholeDocumentAnalysis</code> is not <code>false</code>, and at least one searchable document is estimated at no more than <code>maxMapChunks</code> parts, 30 by default.</dd></div>
+</dl>
+<div class="tool-body">
+<div class="tool-args">
+<h5 class="tool-part">arguments</h5>
+<table class="table" aria-label="Arguments of analyze_whole_document">
+<thead><tr><th scope="col">Argument</th><th scope="col">What it means, and its default</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>task</code></th><td>What to find or produce from the whole file, stated completely. <span class="tool-def">required</span></td></tr>
+<tr><th scope="row"><code>output</code></th><td><code>answer</code>: one answer, written from the notes of every part. <code>items</code>: each part lists items, each with its line and a quote, and code checks and counts them. <span class="tool-def">default <code>answer</code></span></td></tr>
+<tr><th scope="row"><code>labels</code></th><td>With <code>items</code>: the kinds of item to label each one with. Up to 12, each up to 40 characters. <span class="tool-def">default none</span></td></tr>
+</tbody>
+</table>
+<p class="small"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/tools.md#analyze_whole_document">All arguments and results</a></p>
+</div>
+<div class="tool-call">
+<h5 class="tool-part">a call and its result</h5>
+<p class="small">Recorded over handbook.md in a window of <span title="toolQuestions.wholeRead.options.budget.contextTokens: 128000">128,000</span> tokens, where it does not fit and is read in 3 parts.</p>
+<div class="tabs tool-modes" role="group" aria-label="Two recorded whole-file reads">
+<input type="radio" name="tool-whole" id="tool-whole-answer" checked><label for="tool-whole-answer">one answer</label>
+<input type="radio" name="tool-whole" id="tool-whole-items"><label for="tool-whole-items">a list of items</label>
+<div class="tab-panel">
+<h6 class="tab-title">one answer</h6>
+<p class="small">One answer is written from the notes of the parts.</p>
+<div class="listing edge-accent tool-io">
+<div class="listing-head"><b>call</b><span data-rec="tools.analyze_whole_document.tool">analyze_whole_document</span></div>
+<pre class="language-json" data-rec="tools.analyze_whole_document.args">{
+  "document_id": "doc_d549dadf0eeb43908461480eea085b75",
+  "task": "Find every line that names the database replica, and note what it says about it."
+}</pre>
+<div class="listing-head"><b>result</b><span><span data-rec="tools.analyze_whole_document.resultCharacters">955</span> characters, an excerpt</span></div>
+<pre class="language-json" data-rec-excerpt="tools.analyze_whole_document.result">{
+  "document": "handbook.md",
+  "parts_read": 3,
+  "parts_with_relevant_content": 1,
+  …
+  "tool_turns_left": 10
+}</pre>
+<div class="listing-head"><b>answer</b><span>3 of its 7 lines. The answer text is the scripted reader's</span></div>
+<pre data-rec-excerpt="tools.analyze_whole_document.result.answer"><span class="tool-l" style="--h:2">The handbook names the replica on 6 lines:
+</span><span class="tool-l" style="--h:2">- The primary database runs on 10.4.2.17, and a streaming replica on 10.4.2.18. Every service connects through a pool of its own, and each pool knows both hosts. (L2535)
+</span><span class="tool-l" style="--h:2">- Do not restart the services. The connection pool fails over to the replica at 10.4.2.18 on its own, and logs a FATAL line when it starts. (L2631)
+</span><span class="tool-l">…</span></pre>
+</div>
+<p class="tool-sub">its step line</p>
+<p class="step" data-k="W" data-rec="tools.analyze_whole_document.step">Read all of handbook.md for “Find every line that names the database replica, and note what it says about it.” — 3 parts, 1 relevant</p>
+</div>
+<div class="tab-panel">
+<h6 class="tab-title">a list of items</h6>
+<p class="small">Each part lists the items it finds. Code checks them and counts them: one request a part.</p>
+<div class="listing edge-accent tool-io">
+<div class="listing-head"><b>call</b><span data-rec="tools.analyze_items.tool">analyze_whole_document</span></div>
+<pre class="language-json" data-rec="tools.analyze_items.args">{
+  "document_id": "doc_d549dadf0eeb43908461480eea085b75",
+  "task": "List every step of a procedure that needs someone's approval before it is taken.",
+  "output": "items",
+  "labels": [
+    "incident commander",
+    "team lead",
+    "security on-call"
+  ]
+}</pre>
+<div class="listing-head"><b>result</b><span><span data-rec="tools.analyze_items.resultCharacters">5917</span> characters, an excerpt</span></div>
+<pre class="language-json" data-rec-excerpt="tools.analyze_items.result">{
+  "document": "handbook.md",
+  "total_items": 172,
+  "counts_by_label": {
+    "security on-call": 51,
+    "incident commander": 33,
+    "team lead": 88
+  },
+  "items": [
+    {
+      "line": 34,
+      "label": "security on-call",
+      "quote": "Do not clear a queue or a cache without approval from the"
+    },
+    …
+  ],
+  "more_items": 122,
+  "unverified_items": 0,
+  "parts_read": 3,
+  "note": "The first 50 items are shown; total_items counts them all.",
+  "tool_turns_left": 10
+}</pre>
+</div>
+<p class="small muted tool-from">The lines, labels and quotes are the scripted reader's. The library checked each of the 172 quotes against the line it names, counted the items by label, and kept the first 50.</p>
+<p class="tool-sub">its step line</p>
+<p class="step" data-k="W" data-rec="tools.analyze_items.step">Read all of handbook.md for “List every step of a procedure that needs someone's approval before it is taken.”, as a list of items — 172 items in 3 parts</p>
+</div>
+</div>
+</div>
+<div class="tool-limits">
+<h5 class="tool-part">limits</h5>
+<ul>
+<li>A file of more than 30 parts (<code>maxMapChunks</code>) is refused before any request. With the defaults, one read can cost about 3,000,000 input tokens.</li>
+<li>Four parts are read at a time. By default each document is read whole once in a question.</li>
+<li>With <code>items</code>, an item counts when its quote is on the line it names. A list can still be cut at the output limit, and the result then says that items may be missing.</li>
+</ul>
+<p class="tool-why"><b>why counting is the job of search</b> Even within its limits a model can skip items of a long list. For a complete list or an exact count, <code>search_document</code> in exact or regex mode is the reliable tool: it reports <code>total_matching_lines</code>. The whole-file read is kept for what needs meaning. <a href="#whole-file">How a read runs</a>.</p>
+</div>
+</div>
+</div>
+<div class="tab-panel tool-panel">
+<h4 class="tool-name" data-k="P">view_pages</h4>
+<dl class="tool-facts">
+<div><dt class="tool-part">purpose</dt><dd>Lets the model look at pages of a PDF as they are printed, for what the text cannot show: a picture, a chart, a diagram, handwriting, a stamp, the layout of a page. It is not for reading text.</dd></div>
+<div><dt class="tool-part">offered when</dt><dd><span class="tag">off by default</span> For each PDF whose uploaded file is kept (<code>keepOriginals: ["pdf"]</code>), unless <code>viewPages</code> is <code>false</code>, and only when every model of the question can be sent a PDF or an image of each page. Cutting pages needs the optional package <code>@cantoo/pdf-lib</code>.</dd></div>
+</dl>
+<div class="tool-body">
+<div class="tool-args">
+<h5 class="tool-part">arguments</h5>
+<table class="table" aria-label="Arguments of view_pages">
+<thead><tr><th scope="col">Argument</th><th scope="col">What it means, and its default</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>document_id</code></th><td>The PDF, by its id. <span class="tool-def">required</span></td></tr>
+<tr><th scope="row"><code>from_page</code></th><td>The first page, counted from 1: the N of the <code style="white-space:nowrap">--- Page N ---</code> lines in the text. <span class="tool-def">required</span></td></tr>
+<tr><th scope="row"><code>to_page</code></th><td>The last page. A page past the end is taken as the last page. <span class="tool-def">default <code>from_page</code></span></td></tr>
+</tbody>
+</table>
+<p class="small"><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/tools.md#view_pages">All arguments and results</a></p>
+</div>
+<div class="tool-call">
+<h5 class="tool-part">a call and its result</h5>
+<div class="listing tool-io">
+<div class="listing-head"><b>call</b><span>its shape, from How it works</span></div>
+<pre>view_pages(document_id, from_page, to_page)</pre>
+<div class="listing-head"><b>result</b><span>from the tools reference</span></div>
+<pre class="language-json">{ "document": "report.pdf", "pages": "2-3", "total_pages": 6, "file": "pages-2-3.pdf" }</pre>
+</div>
+<p class="small muted tool-from"><span class="tag">not recorded</span> From the reference, not recorded: a look needs a PDF and an optional package. The cut pages come back as one small PDF, next to this result.</p>
+<p class="tool-sub">the label of this call</p>
+<p class="step" data-k="P">Look at report.pdf pages 2-3</p>
+</div>
+<div class="tool-limits">
+<h5 class="tool-part">limits</h5>
+<ul>
+<li>Up to 5 pages a call.</li>
+<li>Pages count against the request in bytes and in tokens. With the default budget and Gemini that is 60 pages a question.</li>
+</ul>
+<p class="tool-why"><b>why a page cut drops links and shared resources</b> Copied the way PDF libraries offer it, a page brings along everything it refers to. A link holds a reference to its target page: the contents page of one report came out at 89% of the size of its file. So every page that is not wanted is replaced by null before copying, and each wanted page gets a list of only the images it paints. <a href="#pages">More on pages</a>.</p>
+</div>
+</div>
+</div>
+</div>
+<figcaption>Recorded with a scripted model at version <span data-rec="meta.version">0.99.11</span>: the calls are the script's, the results and the step lines are what the library returned. The calls of the first four tools are from one turn of eight calls, for the question “<span data-rec="toolQuestions.tour.question">What happened around the failover, and how many orders were late in each region?</span>” over handbook.md (sent whole), orders-2026.csv and app.log (both searched). Every recorded result ends with <code>tool_turns_left</code>: the <code>askWithFiles</code> <a href="#loop">loop</a> adds it, the tools do not. <code>view_pages</code> was not recorded. The letter beside the name of a tool marks its step lines on this page. Notes and error texts are written for the model and have changed between versions: test for result fields, do not parse the texts.</figcaption>
+</figure>
+</section>
+<section class="sub" id="loop">
+<div class="sub-head">
+<h3>The loop, request by request.</h3>
+<p>One loop serves every model. This is what it does with each reply, and what one question looks like from its first request to its answer.</p>
+</div>
+
+<figure class="fig turn" aria-labelledby="turn-h">
+<div class="fig-bar"><div><h4 id="turn-h">One turn</h4><p class="micro mono muted">what the loop does with one reply</p></div></div>
+<ol class="turn-flow plain" role="list">
+<li class="turn-step"><strong>A request goes out.</strong>
+<p>It carries the tools, with <code>toolChoice: "auto"</code>, and goes to the model that explores: the explorer when there is one, otherwise the one model.</p></li>
+<li class="turn-step"><strong>The reply comes back.</strong>
+<ul class="turn-fork plain">
+<li><span class="tag">no tool calls</span> The tool requests end. Its text is the answer, unless it is empty, the prompt was blocked, or it comes from an explorer.</li>
+<li><span class="tag tag-tool">tool calls</span> The reply is a turn. Steps 3 to 7 run.</li>
+</ul></li>
+<li class="turn-step"><strong>Each call is looked at, in order, before anything runs.</strong>
+<ul class="turn-checks plain">
+<li><b>It did not arrive whole:</b> it is answered with what was wrong.</li>
+<li><b>It repeats a call whose result is still shown in full:</b> it is answered with a pointer to that result.</li>
+<li><b>It is past the eighth of the turn:</b> it is not run, and the model can send it again.</li>
+<li><b>It is a whole-file read that would pass a ceiling:</b> it is refused, with the numbers.</li>
+</ul></li>
+<li class="turn-step"><strong>The rest run.</strong>
+<p>Four at a time, answered in the order they were made. Regex searches and looks at pages run one after another.</p></li>
+<li class="turn-step"><strong>Each result is fitted to the room.</strong>
+<p>The room left in the request is shared among the calls of the turn. A result that is cut to its share says what was cut and where to go on.</p></li>
+<li class="turn-step"><strong><code>tool_turns_left</code> is added to every result.</strong>
+<p>The tool turns left after this one, or 0 when the room ran out.</p></li>
+<li class="turn-step"><strong>The round joins the conversation.</strong>
+<p>Its calls and results are sent again with every later request. Then the next request goes out.</p><p class="turn-back"><svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M12.5 4.5A5.5 5.5 0 1 0 13.5 8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M13.2 1.6v3.4H9.8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>back to 1</p></li>
+<li class="turn-step turn-end"><strong>When the tool turns, the room or the ceilings run out: one more request.</strong>
+<p>It ends with a user message that tells the model to stop using tools, and it must be answered in text. <span class="tag tag-answer">answer</span></p></li>
+</ol>
+<figcaption>The defaults: 8 calls run a turn (<code>limits.callsPerTurn</code>). <code>limits.toolTurns</code> is 12 and counts the chat requests of a question, the answer’s included, so tools run in at most 11. One result has at most 12% of the window in characters, from 1,000 to 24,000 (<code>budget.toolResultCharacters</code>), and a cut never leaves it under 600. Four calls at a time is fixed.</figcaption>
+</figure>
+
+<div class="ledger-split">
+<div class="ledger-main">
+<figure class="fig ledger" id="fig-ledger" aria-labelledby="ledger-h">
+<div class="fig-bar"><div><h4 id="ledger-h">The ledger</h4><p class="micro mono muted">one question, one row a model request</p></div><div class="ledger-nav" data-ledger-nav></div></div>
+<div class="ledger-chips" data-ledger-chips role="group" aria-label="Recorded scenarios"></div>
+<!-- Generated from site/data/run.json. Bar widths, each over result.budget.contextTokens: f = result.plan.inlineTokens,
+b = the first request less f, k = half of reservedTokens, a = a request less the first ("+N"). w = a over the largest a. -->
+<div class="ledger-scn" data-ledger="main" data-ledger-shown>
+<table class="ledger-t" role="table" style="--f:13.734%;--b:.515%;--k:3.2%">
+<caption><b class="ledger-cap">The sample question</b> <span class="ledger-look">Four requests. Each carries handbook.md whole, <span data-rec-num="main.result.plan.inlineTokens">137,343</span> tokens, so each is about 142,000 to 145,000. The three tool rounds added 2,681 tokens in all. The fourth reply has no tool call: it is the answer.</span></caption>
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Request</th><th role="columnheader">What the model sent</th><th role="columnheader">What the loop did, in its own words</th><th role="columnheader"><span>As sent: estimated input tokens. Bar: 0 to the window, <span data-rec-num="main.result.budget.contextTokens">1,000,000</span>.</span> <span>Added since request 1. Bar: 0 to 2,681.</span></th><th role="columnheader">Turns left</th></tr></thead>
+<tbody role="rowgroup">
+<tr role="row"><th role="rowheader"><b>1</b> <span class="tag tag-tool" data-rec="main.requests.0.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="main.requests.0.tools.0.tool">search_document</span> <span class="ledger-times">× 2</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="main.requests.0.notices.0.message">Too large to read at once: app.log. Searching instead…</span> <code data-rec="main.requests.0.notices.0.code">searching_instead</code></li><li class="step" data-k="S" data-rec="main.requests.0.tools.0.step">Search app.log (exact) for “FATAL” — 1 matching line</li><li class="step" data-k="S" data-rec="main.requests.0.tools.1.step">Search app.log (exact) for “Connection timeout”, counted by hour — 334 matching lines in 6 groups</li></ul></td><td role="cell"><span data-rec-num="main.requests.0.estimatedInputTokens">142,492</span><i></i><span>+0</span><i></i></td><td role="cell" data-rec="main.requests.0.tools.0.toolTurnsLeft">10</td></tr>
+<tr role="row"><th role="rowheader"><b>2</b> <span class="tag tag-tool" data-rec="main.requests.1.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="main.requests.1.tools.0.tool">read_document</span> <span class="tag tag-tool" data-rec="main.requests.1.tools.1.tool">search_document</span></td><td role="cell"><ul><li class="step" data-k="R" data-rec="main.requests.1.tools.0.step">Read app.log lines 41860-41884</li><li class="step" data-k="S" data-rec="main.requests.1.tools.1.step">Search app.log (exact) for “promoted to primary” — 1 matching line</li></ul></td><td role="cell"><span data-rec-num="main.requests.1.estimatedInputTokens">143,050</span><i style="--a:.056%"></i><span>+558</span><i style="--w:20.813%"></i></td><td role="cell" data-rec="main.requests.1.tools.0.toolTurnsLeft">9</td></tr>
+<tr role="row"><th role="rowheader"><b>3</b> <span class="tag tag-tool" data-rec="main.requests.2.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="main.requests.2.tools.0.tool">search_document</span></td><td role="cell"><ul><li class="step" data-k="S" data-rec="main.requests.2.tools.0.step">Search app.log (exact) for “Connection timeout”, the last ones — 334 matching lines</li></ul></td><td role="cell"><span data-rec-num="main.requests.2.estimatedInputTokens">144,832</span><i style="--a:.234%"></i><span>+2,340</span><i style="--w:87.281%"></i></td><td role="cell" data-rec="main.requests.2.tools.0.toolTurnsLeft">8</td></tr>
+<tr role="row"><th role="rowheader"><b>4</b> <span class="tag tag-tool" data-rec="main.requests.3.role">tools</span></th><td role="cell"><span class="tag">text</span></td><td role="cell"><ul><li class="ledger-say">The reply has text and no tool call: its text is the answer.</li></ul></td><td role="cell"><span data-rec-num="main.requests.3.estimatedInputTokens">145,173</span><i style="--a:.268%"></i><span>+2,681</span><i style="--w:100%"></i></td><td role="cell"></td></tr>
+</tbody>
+<tfoot role="rowgroup"><tr role="row"><th role="rowheader">Sum</th><td role="cell"></td><td role="cell"></td><td role="cell"><span data-rec-num="main.result.usage.estimatedInputTokens">575,547</span> <span>estimated input tokens over <b data-rec="main.result.usage.requests">4</b> requests (<code>result.usage</code>)</span></td><td role="cell"></td></tr></tfoot>
+</table>
+</div>
+<details class="details ledger-scn" data-ledger="nineCalls"><summary>Nine calls in one turn</summary>
+<table class="ledger-t" role="table" style="--f:13.734%;--b:.515%;--k:3.2%">
+<caption><b class="ledger-cap">Nine calls in one turn</b> <span class="ledger-look">The first reply holds nine calls. Eight run. The ninth is answered “Not run”, one step says so for the turn, and the model sends that call again in request 2.</span></caption>
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Request</th><th role="columnheader">What the model sent</th><th role="columnheader">What the loop did, in its own words</th><th role="columnheader"><span>As sent: estimated input tokens. Bar: 0 to the window, <span data-rec-num="scenarios.nineCalls.result.budget.contextTokens">1,000,000</span>.</span> <span>Added since request 1. Bar: 0 to 6,101.</span></th><th role="columnheader">Turns left</th></tr></thead>
+<tbody role="rowgroup">
+<tr role="row"><th role="rowheader"><b>1</b> <span class="tag tag-tool" data-rec="scenarios.nineCalls.requests.0.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.nineCalls.requests.0.tools.0.tool">search_document</span> <span class="ledger-times">× 7</span> <span class="tag tag-tool" data-rec="scenarios.nineCalls.requests.0.tools.7.tool">get_document_overview</span> <span class="tag tag-tool" data-rec="scenarios.nineCalls.requests.0.tools.8.tool">search_document</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.nineCalls.requests.0.notices.0.message">Too large to read at once: app.log. Searching instead…</span> <code data-rec="scenarios.nineCalls.requests.0.notices.0.code">searching_instead</code></li><li class="step" data-k="S" data-rec="scenarios.nineCalls.requests.0.tools.0.step">Search app.log (exact) for “FATAL” — 1 matching line</li><li class="step" data-k="S" data-rec="scenarios.nineCalls.requests.0.tools.1.step">Search app.log (exact) for “promoted to primary” — 1 matching line</li><li class="step" data-k="S" data-rec="scenarios.nineCalls.requests.0.tools.2.step">Search app.log (exact) for “Connection timeout”, counted by hour — 334 matching lines in 6 groups</li><li class="step" data-k="S" data-rec="scenarios.nineCalls.requests.0.tools.3.step">Search app.log (exact) for “Connection timeout”, the last ones — 334 matching lines</li><li class="step" data-k="S" data-rec="scenarios.nineCalls.requests.0.tools.4.step">Search app.log (exact) for “Connection timeout” — 334 matching lines</li><li class="step" data-k="S" data-rec="scenarios.nineCalls.requests.0.tools.5.step">Search app.log (exact) for “Slow query”, counted by hour — 892 matching lines in 9 groups</li><li class="step" data-k="S" data-rec="scenarios.nineCalls.requests.0.tools.6.step">Search app.log (exact) for “ERROR”, counted by shape — 334 matching lines in 1 group</li><li class="step" data-k="O" data-rec="scenarios.nineCalls.requests.0.tools.7.step">Overview of app.log</li><li class="step is-warn ledger-x" data-k="S"><span data-rec="scenarios.nineCalls.requests.0.tools.8.label">Search app.log (exact) for “WARN”, counted by shape</span> <span class="tag tag-warn mono" data-rec="scenarios.nineCalls.requests.0.tools.8.outcome">not_run</span> <span class="ledger-told"><b>The model is told</b> <span data-rec="scenarios.nineCalls.requests.0.tools.8.result.error">Not run: one turn runs at most 8 tool calls. Send this call again if you still need it.</span></span></li><li class="step is-note" data-k="i"><span data-rec="scenarios.nineCalls.requests.0.notices.1.message">1 more tool call in this turn was not run (at most 8 a turn)</span> <code data-rec="scenarios.nineCalls.requests.0.notices.1.code">calls_not_run</code></li></ul></td><td role="cell"><span data-rec-num="scenarios.nineCalls.requests.0.estimatedInputTokens">142,492</span><i></i><span>+0</span><i></i></td><td role="cell" data-rec="scenarios.nineCalls.requests.0.tools.0.toolTurnsLeft">10</td></tr>
+<tr role="row"><th role="rowheader"><b>2</b> <span class="tag tag-tool" data-rec="scenarios.nineCalls.requests.1.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.nineCalls.requests.1.tools.0.tool">search_document</span></td><td role="cell"><ul><li class="step" data-k="S" data-rec="scenarios.nineCalls.requests.1.tools.0.step">Search app.log (exact) for “WARN”, counted by shape — 892 matching lines in 6 groups</li></ul></td><td role="cell"><span data-rec-num="scenarios.nineCalls.requests.1.estimatedInputTokens">148,230</span><i style="--a:.574%"></i><span>+5,738</span><i style="--w:94.05%"></i></td><td role="cell" data-rec="scenarios.nineCalls.requests.1.tools.0.toolTurnsLeft">9</td></tr>
+<tr role="row"><th role="rowheader"><b>3</b> <span class="tag tag-tool" data-rec="scenarios.nineCalls.requests.2.role">tools</span></th><td role="cell"><span class="tag">text</span></td><td role="cell"><ul><li class="ledger-say">The reply has text and no tool call: its text is the answer.</li></ul></td><td role="cell"><span data-rec-num="scenarios.nineCalls.requests.2.estimatedInputTokens">148,593</span><i style="--a:.61%"></i><span>+6,101</span><i style="--w:100%"></i></td><td role="cell"></td></tr>
+</tbody>
+<tfoot role="rowgroup"><tr role="row"><th role="rowheader">Sum</th><td role="cell"></td><td role="cell"></td><td role="cell"><span data-rec-num="scenarios.nineCalls.result.usage.estimatedInputTokens">439,315</span> <span>estimated input tokens over <b data-rec="scenarios.nineCalls.result.usage.requests">3</b> requests (<code>result.usage</code>)</span></td><td role="cell"></td></tr></tfoot>
+</table>
+</details>
+<details class="details ledger-scn" data-ledger="repeatedCall"><summary>A repeated call</summary>
+<table class="ledger-t" role="table" style="--f:13.734%;--b:.515%;--k:3.2%">
+<caption><b class="ledger-cap">A repeated call</b> <span class="ledger-look">Request 2 repeats the search of request 1, next to two new calls. The repeat is not run: its step ends “already shown above”, and its result is a pointer to the one already shown.</span></caption>
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Request</th><th role="columnheader">What the model sent</th><th role="columnheader">What the loop did, in its own words</th><th role="columnheader"><span>As sent: estimated input tokens. Bar: 0 to the window, <span data-rec-num="scenarios.repeatedCall.result.budget.contextTokens">1,000,000</span>.</span> <span>Added since request 1. Bar: 0 to 869.</span></th><th role="columnheader">Turns left</th></tr></thead>
+<tbody role="rowgroup">
+<tr role="row"><th role="rowheader"><b>1</b> <span class="tag tag-tool" data-rec="scenarios.repeatedCall.requests.0.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.repeatedCall.requests.0.tools.0.tool">search_document</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.repeatedCall.requests.0.notices.0.message">Too large to read at once: app.log. Searching instead…</span> <code data-rec="scenarios.repeatedCall.requests.0.notices.0.code">searching_instead</code></li><li class="step" data-k="S" data-rec="scenarios.repeatedCall.requests.0.tools.0.step">Search app.log (exact) for “FATAL” — 1 matching line</li></ul></td><td role="cell"><span data-rec-num="scenarios.repeatedCall.requests.0.estimatedInputTokens">142,492</span><i></i><span>+0</span><i></i></td><td role="cell" data-rec="scenarios.repeatedCall.requests.0.tools.0.toolTurnsLeft">10</td></tr>
+<tr role="row"><th role="rowheader"><b>2</b> <span class="tag tag-tool" data-rec="scenarios.repeatedCall.requests.1.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.repeatedCall.requests.1.tools.0.tool">search_document</span> <span class="ledger-times">× 3</span></td><td role="cell"><ul><li class="step ledger-x ledger-ptr" data-k="S"><span data-rec="scenarios.repeatedCall.requests.1.tools.0.step">Search app.log (exact) for “FATAL” — already shown above</span> <span class="tag mono" data-rec="scenarios.repeatedCall.requests.1.tools.0.outcome">already_shown</span> <span class="ledger-told"><b>Its result is a pointer</b> <span data-rec="scenarios.repeatedCall.requests.1.tools.0.result.note">Not run: this exact call was answered earlier in this conversation, and its result is still shown above in full. The file has not changed, so it would return the same. Use that result. For more, read other lines, or search with other words or another mode.</span></span></li><li class="step" data-k="S" data-rec="scenarios.repeatedCall.requests.1.tools.1.step">Search app.log (exact) for “Connection timeout”, counted by hour — 334 matching lines in 6 groups</li><li class="step" data-k="S" data-rec="scenarios.repeatedCall.requests.1.tools.2.step">Search app.log (exact) for “promoted to primary” — 1 matching line</li></ul></td><td role="cell"><span data-rec-num="scenarios.repeatedCall.requests.1.estimatedInputTokens">142,651</span><i style="--a:.016%"></i><span>+159</span><i style="--w:18.297%"></i></td><td role="cell" data-rec="scenarios.repeatedCall.requests.1.tools.0.toolTurnsLeft">9</td></tr>
+<tr role="row"><th role="rowheader"><b>3</b> <span class="tag tag-tool" data-rec="scenarios.repeatedCall.requests.2.role">tools</span></th><td role="cell"><span class="tag">text</span></td><td role="cell"><ul><li class="ledger-say">The reply has text and no tool call: its text is the answer.</li></ul></td><td role="cell"><span data-rec-num="scenarios.repeatedCall.requests.2.estimatedInputTokens">143,361</span><i style="--a:.087%"></i><span>+869</span><i style="--w:100%"></i></td><td role="cell"></td></tr>
+</tbody>
+<tfoot role="rowgroup"><tr role="row"><th role="rowheader">Sum</th><td role="cell"></td><td role="cell"></td><td role="cell"><span data-rec-num="scenarios.repeatedCall.result.usage.estimatedInputTokens">428,504</span> <span>estimated input tokens over <b data-rec="scenarios.repeatedCall.result.usage.requests">3</b> requests (<code>result.usage</code>)</span></td><td role="cell"></td></tr></tfoot>
+</table>
+</details>
+<details class="details ledger-scn" data-ledger="failedRequest"><summary>A failed request</summary>
+<table class="ledger-t" role="table" style="--f:13.734%;--b:.515%;--k:3.2%">
+<caption><b class="ledger-cap">A failed request</b> <span class="ledger-look">The second request fails once with HTTP 503: the script makes it fail. The loop waits and sends it again. It counts once: the sum has two requests.</span></caption>
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Request</th><th role="columnheader">What the model sent</th><th role="columnheader">What the loop did, in its own words</th><th role="columnheader"><span>As sent: estimated input tokens. Bar: 0 to the window, <span data-rec-num="scenarios.failedRequest.result.budget.contextTokens">1,000,000</span>.</span> <span>Added since request 1. Bar: 0 to 714.</span></th><th role="columnheader">Turns left</th></tr></thead>
+<tbody role="rowgroup">
+<tr role="row"><th role="rowheader"><b>1</b> <span class="tag tag-tool" data-rec="scenarios.failedRequest.requests.0.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.failedRequest.requests.0.tools.0.tool">search_document</span> <span class="ledger-times">× 3</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.failedRequest.requests.0.notices.0.message">Too large to read at once: app.log. Searching instead…</span> <code data-rec="scenarios.failedRequest.requests.0.notices.0.code">searching_instead</code></li><li class="step" data-k="S" data-rec="scenarios.failedRequest.requests.0.tools.0.step">Search app.log (exact) for “FATAL” — 1 matching line</li><li class="step" data-k="S" data-rec="scenarios.failedRequest.requests.0.tools.1.step">Search app.log (exact) for “Connection timeout”, counted by hour — 334 matching lines in 6 groups</li><li class="step" data-k="S" data-rec="scenarios.failedRequest.requests.0.tools.2.step">Search app.log (exact) for “promoted to primary” — 1 matching line</li></ul></td><td role="cell"><span data-rec-num="scenarios.failedRequest.requests.0.estimatedInputTokens">142,492</span><i></i><span>+0</span><i></i></td><td role="cell" data-rec="scenarios.failedRequest.requests.0.tools.0.toolTurnsLeft">10</td></tr>
+<tr role="row" class="is-retry"><th role="rowheader"><b>2</b> <span class="tag tag-tool" data-rec="scenarios.failedRequest.requests.1.role">tools</span></th><td role="cell"><span class="tag">text</span></td><td role="cell"><ul><li class="step is-warn ledger-x" data-k="!"><span data-rec="scenarios.failedRequest.requests.1.retries.0.message">The model did not answer (HTTP 503). Trying again…</span> <span class="ledger-told"><b>The error, attempt <span data-rec="scenarios.failedRequest.requests.1.retries.0.attempt">1</span>, kind <code data-rec="scenarios.failedRequest.requests.1.retries.0.error.kind">server</code></b> <span data-rec="scenarios.failedRequest.requests.1.retries.0.error.message">The model failed on its side (HTTP 503).</span></span></li><li class="ledger-say">The reply has text and no tool call: its text is the answer.</li></ul></td><td role="cell"><span data-rec-num="scenarios.failedRequest.requests.1.estimatedInputTokens">143,206</span><i style="--a:.071%"></i><span>+714</span><i style="--w:100%"></i></td><td role="cell"></td></tr>
+</tbody>
+<tfoot role="rowgroup"><tr role="row"><th role="rowheader">Sum</th><td role="cell"></td><td role="cell"></td><td role="cell"><span data-rec-num="scenarios.failedRequest.result.usage.estimatedInputTokens">285,698</span> <span>estimated input tokens over <b data-rec="scenarios.failedRequest.result.usage.requests">2</b> requests (<code>result.usage</code>)</span></td><td role="cell"></td></tr></tfoot>
+</table>
+</details>
+<details class="details ledger-scn" data-ledger="explorer"><summary>An explorer model</summary>
+<table class="ledger-t" role="table" style="--f:13.734%;--b:.523%;--k:3.2%">
+<caption><b class="ledger-cap">An explorer model</b> <span class="ledger-look">Requests 1 to 4 go to <code data-rec="scenarios.explorer.requests.0.model">explorer-model</code>: it makes the tool calls of the sample question, then replies DONE. Request 5 goes to <code data-rec="scenarios.explorer.requests.4.model">answer-model</code> with tool choice <code>none</code> and one added user turn. Its text is the answer.</span></caption>
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Request</th><th role="columnheader">What the model sent</th><th role="columnheader">What the loop did, in its own words</th><th role="columnheader"><span>As sent: estimated input tokens. Bar: 0 to the window, <span data-rec-num="scenarios.explorer.result.budget.contextTokens">1,000,000</span>.</span> <span>Added since request 1. Bar: 0 to 2,681.</span></th><th role="columnheader">Turns left</th></tr></thead>
+<tbody role="rowgroup">
+<tr role="row" class="is-explorer"><th role="rowheader"><b>1</b> <span class="tag tag-explorer mono" data-rec="scenarios.explorer.requests.0.role">explorer</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.explorer.requests.0.tools.0.tool">search_document</span> <span class="ledger-times">× 2</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.explorer.requests.0.notices.0.message">Too large to read at once: app.log. Searching instead…</span> <code data-rec="scenarios.explorer.requests.0.notices.0.code">searching_instead</code></li><li class="step" data-k="S" data-rec="scenarios.explorer.requests.0.tools.0.step">Search app.log (exact) for “FATAL” — 1 matching line</li><li class="step" data-k="S" data-rec="scenarios.explorer.requests.0.tools.1.step">Search app.log (exact) for “Connection timeout”, counted by hour — 334 matching lines in 6 groups</li></ul></td><td role="cell"><span data-rec-num="scenarios.explorer.requests.0.estimatedInputTokens">142,572</span><i></i><span>+0</span><i></i></td><td role="cell" data-rec="scenarios.explorer.requests.0.tools.0.toolTurnsLeft">10</td></tr>
+<tr role="row" class="is-explorer"><th role="rowheader"><b>2</b> <span class="tag tag-explorer mono" data-rec="scenarios.explorer.requests.1.role">explorer</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.explorer.requests.1.tools.0.tool">read_document</span> <span class="tag tag-tool" data-rec="scenarios.explorer.requests.1.tools.1.tool">search_document</span></td><td role="cell"><ul><li class="step" data-k="R" data-rec="scenarios.explorer.requests.1.tools.0.step">Read app.log lines 41860-41884</li><li class="step" data-k="S" data-rec="scenarios.explorer.requests.1.tools.1.step">Search app.log (exact) for “promoted to primary” — 1 matching line</li></ul></td><td role="cell"><span data-rec-num="scenarios.explorer.requests.1.estimatedInputTokens">143,130</span><i style="--a:.056%"></i><span>+558</span><i style="--w:20.813%"></i></td><td role="cell" data-rec="scenarios.explorer.requests.1.tools.0.toolTurnsLeft">9</td></tr>
+<tr role="row" class="is-explorer"><th role="rowheader"><b>3</b> <span class="tag tag-explorer mono" data-rec="scenarios.explorer.requests.2.role">explorer</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.explorer.requests.2.tools.0.tool">search_document</span></td><td role="cell"><ul><li class="step" data-k="S" data-rec="scenarios.explorer.requests.2.tools.0.step">Search app.log (exact) for “Connection timeout”, the last ones — 334 matching lines</li></ul></td><td role="cell"><span data-rec-num="scenarios.explorer.requests.2.estimatedInputTokens">144,912</span><i style="--a:.234%"></i><span>+2,340</span><i style="--w:87.281%"></i></td><td role="cell" data-rec="scenarios.explorer.requests.2.tools.0.toolTurnsLeft">8</td></tr>
+<tr role="row" class="is-explorer"><th role="rowheader"><b>4</b> <span class="tag tag-explorer mono" data-rec="scenarios.explorer.requests.3.role">explorer</span></th><td role="cell"><span class="tag">text</span> <code data-rec="scenarios.explorer.requests.3.scripted.text">DONE</code></td><td role="cell"><ul><li class="ledger-say">The explorer’s reply ends its turns. Its text is not shown, and it is not the answer.</li></ul></td><td role="cell"><span data-rec-num="scenarios.explorer.requests.3.estimatedInputTokens">145,253</span><i style="--a:.268%"></i><span>+2,681</span><i style="--w:100%"></i></td><td role="cell"></td></tr>
+<tr role="row" class="is-closing"><th role="rowheader"><b>5</b> <span class="tag tag-answer mono" data-rec="scenarios.explorer.requests.4.role">answer</span></th><td role="cell"><span class="tag">text</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.explorer.requests.4.notices.0.message">Writing the answer…</span> <code data-rec="scenarios.explorer.requests.4.notices.0.code">writing_answer</code></li><li class="ledger-x ledger-close"><b>The loop adds a user turn, and sets tool choice <code data-rec="scenarios.explorer.requests.4.toolChoice">none</code></b> <span data-rec="scenarios.explorer.requests.4.closingUserTurn.0">Stop using tools now. Answer my question using only the files shown in full and what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.</span></li><li class="ledger-say">The reply is the answer.</li></ul></td><td role="cell"><span data-rec-num="scenarios.explorer.requests.4.estimatedInputTokens">145,253</span><i style="--a:.268%"></i><span>+2,681</span><i style="--w:100%"></i></td><td role="cell"></td></tr>
+</tbody>
+<tfoot role="rowgroup"><tr role="row"><th role="rowheader">Sum</th><td role="cell"></td><td role="cell"></td><td role="cell"><span data-rec-num="scenarios.explorer.result.usage.estimatedInputTokens">721,120</span> <span>estimated input tokens over <b data-rec="scenarios.explorer.result.usage.requests">5</b> requests (<code>result.usage</code>): explorer-model <b data-rec="scenarios.explorer.result.usage.byModel.explorer-model.requests">4</b>, answer-model <b data-rec="scenarios.explorer.result.usage.byModel.answer-model.requests">1</b></span></td><td role="cell"></td></tr></tfoot>
+</table>
+</details>
+<details class="details ledger-scn" data-ledger="outOfTurns"><summary>Out of turns</summary>
+<table class="ledger-t" role="table" style="--f:13.734%;--b:.515%;--k:3.2%">
+<caption><b class="ledger-cap">Out of turns</b> <span class="ledger-look"><code>limits.toolTurns</code> is <span data-rec="scenarios.outOfTurns.options.limits.toolTurns">4</span> here, and the scripted model would go on reading. <code>tool_turns_left</code> counts down 2, 1, 0, and the fourth request is the one that must be answered in text.</span></caption>
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Request</th><th role="columnheader">What the model sent</th><th role="columnheader">What the loop did, in its own words</th><th role="columnheader"><span>As sent: estimated input tokens. Bar: 0 to the window, <span data-rec-num="scenarios.outOfTurns.result.budget.contextTokens">1,000,000</span>.</span> <span>Added since request 1. Bar: 0 to 14,973.</span></th><th role="columnheader">Turns left</th></tr></thead>
+<tbody role="rowgroup">
+<tr role="row"><th role="rowheader"><b>1</b> <span class="tag tag-tool" data-rec="scenarios.outOfTurns.requests.0.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.outOfTurns.requests.0.tools.0.tool">search_document</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.outOfTurns.requests.0.notices.0.message">Too large to read at once: app.log. Searching instead…</span> <code data-rec="scenarios.outOfTurns.requests.0.notices.0.code">searching_instead</code></li><li class="step" data-k="S" data-rec="scenarios.outOfTurns.requests.0.tools.0.step">Search app.log (exact) for “FATAL” — 1 matching line</li></ul></td><td role="cell"><span data-rec-num="scenarios.outOfTurns.requests.0.estimatedInputTokens">142,492</span><i></i><span>+0</span><i></i></td><td role="cell" data-rec="scenarios.outOfTurns.requests.0.tools.0.toolTurnsLeft">2</td></tr>
+<tr role="row"><th role="rowheader"><b>2</b> <span class="tag tag-tool" data-rec="scenarios.outOfTurns.requests.1.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.outOfTurns.requests.1.tools.0.tool">read_document</span></td><td role="cell"><ul><li class="step" data-k="R" data-rec="scenarios.outOfTurns.requests.1.tools.0.step">Read app.log lines 41752-41871</li></ul></td><td role="cell"><span data-rec-num="scenarios.outOfTurns.requests.1.estimatedInputTokens">142,650</span><i style="--a:.016%"></i><span>+158</span><i style="--w:1.055%"></i></td><td role="cell" data-rec="scenarios.outOfTurns.requests.1.tools.0.toolTurnsLeft">1</td></tr>
+<tr role="row"><th role="rowheader"><b>3</b> <span class="tag tag-tool" data-rec="scenarios.outOfTurns.requests.2.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.outOfTurns.requests.2.tools.0.tool">read_document</span></td><td role="cell"><ul><li class="step" data-k="R" data-rec="scenarios.outOfTurns.requests.2.tools.0.step">Read app.log lines 41632-41751</li></ul></td><td role="cell"><span data-rec-num="scenarios.outOfTurns.requests.2.estimatedInputTokens">150,024</span><i style="--a:.753%"></i><span>+7,532</span><i style="--w:50.304%"></i></td><td role="cell" data-rec="scenarios.outOfTurns.requests.2.tools.0.toolTurnsLeft">0</td></tr>
+<tr role="row" class="is-closing"><th role="rowheader"><b>4</b> <span class="tag tag-answer mono" data-rec="scenarios.outOfTurns.requests.3.role">answer</span></th><td role="cell"><span class="tag">text</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.outOfTurns.requests.3.notices.0.message">Writing the answer…</span> <code data-rec="scenarios.outOfTurns.requests.3.notices.0.code">writing_answer</code></li><li class="ledger-x ledger-close"><b>The loop adds a user turn, and sets tool choice <code data-rec="scenarios.outOfTurns.requests.3.toolChoice">none</code></b> <span data-rec="scenarios.outOfTurns.requests.3.closingUserTurn.0">Stop using tools now. Answer my question using only the files shown in full and what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.</span></li><li class="ledger-say">The reply is the answer.</li></ul></td><td role="cell"><span data-rec-num="scenarios.outOfTurns.requests.3.estimatedInputTokens">157,465</span><i style="--a:1.497%"></i><span>+14,973</span><i style="--w:100%"></i></td><td role="cell"></td></tr>
+</tbody>
+<tfoot role="rowgroup"><tr role="row"><th role="rowheader">Sum</th><td role="cell"></td><td role="cell"></td><td role="cell"><span data-rec-num="scenarios.outOfTurns.result.usage.estimatedInputTokens">592,631</span> <span>estimated input tokens over <b data-rec="scenarios.outOfTurns.result.usage.requests">4</b> requests (<code>result.usage</code>)</span></td><td role="cell"></td></tr></tfoot>
+</table>
+</details>
+<details class="details ledger-scn" data-ledger="smallWindow"><summary>A small window</summary>
+<table class="ledger-t" role="table" style="--f:0%;--b:22.116%;--k:12.5%">
+<caption><b class="ledger-cap">A small window</b> <span class="ledger-look">The window is <span data-rec-num="scenarios.smallWindow.result.budget.contextTokens">32,000</span> tokens here, so neither file fits: both are cards. Each result is cut to its share of the room (a read of 600 lines gets 24, then 8), older results are shortened, the last call is refused, and the loop asks for the answer.</span></caption>
+<thead role="rowgroup"><tr role="row"><th role="columnheader">Request</th><th role="columnheader">What the model sent</th><th role="columnheader">What the loop did, in its own words</th><th role="columnheader"><span>As sent: estimated input tokens. Bar: 0 to the window, <span data-rec-num="scenarios.smallWindow.result.budget.contextTokens">32,000</span>.</span> <span>Added since request 1. Bar: 0 to 17,892.</span></th><th role="columnheader">Turns left</th></tr></thead>
+<tbody role="rowgroup">
+<tr role="row"><th role="rowheader"><b>1</b> <span class="tag tag-tool" data-rec="scenarios.smallWindow.requests.0.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.smallWindow.requests.0.tools.0.tool">get_document_overview</span> <span class="tag tag-tool" data-rec="scenarios.smallWindow.requests.0.tools.1.tool">search_document</span> <span class="ledger-times">× 2</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.smallWindow.requests.0.notices.0.message">Too large to read at once: handbook.md, app.log. Searching instead…</span> <code data-rec="scenarios.smallWindow.requests.0.notices.0.code">searching_instead</code></li><li class="step" data-k="O"><span data-rec="scenarios.smallWindow.requests.0.tools.0.step">Overview of app.log</span> <span class="ledger-told"><b>The result, cut to its room, says</b> <span data-rec="scenarios.smallWindow.requests.0.tools.0.result.note">Result cut to the size limit. Ask for a smaller range.</span></span></li><li class="step" data-k="S" data-rec="scenarios.smallWindow.requests.0.tools.1.step">Search app.log (exact) for “FATAL” — 1 matching line</li><li class="step" data-k="S"><span data-rec="scenarios.smallWindow.requests.0.tools.2.step">Search handbook.md (keywords) for “database failover procedure” — 2 passages</span> <span class="ledger-told"><b>The result, cut to its room, says</b> <span data-rec="scenarios.smallWindow.requests.0.tools.2.result.note">Showing 2 of 5 results to stay within the size limit. Narrow the query or read specific lines.</span></span></li></ul></td><td role="cell"><span data-rec-num="scenarios.smallWindow.requests.0.estimatedInputTokens">7,077</span><i></i><span>+0</span><i></i></td><td role="cell" data-rec="scenarios.smallWindow.requests.0.tools.0.toolTurnsLeft">10</td></tr>
+<tr role="row"><th role="rowheader"><b>2</b> <span class="tag tag-tool" data-rec="scenarios.smallWindow.requests.1.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.smallWindow.requests.1.tools.0.tool">read_document</span> <span class="ledger-times">× 8</span></td><td role="cell"><ul><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.1.tools.0.step">Read app.log lines 41272-41871 — got 41272-41295</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.1.tools.1.step">Read app.log lines 40672-41271 — got 40672-40695</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.1.tools.2.step">Read app.log lines 40072-40671 — got 40072-40095</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.1.tools.3.step">Read app.log lines 39472-40071 — got 39472-39495</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.1.tools.4.step">Read app.log lines 38872-39471 — got 38872-38895</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.1.tools.5.step">Read app.log lines 38272-38871 — got 38272-38295</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.1.tools.6.step">Read app.log lines 37672-38271 — got 37672-37695</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.1.tools.7.step">Read app.log lines 37072-37671 — got 37072-37095</li></ul></td><td role="cell"><span data-rec-num="scenarios.smallWindow.requests.1.estimatedInputTokens">10,278</span><i style="--a:10.003%"></i><span>+3,201</span><i style="--w:17.891%"></i></td><td role="cell" data-rec="scenarios.smallWindow.requests.1.tools.0.toolTurnsLeft">9</td></tr>
+<tr role="row"><th role="rowheader"><b>3</b> <span class="tag tag-tool" data-rec="scenarios.smallWindow.requests.2.role">tools</span></th><td role="cell"><span class="tag tag-tool" data-rec="scenarios.smallWindow.requests.2.tools.0.tool">read_document</span> <span class="ledger-times">× 8</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.smallWindow.requests.2.notices.0.message">Older tool results were shortened to make room in the request</span> <code data-rec="scenarios.smallWindow.requests.2.notices.0.code">results_shortened</code></li><li class="step is-note" data-k="i"><span data-rec="scenarios.smallWindow.requests.2.notices.1.message">There is no room left in this conversation for another tool result.</span> <code data-rec="scenarios.smallWindow.requests.2.notices.1.code">no_room</code></li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.2.tools.0.step">Read app.log lines 36472-37071 — got 36472-36479</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.2.tools.1.step">Read app.log lines 35872-36471 — got 35872-35879</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.2.tools.2.step">Read app.log lines 35272-35871 — got 35272-35279</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.2.tools.3.step">Read app.log lines 34672-35271 — got 34672-34679</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.2.tools.4.step">Read app.log lines 34072-34671 — got 34072-34079</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.2.tools.5.step">Read app.log lines 33472-34071 — got 33472-33479</li><li class="step" data-k="R" data-rec="scenarios.smallWindow.requests.2.tools.6.step">Read app.log lines 32872-33471 — got 32872-32879</li><li class="step is-warn ledger-x" data-k="R"><span data-rec="scenarios.smallWindow.requests.2.tools.7.step">Read app.log lines 32272-32871 — failed: Not run: there is no room left in this conversation for another tool result. Answer now, from what the tools returned so far.</span> <span class="tag tag-warn mono" data-rec="scenarios.smallWindow.requests.2.tools.7.outcome">refused</span></li></ul></td><td role="cell"><span data-rec-num="scenarios.smallWindow.requests.2.estimatedInputTokens">23,216</span><i style="--a:50.434%"></i><span>+16,139</span><i style="--w:90.202%"></i></td><td role="cell" data-rec="scenarios.smallWindow.requests.2.tools.0.toolTurnsLeft">0</td></tr>
+<tr role="row" class="is-closing"><th role="rowheader"><b>4</b> <span class="tag tag-answer mono" data-rec="scenarios.smallWindow.requests.3.role">answer</span></th><td role="cell"><span class="tag">text</span></td><td role="cell"><ul><li class="step is-note" data-k="i"><span data-rec="scenarios.smallWindow.requests.3.notices.0.message">Writing the answer…</span> <code data-rec="scenarios.smallWindow.requests.3.notices.0.code">writing_answer</code></li><li class="ledger-x ledger-close"><b>The loop adds a user turn, and sets tool choice <code data-rec="scenarios.smallWindow.requests.3.toolChoice">none</code></b> <span data-rec="scenarios.smallWindow.requests.3.closingUserTurn.0">Stop using tools now. Answer my question using only what the tools returned above, with line citations. Say plainly what you could not find. Answer in the language of my question.</span></li><li class="ledger-x ledger-stand"><b>In this request, in place of the result of <code data-rec="scenarios.smallWindow.requests.3.standIns.0.tool">get_document_overview</code></b> <span data-rec="scenarios.smallWindow.requests.3.standIns.0.result.note">The overview was shown to you earlier and was dropped from the conversation to make room. Call get_document_overview again if you need it.</span></li><li class="ledger-x ledger-stand"><b>In this request, in place of the result of <code data-rec="scenarios.smallWindow.requests.3.standIns.1.tool">search_document</code></b> <span data-rec="scenarios.smallWindow.requests.3.standIns.1.result.note">The results of this search were shown to you earlier and were dropped from the conversation to make room. Read the lines listed here with read_document, or search again, if you need them.</span></li><li class="ledger-say">The reply is the answer.</li></ul></td><td role="cell"><span data-rec-num="scenarios.smallWindow.requests.3.estimatedInputTokens">24,969</span><i style="--a:55.913%"></i><span>+17,892</span><i style="--w:100%"></i></td><td role="cell"></td></tr>
+</tbody>
+<tfoot role="rowgroup"><tr role="row"><th role="rowheader">Sum</th><td role="cell"></td><td role="cell"></td><td role="cell"><span data-rec-num="scenarios.smallWindow.result.usage.estimatedInputTokens">65,540</span> <span>estimated input tokens over <b data-rec="scenarios.smallWindow.result.usage.requests">4</b> requests (<code>result.usage</code>)</span></td><td role="cell"></td></tr></tfoot>
+</table>
+</details>
+<ul class="legend ledger-legend">
+<li><span class="sw sw-fits"></span>handbook.md, sent whole in every request where it fits</li>
+<li><span class="sw ledger-sw-base"></span>the rest of request 1: system text, tool declarations, cards, the question, framing</li>
+<li><span class="sw sw-accent"></span>added since request 1: the tool rounds, and the closing user turn where there is one</li>
+<li><span class="sw sw-free"></span>kept free for the answer: half of <code>reservedTokens</code></li>
+<li>Turns left: the <code>tool_turns_left</code> that every result of the turn carries</li>
+</ul>
+<figcaption>One question, request by request. Recorded with a scripted model: the loop’s lines and sizes are real, the model is not.</figcaption>
+</figure>
+<div class="ledger-notes">
+<div class="callout">
+<p class="callout-title">Usage</p>
+<p class="small"><code>result.usage</code> sums every answered request of a question, in all and for each model (<code>usage.byModel</code>): the chat’s, the explorer’s, and the part reads of a whole-file read. It holds <code>requests</code>, <code>inputTokens</code>, <code>cachedInputTokens</code>, <code>outputTokens</code> and <code>thoughtTokens</code>. A request that failed and was sent again counts once.</p>
+<p class="small">The scripted model of the recording reports no tokens: <code>inputTokens</code> is <span data-rec="main.result.usage.inputTokens">0</span> there, all <span data-rec="main.result.usage.unmeasuredRequests">4</span> requests of the sample question are in <code>unmeasuredRequests</code>, and the library’s estimate stands in. Your provider’s bill is the record. <code>usage</code> is a close account of it.</p>
+</div>
+<div class="callout">
+<p class="callout-title">Ceilings</p>
+<p class="small">By default: 12 chat requests, counting the answer, with tools in all but the last (<code>limits.toolTurns</code>). 8 calls run a turn (<code>limits.callsPerTurn</code>). Each document is read whole once (<code>limits.wholeDocumentReads</code>), and a question makes 2 whole-file reads in all (<code>limits.wholeReadsPerQuestion</code>).</p>
+<p class="small">The input tokens of a question have a default ceiling: the larger of 1,000,000 and <code>toolTurns</code> times the estimate of its first request, plus room for its whole-file reads (<code>limits.inputTokens</code>). <code>limits.requests</code> has no default. A question that reaches a limit ends with a request for the answer, written from what the tools returned so far. <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/costs-and-limits.md">Costs and limits</a></p>
+</div>
+</div>
+</div>
+
+<div class="ledger-rules">
+<h4>The rules</h4>
+<ol>
+<li>By default one turn runs at most 8 tool calls (<code>limits.callsPerTurn</code>), four at a time. A call past the eighth is answered “Not run”, and the model can send it again. <button class="btn btn-small" type="button" data-js data-ledger-show="nineCalls">Show: nine calls in one turn</button></li>
+<li>Every result carries <code>tool_turns_left</code>, so the model can see its turns run out and answer in time. <button class="btn btn-small" type="button" data-js data-ledger-show="outOfTurns">Show: out of turns</button></li>
+<li>Every result stays in the conversation and is sent again with each later request. So the loop counts the room left, and cuts each result to its share of it, never below 600 characters. <button class="btn btn-small" type="button" data-js data-ledger-show="smallWindow">Show: a small window</button></li>
+<li>A call whose result is still shown in full is not run again. It gets a pointer to that result. <button class="btn btn-small" type="button" data-js data-ledger-show="repeatedCall">Show: a repeated call</button></li>
+<li>A failed request is sent again when another try can help: HTTP 408, 409, 429 or 5xx, or no answer. Up to 3 more times, after 0.25 to 0.5 s, then 0.5 to 1 s, then 1 to 2 s, or after the wait the provider asks for. Never for a quota that ran out, or once text was shown. <button class="btn btn-small" type="button" data-js data-ledger-show="failedRequest">Show: a failed request</button></li>
+<li>A request the provider refuses as too large is made smaller: older tool results become short stand-ins, and it is sent again, at most twice a question. When it is one of the first requests, the files are planned again for a smaller window, once. With Claude in the question, nothing is shortened. <span class="muted">Not in the recording.</span></li>
+<li>When the tool turns or the room run out, one more request is made, and it must be answered in text. No limit throws. <button class="btn btn-small" type="button" data-js data-ledger-show="outOfTurns">Show: out of turns</button> <button class="btn btn-small" type="button" data-js data-ledger-show="smallWindow">Show: a small window</button></li>
+<li>A second model, which can be a cheaper one, can make the tool calls. The other model then gets one request, and writes the answer from what the tools returned. <button class="btn btn-small" type="button" data-js data-ledger-show="explorer">Show: an explorer model</button></li>
+<li>Usage is summed for each model, and a question can have ceilings on its requests, its input tokens and its whole-file reads. The two notes under the ledger say which it has by default.</li>
+</ol>
+</div>
+</div>
+
+</section>
+<section class="sub" id="whole-file">
+<div class="sub-head">
+<h3>Reading a whole file, in parts.</h3>
+<p>Some tasks need all of a file and cannot be done by matching text: a full summary, a timeline, items that must be judged by meaning. For those the model can call <code>analyze_whole_document</code>. It reads the file in parts, with other model requests, and writes one answer from their notes.</p>
+</div>
+
+<div class="split">
+<figure class="fig mr" aria-labelledby="mr-h">
+<div class="fig-bar"><div><h4 id="mr-h">One whole-file read</h4><p class="micro mono muted">handbook.md, in a window of <span data-rec-num="toolQuestions.wholeRead.result.budget.contextTokens">128,000</span> tokens</p></div></div>
+<ol class="mr-flow plain" role="list">
+<li class="mr-stage"><strong>Split</strong>
+<p>On line boundaries, into parts that fit <code>mapChunkTokens</code> (<span data-rec-num="toolQuestions.wholeRead.result.budget.mapChunkTokens">64,000</span> tokens in this window) and 80% of <code>maxRequestBytes</code>.</p>
+<p class="mr-file"><b data-rec="files.handbook.name">handbook.md</b>, <span data-rec-num="files.handbook.lines">4,868</span> lines, in <span data-rec="tools.analyze_whole_document.result.parts_read">3</span> parts:</p>
+<!-- each part as wide as its share of the lines, read from the first line of its request -->
+<div class="mr-strip" aria-hidden="true"><span style="--w:46.878%">1</span><span style="--w:45.974%">2</span><span style="--w:7.149%">3</span></div></li>
+<li class="mr-stage"><strong>Map</strong>
+<p>The parts are read four at a time. Each part replies with notes that cite lines, like <code>(L123)</code>, or with <code>NOTHING RELEVANT</code>. Each request starts with where its part is:</p>
+<ol class="mr-parts plain" role="list">
+<li><b data-rec="toolQuestions.wholeRead.events.6.detail">part 1 of 3</b> <span data-rec="tools.analyze_whole_document.scripted.partReader.0.promptFirstLine">Document: handbook.md, lines 1-2282.</span> <span class="tag mono mr-none" data-rec="tools.analyze_whole_document.scripted.partReader.0.reply">NOTHING RELEVANT</span></li>
+<li><b data-rec="toolQuestions.wholeRead.events.7.detail">part 2 of 3</b> <span data-rec="tools.analyze_whole_document.scripted.partReader.1.promptFirstLine">Document: handbook.md, lines 2283-4520, under the heading on line 2241, which comes first.</span> <span class="tag mr-notes">notes, with line citations</span></li>
+<li><b data-rec="toolQuestions.wholeRead.events.8.detail">part 3 of 3</b> <span data-rec="tools.analyze_whole_document.scripted.partReader.2.promptFirstLine">Document: handbook.md, lines 4521-4868, under the heading on line 4490, which comes first.</span> <span class="tag mono mr-none" data-rec="tools.analyze_whole_document.scripted.partReader.2.reply">NOTHING RELEVANT</span></li>
+</ol></li>
+<li class="mr-stage"><strong>Reduce</strong>
+<p>While the notes of the relevant parts are larger than one part, they are merged in batches, four at a time, for 8 rounds at most. Here the notes of one part fit one request, so nothing was merged.</p></li>
+<li class="mr-stage mr-end"><strong>Answer</strong>
+<p>One answer is written from the notes. It flags contradictions, gaps, and parts that could not be read. This read took 4 requests: 3 parts and the answer.</p>
+<p class="step" data-k="W" data-rec="tools.analyze_whole_document.step">Read all of handbook.md for “Find every line that names the database replica, and note what it says about it.” — 3 parts, 1 relevant</p>
+<p class="mr-res"><code>parts_read</code> <b data-rec="tools.analyze_whole_document.result.parts_read">3</b> · <code>parts_with_relevant_content</code> <b data-rec="tools.analyze_whole_document.result.parts_with_relevant_content">1</b></p></li>
+</ol>
+<figcaption>Recorded with a scripted part reader. The parts, the first lines of their requests, the counts and the step are the library’s. The notes and the answer are the script’s, and are not shown.</figcaption>
+</figure>
+
+<dl class="defs">
+<div><dt>30 parts at most</dt><dd><code>budget.maxMapChunks</code>. A file that needs more is refused before any request. Most often it is not offered the read at all, and its overview says so. For the sample log: <code data-rec="tools.get_document_overview.result.whole_document_analysis">Not available for this file: it would take about 37 parts, and the limit is 30. Use search_document and read_document.</code></dd></div>
+<div><dt>Four parts at a time</dt><dd>With the default budget a part has up to 100,000 tokens, so one read can cost about 3,000,000 input tokens. A read is priced before it starts, and refused, with the numbers, when it would pass a ceiling of the question.</dd></div>
+<div><dt>Once a file, twice a question</dt><dd>By default each document is read whole once a question (<code>limits.wholeDocumentReads</code>), and a question makes 2 whole-file reads at most (<code>limits.wholeReadsPerQuestion</code>). A model that asks again is told to use the answer it has.</dd></div>
+<div><dt>A part that fails</dt><dd>It is sent again, by the loop’s rule for failed requests. If it still fails, the read goes on and the answer says so (<code>parts_that_failed</code>). When the last step fails, the notes are the answer (<code>notes_only</code>): they were paid for.</dd></div>
+</dl>
+</div>
+
+<div class="split mr-items">
+<div class="stack">
+<h4>Items, counted by code</h4>
+<p>With <code>output: "items"</code>, each part lists the items it finds, each with its line and a quote. Code reads the replies, checks that each quote is on the line it names, and counts the items. No model merges them, so a read of <span data-rec="tools.analyze_items.result.parts_read">3</span> parts makes 3 requests.</p>
+<p>An item whose quote is not found on its line is counted in <code>unverified_items</code>, not in <code>total_items</code>. In the recorded read the items are the scripted reader’s: the library checked each of the <span data-rec="tools.analyze_items.result.total_items">172</span> quotes against its line, counted them by label, and kept the first 50.</p>
+<div class="callout">
+<p class="callout-title">Counting is the job of search</p>
+<p class="small">A whole-file read can miss items of a long list, even within its limits. Its own description says so. For a complete list or an exact count, the tool guide sends the model to <code>search_document</code> in exact or regex mode, whose <code>total_matching_lines</code> is exact, and to <code>aggregate_table</code> for the rows of a table. One read that missed items is on record: <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md">Measurements</a>.</p>
+</div>
+</div>
+<div class="stack" style="--gap:8px">
+<div class="listing edge-accent">
+<div class="listing-head"><b>the result of an items read</b><span>recorded, an excerpt</span></div>
+<pre class="language-json" data-rec-excerpt="tools.analyze_items.result">{
+  "document": "handbook.md",
+  "total_items": 172,
+  "counts_by_label": {
+    "security on-call": 51,
+    "incident commander": 33,
+    "team lead": 88
+  },
+  "items": [
+    …
+  ],
+  "more_items": 122,
+  "unverified_items": 0,
+  "parts_read": 3,
+  "note": "The first 50 items are shown; total_items counts them all.",
+  "tool_turns_left": 10
+}</pre>
+</div>
+<p class="step" data-k="W" data-rec="tools.analyze_items.step">Read all of handbook.md for “List every step of a procedure that needs someone's approval before it is taken.”, as a list of items — 172 items in 3 parts</p>
+</div>
+</div>
+</section>
+<section class="sub" id="pages">
+<div class="sub-head">
+<h3>Looking at the pages of a PDF.</h3>
+<p>A large PDF goes to the model as text, and text cannot show a chart, a photo or a signature. Keep the uploaded PDFs, and the model gets a tool, <code>view_pages</code>, that hands it the pages it asks for. It is off by default, and it is not for reading text.</p>
+</div>
+
+<div class="split">
+<div class="stack">
+<figure class="fig pg" aria-labelledby="pg-h">
+<div class="fig-bar"><div><h4 id="pg-h">One look at three pages</h4><p class="micro mono muted">the example of the docs, not recorded</p></div></div>
+<div class="pg-body">
+<div class="listing">
+<div class="listing-head"><b>report.pdf</b><span>the text of page 12, as ingest writes it</span></div>
+<pre>--- Page 12 ---
+[Picture on this page. This text cannot show it.]
+Figure 3: sales by region.</pre>
+</div>
+<ol class="pg-strip plain" role="list" aria-label="Pages 10 to 16 of the 40 pages of report.pdf"><li><b>10</b></li><li><b>11</b></li><li class="is-pic is-cut"><b>12</b><span class="visually-hidden">: its text says it has a picture, in the call</span></li><li class="is-cut"><b>13</b><span class="visually-hidden">: in the call</span></li><li class="is-pic is-cut"><b>14</b><span class="visually-hidden">: its text says it has a picture, in the call</span></li><li><b>15</b></li><li><b>16</b></li></ol>
+<ul class="legend">
+<li><span class="sw pg-sw-pic"></span>a page whose text says that it has a picture</li>
+<li><span class="sw pg-sw-cut"></span>the pages of the call</li>
+</ul>
+<div class="pg-cut">
+<p><code>view_pages(document_id, from_page, to_page)</code> cuts pages 12 to 14 out of the kept file.</p>
+<p class="pg-file"><span class="pg-mini" aria-hidden="true"><i></i><i></i><i></i></span><span><code>pages-12-14.pdf</code>: one small PDF, handed to the model with the tool result. A model that reads images and no PDF gets one image a page.</span></p>
+</div>
+<pre class="listing language-json">{ "document": "report.pdf", "pages": "12-14", "total_pages": 40, "file": "pages-12-14.pdf" }</pre>
+<p class="step" data-k="P">Look at report.pdf pages 12-14</p>
+</div>
+<figcaption>From the reference, not recorded. The page text, the result and the step are the examples of the docs, and the strip is a sketch: a look at pages needs a PDF and optional packages, so the recording has none.</figcaption>
+</figure>
+<div class="callout">
+<p class="callout-title">Measured: a chart the text cannot show</p>
+<p class="small">Asked which bar of a chart is tallest, <code>gemini-3.5-flash-lite</code> said from the text alone that it could not see the chart. With <code>view_pages</code> it looked at the page and answered correctly. For ten questions that the text answers, it looked at no page. One model, on the Gemini API, in November 2026, at version 0.3.0. <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md">Measurements</a> · <a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/pdfs.md">PDFs</a></p>
+</div>
+</div>
+
+<dl class="defs">
+<div><dt>Off by default</dt><dd><code>keepOriginals: ["pdf"]</code> keeps the uploaded file, which takes disk space until the document expires and is swept. It also needs two optional packages: <code>unpdf</code> reads the text of a PDF, and <code>@cantoo/pdf-lib</code> cuts its pages.</dd></div>
+<div><dt>When it is offered</dt><dd>For each PDF whose file is kept, when every model of the question can be sent the same kind of file. <code>gemini()</code> and <code>anthropic()</code> take a PDF by default, <code>openAiCompatible()</code> only with <code>pdfInput: true</code>. For a model that reads images and no PDF, <code>imageInput: true</code> sends one image a page, on Node 24 with <code>unpdf</code> 2 and <code>@napi-rs/canvas</code>. Looks at pages have been run live on Gemini only.</dd></div>
+<div><dt>Five pages a look</dt><dd>One call shows 5 pages at most. With the default budget and Gemini, a question can look at 60 pages.</dd></div>
+<div><dt>What a page costs</dt><dd>On Gemini a page costs about 530 tokens, whatever is on it: 532 for each of 1, 2, 3 and 5 A4 pages and 527 for a 16:9 slide, measured with <code>gemini-3.5-flash-lite</code> at version 0.3.0. <code>openAiCompatible()</code> counts a page at 1,000 tokens and <code>anthropic()</code> at 3,500: defaults to plan with (<code>pageTokens</code>), not measurements.</dd></div>
+<div><dt>Scans</dt><dd>The library has no OCR. A PDF without text is refused unless PDFs are kept. Then a scan of up to 30 pages is accepted (<code>scannedPdfPages</code>): its text says, page by page, <code>[No text on this page. It may be a scan, a photo, or a chart.]</code> and the model reads it by looking.</dd></div>
+</dl>
+</div>
+</section>
+</div>
+</section>
+
+<!-- ============ Documentation ============ -->
+<section class="section" id="docs" aria-labelledby="docs-h">
+<div class="container">
+<header class="section-head">
+<p class="label">docs</p>
+<h2 id="docs-h">Documentation.</h2>
+<p class="lead">Guides take one task each. Reference pages take one module each.</p>
+</header>
+<div class="docs-cols">
+<div>
+<h3>Start</h3>
+<ul class="plain">
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/getting-started.md">Getting started</a><span>Install, a quickstart that runs, the integration in short steps</span></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/how-it-works.md">How it works</a><span>The internals end to end, from ingest to the loop</span></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/chatbot.md">A chatbot in one page</a><span>The whole integration in about 120 lines</span></li>
+</ul>
+<h3>Also</h3>
+<ul class="plain">
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/measurements.md">Measurements</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/security.md">Security</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/troubleshooting.md">Troubleshooting</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/CHANGELOG.md">Changelog</a></li>
+</ul>
+</div>
+<div>
+<h3>Guides</h3>
+<ul class="plain">
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/vertex-and-gemini.md">Gemini and Vertex AI</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/openai-compatible.md">OpenAI-compatible endpoints</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/anthropic.md">Claude</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/explorer-model.md">An explorer model</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/web-app.md">Web app</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/conversations.md">Conversations</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/storage.md">Storage</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/deployment.md">Deployment</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/errors-and-reliability.md">Errors and reliability</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/costs-and-limits.md">Costs and limits</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/pdfs.md">PDFs</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/own-adapter-and-loop.md">Your own adapter or loop</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/testing.md">Testing</a></li>
+</ul>
+</div>
+<div>
+<h3>Reference</h3>
+<ul class="plain">
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/library.md">The library and its documents</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/ask.md">The tool loop</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/errors-and-retries.md">Errors, retries, streams</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/tools.md">The tools</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/events.md">Events</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/gemini.md"><code>llm-large-files/gemini</code></a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/openai.md"><code>llm-large-files/openai</code></a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/anthropic.md"><code>llm-large-files/anthropic</code></a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/node.md"><code>llm-large-files/node</code></a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/reference/testing.md"><code>llm-large-files/testing</code></a></li>
+</ul>
+</div>
+</div>
+</div>
+</section>
+
+<!-- ============ Install ============ -->
+<section class="section band band-surface" id="install" aria-labelledby="install-h">
+<div class="container">
+<header class="section-head">
+<p class="label">install</p>
+<h2 id="install-h">Install.</h2>
+<p class="lead">One package with no runtime dependencies. The readers of PDF and Office files are optional packages: install the ones you need.</p>
+</header>
+<div class="split install-split">
+<div class="stack">
+<div class="cmd" data-copy data-copy-label="the install command"><code>npm install llm-large-files</code></div>
+<ul class="install-reqs">
+<li>Node.js 22.12 or newer.</li>
+<li>The package is ESM, and CommonJS code can <code>require()</code> it.</li>
+<li>Its TypeScript types come with it.</li>
+</ul>
+</div>
+<div class="stack">
+<table class="table install-table">
+<caption>Optional packages</caption>
+<thead><tr><th scope="col">Package</th><th scope="col">What it is for</th></tr></thead>
+<tbody>
+<tr><th scope="row"><code>jszip</code></th><td>DOCX, PPTX and XLSX.</td></tr>
+<tr><th scope="row"><code>unpdf</code></th><td>The text of a PDF. On Node 22, install <code>unpdf@1</code>.</td></tr>
+<tr><th scope="row"><code>@cantoo/pdf-lib</code></th><td>To mark and show the pages of a PDF, and to refuse a page built to hold the server before it is read.</td></tr>
+<tr><th scope="row"><code>@napi-rs/canvas</code></th><td>With <code>unpdf</code> 2, on Node 24 or later: to show pages as images to a model without PDF input.</td></tr>
+</tbody>
+</table>
+<pre class="code" data-src="README.md"><code class="language-bash">npm install jszip unpdf @cantoo/pdf-lib        # Node 24 and later
+npm install jszip unpdf@1 @cantoo/pdf-lib      # Node 22</code></pre>
+</div>
+</div>
+</div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+<div class="container">
+<div class="footer-row">
+<p><b class="mono">llm-large-files</b> · MIT</p>
+<ul class="link-row">
+<li><a href="https://github.com/renanbazinin/llm-large-files">GitHub</a></li>
+<li><a href="https://www.npmjs.com/package/llm-large-files">npm</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/CHANGELOG.md">Changelog</a></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/security.md">Security</a></li>
+</ul>
+</div>
+<p>The samples on this page were recorded with a scripted model at version <span class="mono" data-rec="meta.version">0.99.11</span>. No model is called from this page, and the page requests nothing from another origin.</p>
+</div>
+</footer>
+
+<p class="visually-hidden" role="status" aria-live="polite" data-live></p>
+</body>
+</html>
