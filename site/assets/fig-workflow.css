@@ -1,0 +1,454 @@
+/* llm-large-files: Figure 1, the workflow. Every class here starts with wf-.
+   1 frame, bar, transport · 2 the map as a list (under 900 px) · 3 the map as two lanes (from 900 px)
+   4 the room ruler · 5 the stages · 6 under the frame · 7 preferences, print
+
+   States. The script sets exactly one of is-done, is-now, is-todo on every [data-stage].
+   No class and is-done are the final state. is-todo only takes ink away: a wire shows its
+   resting stroke and a ruler segment is not drawn. A node never changes while it waits.
+   Only opacity, transform, clip-path and colours change over time. */
+
+/* ==================== 1. Frame, bar, transport ==================== */
+.fig-workflow {
+  --wf-ink: var(--text);            /* an inked wire */
+  --wf-rest: var(--border-strong);  /* a wire that waits */
+  --wf-pad: var(--s-4);
+  --wf-x: 20px;                     /* the rail of the list, from the left of its column */
+  --wf-gap: var(--s-3);             /* between the two columns of the fork, in the list */
+  --wf-lane: 0px;                   /* the column of the lane labels, from 1024 px */
+  --wf-t: .3s;
+}
+@media (min-width: 600px) { .fig-workflow { --wf-pad: var(--s-5); } }
+
+.fig-workflow.wf-still, .fig-workflow.wf-still *, .fig-workflow.wf-still *::before, .fig-workflow.wf-still *::after { transition: none !important; }
+
+.wf-bar { padding-block: 6px; }
+.wf-heading { display: grid; min-width: 0; }
+.wf-bar .fig-title { line-height: 1.2; }
+.wf-heading .micro { line-height: 1.35; }
+
+.wf-transport { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.wf-transport:empty { display: none; }
+.wf-tabs { display: flex; gap: 4px; min-width: 0; }
+.wf-transport .btn { min-width: 28px; }
+.wf-play { min-width: 4.5rem; }
+.wf-tab, .wf-step { padding-inline: 0; font-variant-numeric: tabular-nums; }
+.wf-step svg { width: 8px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; }
+.fig-workflow .btn[aria-disabled="true"] { border-color: var(--border); color: var(--muted); cursor: default; }
+@media (pointer: coarse) {
+  .wf-transport .btn, .wf-pager .btn { min-height: 44px; min-width: 44px; }
+  html.js .wf-stage-head > .label { min-height: 44px; }
+}
+@media (pointer: coarse) and (max-width: 599.98px) {
+  .wf-tabs { flex: 1 1 100%; }
+  .wf-transport .wf-tab { flex: 1 1 0; min-width: 30px; }
+}
+
+/* ==================== 2. The map, as a list ==================== */
+.wf-map { position: relative; padding: var(--s-4) var(--wf-pad) var(--s-5); }
+/* the player starts once, when this point near the top of the map is on screen */
+.wf-sentinel { position: absolute; inset: 72px auto auto 0; width: 1px; height: 1px; pointer-events: none; }
+.wf-name { display: none; }
+.wf-lane { max-width: none; margin-bottom: 6px; font: 600 .75rem/1.4 var(--font-sans); color: var(--muted); }
+.wf-flow { display: grid; grid-template-columns: minmax(0, 1fr); }
+.wf-flow-ask { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--wf-gap); margin-top: var(--s-3); }
+.wf-flow-ask > * { grid-column: 1 / -1; }
+
+/* --- nodes: the name in mono, one line under it --- */
+.wf-node {
+  position: relative; display: grid; align-content: center; gap: 1px; min-width: 0; padding: 5px 10px;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r);
+  outline: 2px solid transparent; outline-offset: -1px;
+  transition: background-color var(--wf-t), outline-color var(--wf-t);
+}
+.wf-node > b { font: 700 .875rem/1.4 var(--font-mono); }
+.wf-node > b + span { font-size: .875rem; line-height: 1.3; color: var(--muted); }
+@media screen { .wf-node.is-now { background: var(--accent-soft); outline-color: var(--accent); } }
+.wf-card { border-inline-start: 3px dashed var(--toobig); }
+.wf-whole { border-inline-start: 3px solid var(--fits); }
+.wf-answer { background: var(--mark); border-color: var(--mark-line); color: var(--mark-text); }
+@media screen { .wf-answer.is-now { background: var(--mark); } }
+.wf-answer > b + span { color: var(--mark-text); }
+.wf-answer .cite { justify-self: start; margin-top: 3px; font-size: .75rem; box-shadow: inset 0 0 0 1px var(--mark-line); }
+.fig-workflow.is-live :is(.wf-node, .wf-shelf, .wf-arm) { cursor: pointer; }
+.fig-workflow.is-live .wf-node:not(.is-now):hover { outline-color: var(--border-strong); }
+
+.wf-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin: 4px 0 2px; padding: 0; list-style: none; }
+.wf-chips li {
+  max-width: none; padding: 0 6px; background: var(--sunken); border: 1px solid var(--border); border-radius: var(--r-chip);
+  font: 400 .75rem/1.5 var(--font-mono); white-space: nowrap;
+}
+
+/* --- the store: a shelf between the lanes --- */
+.wf-shelf {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px var(--s-4);
+  margin-inline: calc(-1 * var(--wf-pad)); padding: 8px var(--wf-pad);
+  background: var(--sunken); border-block: 1px dashed var(--border-strong);
+  transition: background-color var(--wf-t), border-color var(--wf-t);
+}
+@media screen { .wf-shelf.is-now { background: var(--accent-soft); border-block: 1px solid var(--accent); box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); } }
+.wf-shelf-name { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s-2); max-width: none; }
+.wf-shelf-name b { font: 700 .875rem/1.4 var(--font-mono); }
+.wf-shelf-name span { font-size: .875rem; line-height: 1.3; color: var(--muted); }
+.wf-docs { display: flex; flex-wrap: wrap; gap: 6px var(--s-2); margin: 0; padding: 0; list-style: none; }
+.wf-docs li {
+  max-width: none; padding: 0 8px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-chip);
+  font: 400 .75rem/1.6 var(--font-mono); white-space: nowrap;
+}
+.wf-docs span { color: var(--muted); }
+
+/* --- wires of the list: a short piece of the rail, drawn by the wire's own box --- */
+.wf-wire { position: relative; display: block; height: 24px; color: var(--wf-ink); }
+.wf-wire svg { display: none; }
+.wf-wire::before, .wf-wire::after {
+  content: ""; position: absolute; left: calc(var(--wf-x) - 1px); top: 0; bottom: 6px; width: 2px; background: var(--wf-rest);
+}
+.wf-wire::after { background: currentColor; transform-origin: top; transition: transform var(--wf-t) ease-out; }
+@media screen { .is-todo.wf-wire::after, .is-todo .wf-wire::after { transform: scaleY(0); } }
+.wf-ah {
+  position: absolute; left: calc(var(--wf-x) - 5px); bottom: 0; width: 10px; height: 8px;
+  background: currentColor; clip-path: polygon(0 0, 100% 0, 50% 100%); transition: background-color var(--wf-t);
+}
+@media screen { .is-todo .wf-ah, .is-todo .wf-dot { background: var(--wf-rest); } }
+.wf-tap, .wf-w-answer { display: none; }
+
+/* --- the fork: one piece that splits in two, with its tags on the arms --- */
+.wf-fork { height: 50px; }
+.wf-fork::before, .wf-fork::after, .wf-join::before, .wf-join::after { content: none; }
+.wf-m { position: absolute; transition: color var(--wf-t); }
+@media screen { .is-todo .wf-m { color: var(--wf-rest); } }
+.wf-m-big {
+  left: calc(var(--wf-x) - 1px); top: 0; bottom: 6px; width: 2px; color: var(--toobig);
+  background: repeating-linear-gradient(to bottom, currentColor 0 5px, transparent 5px 8px);
+}
+.wf-m-fit {
+  left: var(--wf-x); top: 9px; bottom: 6px; width: calc(50% + var(--wf-gap) / 2 + 1px);
+  border: solid; border-width: 2px 2px 0 0; border-top-right-radius: 10px; color: var(--fits);
+}
+.wf-dot { position: absolute; left: calc(var(--wf-x) - 4px); top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--wf-ink); transition: background-color var(--wf-t); }
+.wf-ah-big { color: var(--toobig); }
+.wf-ah-fit { color: var(--fits); left: calc(50% + var(--wf-gap) / 2 + var(--wf-x) - 5px); }
+.wf-arm { z-index: 1; align-self: center; justify-self: start; max-width: none; margin: 10px 0 0; line-height: 1; }
+.wf-arm .tag { padding: 1px 8px; font-size: .875rem; font-weight: 700; vertical-align: 0; }
+/* "too big" is always hatched or dashed: a hatched swatch in a dashed tag */
+.wf-arm .tag-toobig::before {
+  content: ""; display: inline-block; width: 10px; height: 10px; margin-inline-end: 6px;
+  background-image: var(--hatch); box-shadow: inset 0 0 0 1px;
+}
+.wf-arm-fits { margin-inline-start: 2px; }
+
+/* --- the loop: an arrow that leaves its node and comes back into it, with the count of turns --- */
+.wf-ret {
+  position: absolute; left: 44%; bottom: 100%; width: 46%; height: 30px; color: var(--accent); pointer-events: none;
+  clip-path: inset(0 -6px -3px -6px); transform: scaleY(-1); /* in the list it arcs over the node */
+}
+/* a rounded box that starts above the cut and ends 30 px under it: what shows is two legs and a round turn */
+.wf-ret svg { display: block; position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; fill: none; stroke-width: 2.5; }
+.wf-ret .wf-rest { stroke: var(--wf-rest); }
+.wf-ret .wf-ink { stroke: currentColor; clip-path: inset(-6px); transition: clip-path var(--wf-t) ease-out; }
+@media screen { .is-todo .wf-ret .wf-ink { clip-path: inset(-6px -6px -6px 100%); } }
+.wf-ret .wf-ah { left: -6px; top: 0; bottom: auto; width: 12px; height: 10px; margin: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.wf-count { max-width: none; margin-top: 2px; font: 400 .75rem/1.5 var(--font-mono); color: var(--accent); white-space: nowrap; }
+.wf-pips { display: inline-flex; gap: 3px; margin-inline-end: 6px; vertical-align: 1px; }
+.wf-pips i { width: 6px; height: 6px; border-radius: 1px; background: currentColor; box-shadow: inset 0 0 0 1px currentColor; transition: background-color .2s; }
+@media screen { .wf-pips i.is-off { background: transparent; } }
+/* one beat a recorded tool turn: the script swaps the two names, so the same sweep runs again */
+.fig-workflow.wf-beat-a .wf-ret .wf-ink { animation: wf-beat-a .7s ease-out; }
+.fig-workflow.wf-beat-b .wf-ret .wf-ink { animation: wf-beat-b .7s ease-out; }
+@keyframes wf-beat-a { from { clip-path: inset(-6px -6px -6px 100%); } to { clip-path: inset(-6px); } }
+@keyframes wf-beat-b { from { clip-path: inset(-6px -6px -6px 100%); } to { clip-path: inset(-6px); } }
+
+/* --- the rail of "fits", and where it joins the answer --- */
+.wf-rail { position: relative; display: grid; align-content: center; min-width: 0; padding: 8px 0 8px calc(var(--wf-x) + 12px); }
+.wf-rail .wf-wire { position: absolute; inset: 0; height: auto; color: var(--fits); }
+.wf-rail .wf-wire::before, .wf-rail .wf-wire::after { bottom: 0; }
+.wf-rail-note { max-width: none; font-size: .8125rem; line-height: 1.35; color: var(--muted); }
+.wf-join { height: 32px; }
+.wf-m-a { left: calc(var(--wf-x) - 1px); top: 0; bottom: 6px; width: 2px; color: var(--wf-ink); background: currentColor; }
+.wf-m-b {
+  left: var(--wf-x); top: 0; height: 13px; width: calc(50% + var(--wf-gap) / 2 + 1px);
+  border: solid; border-width: 0 2px 2px 0; border-bottom-right-radius: 10px; color: var(--fits);
+}
+
+/* --- the list: where each piece of the question's lane goes --- */
+.wf-flow-ask > .wf-lane { grid-row: 1; }
+.wf-question { grid-row: 2; }
+.wf-w-plan { grid-row: 3; }
+.wf-plan { grid-row: 4; }
+.wf-fork, .wf-arm { grid-row: 5; }
+.wf-arm-toobig { grid-column: 1; }
+.wf-arm-fits { grid-column: 2; }
+.wf-card { grid-area: 6 / 1; }
+.wf-whole { grid-area: 6 / 2; }
+.wf-w-loop { grid-area: 7 / 1; height: 40px; }
+.wf-loop { grid-area: 8 / 1; }
+.wf-rail { grid-area: 7 / 2 / 9 / 3; }
+.wf-join { grid-row: 9; }
+.wf-answer { grid-row: 10; }
+
+/* ==================== 3. The map, as two lanes ==================== */
+@media (min-width: 900px) {
+  .fig-workflow {
+    --wf-cols: [c1] minmax(0, .95fr) [w1] 18px [c2] minmax(0, 1fr) [fork] 116px [c3] minmax(0, 1.4fr)
+               [w2] 18px [c4] minmax(0, 1.45fr) [w3] 22px [c5] minmax(142px, 1.2fr) [end];
+  }
+  .wf-map { padding-block: 8px var(--s-4); }
+
+  /* wires are SVG from here: a resting stroke, and the ink over it */
+  .wf-wire { height: auto; min-width: 0; }
+  .wf-wire::before, .wf-wire::after { content: none; }
+  .wf-wire svg {
+    display: block; position: absolute; inset: 0 auto 0 0; width: calc(100% - 6px); height: 100%;
+    overflow: visible; fill: none; stroke-width: 1.5;
+  }
+  .wf-wire path { vector-effect: non-scaling-stroke; }
+  /* the fork and the rail of "fits" are drawn heavier than the hand-offs: they are the picture */
+  .wf-fork svg, .wf-rail svg, .wf-join svg { stroke-width: 2.5; }
+  .wf-rest { stroke: var(--wf-rest); }
+  .wf-ink { stroke: currentColor; clip-path: inset(-6px); transition: clip-path var(--wf-t) ease-out; }
+  @media screen {
+    .is-todo .wf-ink { clip-path: inset(-6px 100% -6px -6px); }
+    .is-todo .wf-v .wf-ink { clip-path: inset(-6px -6px 100% -6px); }
+  }
+  .wf-m { display: none; }
+  .wf-ah { left: auto; right: 0; top: 50%; bottom: auto; width: 8px; height: 10px; margin-top: -5px; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+  .wf-ah-d { left: 50%; right: auto; top: 100%; width: 10px; height: 8px; margin: 0 0 0 -5px; clip-path: polygon(0 0, 100% 0, 50% 100%); }
+  .wf-ah-u { left: 50%; right: auto; top: -8px; width: 10px; height: 8px; margin: 0 0 0 -5px; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+  .wf-w-store svg, .wf-v svg, .wf-rail .wf-wire svg, .wf-join svg { width: 100%; }
+
+  /* --- once per file: one row, the line beside the name --- */
+  .wf-flow-file { grid-template-columns: auto 32px minmax(0, auto) 44px; justify-content: start; margin-bottom: 8px; }
+  .wf-flow-file > .wf-lane { grid-column: 1 / -1; margin-bottom: 4px; }
+  .wf-flow-file > .wf-node { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; padding-block: 3px; }
+  .wf-ingest .wf-chips { align-self: center; margin: 0 0 0 4px; }
+  .wf-shelf { padding-block: 4px; }
+
+  /* --- once per question: the upper row is the main track, the lower row the rail of "fits".
+         The two rows are equal and touch, so the fork's arms sit at 25% and 75% of its cell --- */
+  .wf-flow-ask {
+    grid-template-columns: var(--wf-cols); grid-template-rows: [taps] 18px [up] 1fr [low] 1fr [end];
+    column-gap: 0; margin-top: 0;
+  }
+  .wf-flow-ask > * { grid-column: auto; }
+  .wf-flow-ask > .wf-lane { grid-area: taps / c1 / auto / c2; align-self: center; margin: 0; }
+  .wf-flow-ask > .wf-node { margin-block: 8px; padding-inline: 8px; }
+  .wf-pips { display: none; }
+  .wf-question { grid-area: up / c1; }
+  .wf-w-plan { grid-area: up / w1; }
+  .wf-plan { grid-area: up / c2; }
+  .wf-fork { grid-area: up / fork / end / c3; height: auto; }
+  .wf-arm { grid-column: fork; place-self: center; margin: 0 0 0 8px; }
+  .wf-arm-toobig { grid-row: up; }
+  .wf-arm-fits { grid-row: low; }
+  .wf-card { grid-area: up / c3; }
+  .wf-whole { grid-area: low / c3; }
+  .wf-w-loop { grid-area: up / w2; height: auto; }
+  .wf-loop { grid-area: up / c4; }
+  /* under the node, in the free half of the lower row, with the count inside it */
+  .wf-ret { left: 20%; top: 100%; bottom: auto; width: 60%; transform: none; }
+  .wf-count { position: absolute; left: 20%; top: calc(100% + 5px); width: 60%; margin: 0; text-align: center; }
+  .wf-w-answer { display: block; grid-area: up / w3; }
+  .wf-rail { grid-area: low / w2 / end / c5; display: block; padding: 0; }
+  .wf-join { grid-area: low / c5; height: auto; }
+  .wf-answer { grid-area: up / c5; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: baseline; }
+  .wf-answer .cite { grid-column: 1 / -1; }
+
+  .wf-fork .wf-p-big { stroke-dasharray: 7 4; }
+  .wf-fork .wf-ink .wf-p-big { stroke: var(--toobig); }
+  .wf-fork .wf-ink .wf-p-fit, .wf-join .wf-ink { stroke: var(--fits); }
+  .wf-dot { left: 12%; top: 25%; margin: -4px 0 0 -5px; }
+  .wf-ah-big { top: 25%; }
+  .wf-ah-fit { left: auto; top: 75%; }
+  .wf-join { color: var(--fits); }
+  .wf-rail .wf-wire { inset: 0; }
+  .wf-rail-note { position: absolute; inset: calc(50% + 6px) 4px auto 8px; }
+
+  /* --- the taps from the store: dotted, into the plan and into the loop --- */
+  .wf-tap {
+    display: block; position: relative; grid-row: taps; justify-self: start; max-width: none;
+    margin: 0 0 0 22px; padding-inline-start: 13px; font: 600 .75rem/18px var(--font-sans); color: var(--muted); white-space: nowrap;
+  }
+  .wf-tap-meta { grid-column: c2; }
+  .wf-tap-lines { grid-column: c4; }
+  .wf-tap .wf-wire { position: absolute; inset: 0 auto 0 0; width: 10px; }
+  .wf-tap path { stroke-width: 1.5; stroke-dasharray: 2 3; }
+}
+
+@media (min-width: 1024px) {
+  .fig-workflow {
+    --wf-lane: 72px;
+    --wf-cols: [c1] minmax(0, 1fr) [w1] 22px [c2] minmax(0, 1.1fr) [fork] 124px [c3] minmax(0, 1.4fr)
+               [w2] 22px [c4] minmax(0, 1.5fr) [w3] 26px [c5] minmax(148px, 1.25fr) [end];
+  }
+  .wf-flow-ask > .wf-node { padding-inline: 10px; }
+  .wf-pips { display: inline-flex; }
+  .wf-flow-file { grid-template-columns: var(--wf-lane) auto 32px minmax(0, auto) 44px; }
+  .wf-flow-file > .wf-lane { grid-column: 1; align-self: center; margin: 0; }
+  .wf-flow-ask { grid-template-columns: [lane] var(--wf-lane) var(--wf-cols); }
+  .wf-flow-ask > .wf-lane { grid-area: up / lane; }
+  .wf-shelf { padding-inline-start: calc(var(--wf-pad) + var(--wf-lane)); }
+}
+@media (min-width: 1280px) {
+  /* the stage on show, named under its tab: the row of the first lane is free there */
+  .wf-name { display: block; position: absolute; inset: 14px var(--wf-pad) auto auto; max-width: 17rem; font: 400 .75rem/1.4 var(--font-mono); color: var(--line-no); text-align: end; }
+}
+
+/* ==================== 4. The room ruler ==================== */
+.wf-ruler { display: grid; gap: var(--s-2); padding: var(--s-3) var(--wf-pad) var(--s-4); border-top: 1px solid var(--border); }
+.wf-ruler > * { min-width: 0; }
+.wf-ruler-title { max-width: none; font-size: .875rem; line-height: 1.4; }
+.wf-ruler-title span { color: var(--muted); }
+/* the track ends at the window; app.log runs past it, to the edge of the frame */
+.wf-scale { --wf-track: 86%; }
+.wf-track {
+  position: relative; display: flex; gap: 1px; width: var(--wf-track); height: 16px;
+  background: var(--sunken); box-shadow: inset 0 0 0 1px var(--border-strong); border-inline-end: 2px solid var(--text);
+}
+.wf-seg { position: relative; flex: 0 0 auto; width: var(--w); min-width: 3px; transform-origin: left; transition: transform var(--wf-t) ease-out; }
+@media screen { .wf-seg.is-todo, .wf-over-bar.is-todo { transform: scaleX(0); } }
+.wf-seg-rest { background: var(--border-strong); }
+.wf-seg-fits { background: var(--fits); }
+.wf-seg-card { color: var(--toobig); background-image: var(--hatch); box-shadow: inset 0 0 0 1px; }
+.wf-seg-tools { background: var(--accent); }
+.wf-free { position: absolute; inset: 0 0 0 auto; width: var(--w); color: var(--mark-line); background-image: var(--hatch); box-shadow: inset 0 0 0 1px; }
+.wf-tick { position: absolute; left: var(--x); top: -3px; bottom: -3px; width: 1px; background: var(--text); }
+.wf-seg-label { display: none; }
+.wf-ticks {
+  position: relative; width: var(--wf-track); height: 17px; margin: 3px 0 0; padding: 0; list-style: none;
+  font: 400 .75rem/1.4 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--line-no);
+}
+.wf-ticks li { position: absolute; left: var(--x); top: 0; max-width: none; white-space: nowrap; }
+.wf-ticks .wf-end { left: auto; right: 0; text-align: end; }
+.wf-tick-note { display: none; font: 600 .75rem/1.4 var(--font-sans); color: var(--muted); }
+.wf-over { margin-top: 6px; }
+/* its end is torn: the line is cut, not finished */
+.wf-over-bar {
+  display: block; height: 8px; color: var(--toobig); background-image: var(--hatch); box-shadow: inset 0 0 0 1px;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 25%, 100% 50%, calc(100% - 5px) 75%, 100% 100%, 0 100%);
+  transform-origin: left; transition: transform .45s ease-out;
+}
+.wf-over-label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 var(--s-4); max-width: none; margin-top: 3px; font-size: .75rem; line-height: 1.5; color: var(--muted); }
+.wf-over-label b { font: 700 .75rem/1.5 var(--font-mono); color: var(--text); }
+.wf-flag { font-weight: 600; color: var(--toobig); font-variant-numeric: tabular-nums; }
+.wf-legend { margin-top: 2px; }
+.wf-legend li { max-width: none; }
+.wf-legend b { margin-inline-start: 3px; font: 400 .75rem/1.5 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text); }
+.wf-sw-tick, .wf-sw-end { display: inline-block; width: 1px; height: 12px; margin-inline: 5px 12px; vertical-align: -2px; background: var(--text); }
+.wf-sw-end { width: 2px; margin-inline-end: 11px; }
+.wf-ruler > .small { color: var(--muted); }
+@media (min-width: 600px) {
+  .wf-ticks { height: 34px; }
+  .wf-tick-note { display: block; }
+}
+@media (min-width: 1024px) {
+  /* names on the bar itself, from the width at which they fit */
+  .wf-scale { padding-top: 20px; }
+  .wf-seg-label { display: block; position: absolute; font: 400 .75rem/16px var(--font-mono); white-space: nowrap; }
+  .wf-seg-fits .wf-seg-label { inset: 0 auto auto 6px; color: var(--surface); }
+  .wf-seg-card .wf-seg-label { right: 5px; bottom: 100%; padding-bottom: 3px; color: var(--toobig); }
+  .wf-seg-tools .wf-seg-label { left: 5px; bottom: 100%; padding-bottom: 3px; color: var(--accent); }
+  .wf-free .wf-seg-label { right: 0; bottom: 100%; padding-bottom: 3px; font: 600 .75rem/16px var(--font-sans); color: var(--mark-ink); }
+  .wf-seg-card::after, .wf-seg-tools::after { content: ""; position: absolute; left: 1px; bottom: 100%; width: 1px; height: 12px; background: currentColor; }
+  .wf-seg-tools::after { color: var(--accent); }
+}
+
+/* ==================== 5. The stages ==================== */
+.wf-panel { position: relative; padding: var(--s-3) var(--wf-pad) var(--s-5); border-top: 1px solid var(--border); }
+.wf-stages { display: grid; gap: var(--s-5); margin: 0; padding: 0; list-style: none; }
+.wf-stage { display: grid; align-content: start; gap: var(--s-3); min-width: 0; }
+.wf-stage + .wf-stage { padding-top: var(--s-5); border-top: 1px solid var(--border); }
+.wf-stage-head { display: grid; gap: 2px; }
+.wf-stage-head h3 { font-size: 1.125rem; }
+.wf-stage-head p:not(.label) { margin-top: 2px; font-size: .9375rem; line-height: 1.5; }
+/* with the script, one stage shows at a time. From 900 px they share one cell, so the panel is
+   always as tall as the tallest stage and stepping never moves the page. Under 900 px the stages
+   differ too much in height for that (a hole of a screen or more): the panel takes the height of
+   its stage, and what is above it, the map and the two step buttons, stays where it is */
+@media screen {
+  html.js .wf-stages { gap: 0; }
+  html.js .wf-stage { padding-top: 0; border-top: 0; }
+  html.js .wf-stage:not(.is-now) { display: none; }
+  html.js .wf-stage-head > .label { display: flex; align-items: center; min-height: 28px; }
+  .wf-turn.is-wait { opacity: 0; }
+}
+@media screen and (max-width: 899.98px) {
+  /* and while the player runs there, the panel keeps the last stage: seven changes of height in
+     ten seconds would shake what is under the figure */
+  html.js .is-playing .wf-stage:not(:last-child) { display: none; }
+  html.js .is-playing .wf-stage:last-child { display: grid; }
+}
+@media screen and (min-width: 900px) {
+  html.js .wf-stage { grid-area: 1 / 1; transition: opacity .2s; }
+  html.js .wf-stage:not(.is-now) { display: grid; visibility: hidden; opacity: 0; transition: none; }
+}
+.wf-pager { position: absolute; z-index: 1; top: var(--s-3); right: var(--wf-pad); display: flex; gap: 6px; }
+
+.wf-spec { display: grid; gap: var(--s-4); min-width: 0; }
+.wf-spec > * { min-width: 0; }
+.wf-files { max-width: 26rem; }
+.wf-upload-scale { max-width: 44rem; }
+.wf-upload-note { margin-top: calc(-1 * var(--s-2)); max-width: 44rem; }
+.wf-ask { display: grid; align-content: start; gap: var(--s-1); }
+.wf-q { margin-bottom: var(--s-3); font-size: 1.125rem; line-height: 1.4; font-weight: 600; }
+.wf-turns { display: grid; gap: var(--s-3); margin: 0; padding: 0; list-style: none; }
+.wf-turn { display: grid; gap: var(--s-1); min-width: 0; transition: opacity .25s; }
+.wf-turn-head { max-width: none; font-size: .8125rem; line-height: 1.5; color: var(--muted); }
+.wf-turn-head b { margin-inline-end: 6px; font: 700 var(--fs-listing)/1.5 var(--font-mono); color: var(--text); }
+.wf-facts { display: grid; align-content: start; gap: var(--s-2); margin: 0; padding: 0; list-style: none; font-size: .9375rem; line-height: 1.5; }
+.wf-facts b { font-family: var(--font-mono); font-size: .9em; font-variant-numeric: tabular-nums; }
+.wf-answer-text { display: grid; gap: var(--s-1); padding-inline-start: var(--s-4); border-inline-start: 3px solid var(--mark-line); }
+.wf-answer-text p[data-rec] { max-width: 68ch; font-size: 1rem; line-height: 1.65; }
+@media (min-width: 900px) {
+  .wf-spec-2, .wf-spec-3, .wf-spec-75 { align-items: start; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .wf-spec-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .wf-spec-75 { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--s-5); }
+  .wf-spec-543 { align-items: start; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .wf-spec-543 > .wf-answer-text { grid-column: 1 / -1; }
+}
+
+@media (min-width: 1024px) {
+  .wf-spec-543 { grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) minmax(0, 3fr); }
+  .wf-spec-543 > .wf-answer-text { grid-column: auto; }
+}
+
+/* ==================== 6. Under the frame ==================== */
+.wf-measured { max-width: 92ch; margin-top: var(--s-4); color: var(--muted); }
+.wf-measured .tag { margin-inline-end: 4px; }
+.wf-three { display: grid; gap: var(--s-5); margin: var(--s-6) 0 0; }
+.wf-three > div { min-width: 0; }
+.wf-three dt { margin-bottom: var(--s-2); }
+.wf-three dd { max-width: 60ch; font-size: .9375rem; line-height: 1.6; }
+@media (min-width: 900px) { .wf-three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-6); } }
+
+/* ==================== 7. Preferences and print ==================== */
+@media (forced-colors: active) {
+  /* a wire that waits is grey and dashed, an inked one is solid: the state shows by the stroke */
+  .wf-rest, .wf-ret .wf-rest { stroke: GrayText; stroke-dasharray: 2 3; }
+  .wf-ink, .wf-ret .wf-ink, .wf-fork .wf-ink path, .wf-join .wf-ink { stroke: CanvasText; }
+  .wf-wire, .wf-ret, .wf-ah, .wf-m, .wf-dot, .wf-pips, .wf-seg, .wf-free, .wf-over-bar, .wf-tick, .wf-sw-tick, .wf-sw-end, .wf-arm .tag-toobig::before {
+    forced-color-adjust: none; color: CanvasText;
+  }
+  .wf-wire::before, .is-todo .wf-ah { background: GrayText; }
+  .is-todo .wf-m { color: GrayText; }
+  .wf-dot, .wf-tick, .wf-sw-tick, .wf-sw-end, .wf-seg-fits { background: CanvasText; }
+  .wf-seg-rest { background: GrayText; }
+  .wf-seg-tools { background: LinkText; }
+  .wf-track { border: 1px solid CanvasText; }
+  .wf-node.is-now { outline: 3px solid Highlight; }
+  .wf-answer, .wf-answer.is-now { forced-color-adjust: none; background: Highlight; border-color: HighlightText; color: HighlightText; }
+  .wf-answer > b + span, .wf-answer .cite { color: HighlightText; }
+  .wf-answer .cite { box-shadow: none; border: 1px solid HighlightText; }
+  .wf-shelf.is-now { border-block: 3px solid Highlight; }
+  .wf-card { border-inline-start-style: dashed; }
+  .wf-seg-label { color: CanvasText !important; background: Canvas; }
+}
+@media print {
+  /* the final state, whatever was on screen: the state rules above are for the screen only */
+  .wf-transport, .wf-pager, .wf-name { display: none !important; }
+  .wf-ink { animation: none !important; }
+  .wf-answer { outline-color: var(--accent); }
+  .fig-workflow { break-inside: auto; }
+  .wf-map, .wf-ruler, .wf-stage { break-inside: avoid; }
+  .wf-node, .wf-shelf, .wf-ah, .wf-m, .wf-dot, .wf-seg, .wf-free, .wf-over-bar, .wf-tick, .wf-pips i, .wf-wire::before, .wf-wire::after, .wf-arm .tag::before {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+}

@@ -1,0 +1,85 @@
+name: Site
+
+# The landing page (site/), checked on pull requests and published to GitHub Pages from main.
+#
+# The page is static and has no build: site/ is served as it is. "check" runs
+# scripts/check-site.mjs, which compiles the page's TypeScript samples against src/ (as the "docs"
+# job of ci.yml does for README.md and docs/), compares the samples taken from the README with the
+# README, and checks the page's links, its recorded specimens against site/data/run.json, that it
+# requests nothing from another origin, and its weight. On main it then packs site/ for Pages.
+#
+# Two jobs, as in release.yml: "check" runs the repository's code and its dependencies without an
+# identity token. "deploy" holds the token and the right to write to Pages, and runs no code of the
+# repository: it publishes the very artifact that "check" packed.
+#
+# Before the first run: in the repository's Settings, under Pages, set the source to
+# "GitHub Actions".
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "scripts/check-site.mjs"
+      - "scripts/check-doc-samples.mjs"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    # Also when the API or the README changes: a sample of the page that no longer compiles, or
+    # that no longer matches the README, fails here.
+    paths:
+      - "site/**"
+      - "src/**"
+      - "README.md"
+      - "package.json"
+      - "tsconfig.json"
+      - "scripts/check-site.mjs"
+      - "scripts/check-doc-samples.mjs"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Actions are pinned by commit, as in ci.yml (which says how to update them).
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      # No install scripts, as in ci.yml: nothing in the tree needs one. The check needs only the
+      # compiler, to compile the page's samples.
+      - run: npm ci --ignore-scripts
+      - run: node scripts/check-site.mjs
+      # Packs site/ as it is. Files and folders whose name starts with a dot are left out.
+      - name: Pack site/ for Pages
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # One deployment at a time, and a running one is left to finish: a newer one waits its turn.
+    # On this job only: the checks of pull requests never deploy, and must not wait in this queue
+    # or push a waiting deployment out of it.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    permissions:
+      pages: write # to publish the artifact
+      id-token: write # Pages checks that the deployment comes from this workflow
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

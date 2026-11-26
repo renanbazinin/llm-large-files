@@ -1,0 +1,306 @@
+/* llm-large-files: the loop, whole-file reads and pages of a PDF (in the deeper band).
+   turn-    one turn of the loop, as a numbered flow
+   ledger-  one table a recorded question, one row a model request; the rules beside it
+   mr-      one whole-file read
+   pg-      one look at pages of a PDF
+   Every figure is whole without the script: the script only chooses which ledger shows. */
+
+/* ==================== A numbered flow: one turn, and one whole-file read ==================== */
+.turn-flow, .mr-flow { counter-reset: flow; padding: var(--s-4); }
+.turn-step, .mr-stage {
+  counter-increment: flow; position: relative; max-width: none;
+  padding: 1px 0 var(--s-5) 40px; break-inside: avoid;
+}
+/* the node: a square with the number of the step */
+.turn-step::before, .mr-stage::before {
+  content: counter(flow); content: counter(flow) / "";
+  position: absolute; inset-inline-start: 0; top: 0; width: 26px; height: 26px; display: grid; place-items: center;
+  border: 1px solid var(--border-strong); border-radius: var(--r-chip); background: var(--surface);
+  font: 700 .8125rem/1 var(--font-mono);
+}
+/* the wire to the next node */
+.turn-step::after, .mr-stage::after {
+  content: ""; position: absolute; inset-inline-start: 12px; top: 30px; bottom: 4px; width: 2px;
+  border-radius: 1px; background: var(--border-strong);
+}
+.turn-step:last-child, .mr-stage:last-child { padding-bottom: 0; }
+.turn-step:last-child::after, .mr-stage:last-child::after { content: none; }
+.turn-step > strong, .mr-stage > strong { display: block; font-weight: 600; line-height: 1.55; }
+.turn-step :is(p, li), .mr-stage :is(p, li) { font-size: .875rem; line-height: 1.5; }
+.turn-step > :is(p, ul), .mr-stage > :is(p, ol, div) { margin-top: 2px; }
+/* the last node is where the answer comes from */
+.turn-end::before, .mr-end::before { background: var(--mark); border-color: var(--mark-line); color: var(--mark-text); }
+
+.turn-fork, .turn-checks { display: grid; gap: var(--s-1); }
+.turn-fork li, .turn-checks li { max-width: 60ch; }
+.turn-fork .tag { margin-inline-end: 2px; }
+.turn-checks li { position: relative; padding-inline-start: 14px; }
+.turn-checks li::before {
+  content: ""; position: absolute; inset-inline-start: 2px; top: .62em; width: 5px; height: 5px; background: var(--border-strong);
+}
+.turn-checks b { font-weight: 600; }
+.turn-back { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.turn-back svg { flex: none; }
+@media (min-width: 600px) { .turn-flow, .mr-flow { padding: var(--s-5); } }
+@media (min-width: 900px) {
+  /* two columns: steps 1 to 3, then 4 to 8 */
+  .turn-flow { columns: 2; column-gap: var(--s-7); }
+  .turn-step:nth-child(4) { break-before: column; }
+  .turn-step:nth-child(3) { padding-bottom: 0; }
+  .turn-step:nth-child(3)::after { content: none; }
+}
+
+/* ==================== The ledger ==================== */
+.ledger-split { display: grid; gap: var(--s-6); margin-top: var(--s-6); }
+.ledger-split > *, .ledger-main > *, .ledger-notes > * { min-width: 0; }
+.ledger-main, .ledger-notes { display: grid; gap: var(--s-5); align-content: start; }
+@media (min-width: 700px) { .ledger-notes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1024px) and (max-width: 1199.98px) { .ledger-notes { grid-template-columns: minmax(0, 1fr); } }
+@media (min-width: 1024px) {
+  .ledger-split { grid-template-columns: minmax(0, 1fr) 18.5rem; align-items: start; }
+}
+
+/* the figure measures itself: its rows open out when it is wide enough, wherever it sits */
+.ledger { container: ledger / inline-size; --px: var(--s-4); }
+@media (min-width: 600px) { .ledger { --px: var(--s-5); } }
+
+/* the controls are made by the script; without it these boxes are empty and take no room */
+.ledger-nav { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.ledger-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: var(--s-3) var(--px); border-bottom: 1px solid var(--border); }
+.ledger-nav:empty, .ledger-chips:empty { display: none; }
+/* Previous and Next stay on screen while they step through the rows */
+.ledger.is-live > .fig-bar { position: sticky; top: 0; z-index: 2; background: var(--surface); border-radius: var(--r-fig) var(--r-fig) 0 0; }
+.ledger.is-live .ledger-t tbody tr { scroll-margin-top: 6.5rem; }
+@media (min-width: 900px) {
+  .ledger.is-live > .fig-bar { top: var(--header-h); }
+  .ledger.is-live .ledger-t tbody tr { scroll-margin-top: calc(var(--header-h) + 5rem); }
+}
+@media print { .ledger.is-live > .fig-bar { position: static; } }
+.ledger-pos { margin-inline-end: var(--s-1); font: 400 .75rem/1.4 var(--font-mono); color: var(--muted); }
+
+/* one scenario. Without the script the first shows and the others are closed <details> */
+.ledger-scn { display: block; }
+details.ledger-scn { margin: var(--s-2) var(--px); --px: var(--s-3); }
+.ledger.is-live .ledger-scn:not([data-ledger-shown]) { display: none; }
+.ledger.is-live details.ledger-scn { margin: 0; --px: inherit; background: none; border: 0; border-radius: 0; }
+.ledger.is-live details.ledger-scn > summary { display: none; }
+/* in a <details> the summary is the title: the caption keeps its own for a screen reader only */
+.ledger:not(.is-live) details .ledger-cap {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+/* The table. A row is a grid: the request, its size and the turns left on one line, then what the
+   model sent, then what the loop did. The markup restates the roles, because display changes. */
+.ledger-t { display: block; width: 100%; border-collapse: collapse; font-size: .875rem; line-height: 1.45; }
+.ledger-t caption { display: block; padding: var(--s-3) var(--px) var(--s-4); text-align: start; }
+.ledger-cap { display: block; margin-bottom: 2px; font-size: 1rem; line-height: 1.4; font-weight: 600; }
+.ledger-look { display: block; max-width: 72ch; line-height: 1.5; }
+.ledger-t :is(thead, tbody, tfoot) { display: block; }
+.ledger-t tr {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "req left" "size size" "sent sent" "did did";
+  gap: 6px var(--s-3); padding: var(--s-3) var(--px); border-top: 1px solid var(--border);
+}
+.ledger-t :is(th, td) { display: block; min-width: 0; padding: 0; text-align: start; font-weight: 400; }
+.ledger-t tr > :nth-child(1) { grid-area: req; }
+.ledger-t tr > :nth-child(2) { grid-area: sent; }
+.ledger-t tr > :nth-child(3) { grid-area: did; }
+.ledger-t tr > :nth-child(4) { grid-area: size; }
+.ledger-t tr > :nth-child(5) { grid-area: left; }
+
+/* the head: laid out as a row is, so it reads as the key of every row */
+.ledger-t thead tr { padding-block: var(--s-2); border-bottom: 1px solid var(--border-strong); }
+.ledger-t thead th { font-size: .75rem; line-height: 1.4; font-weight: 600; color: var(--muted); }
+.ledger-t thead th:nth-child(4) { display: grid; gap: 2px 10px; }
+.ledger-t tbody tr:first-child { border-top: 0; }
+
+/* 1. the request: its number and its role */
+.ledger-t tbody th { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--s-2); align-content: start; }
+.ledger-t tbody th > b { min-width: 1ch; font: 700 1rem/var(--line) var(--font-mono); }
+.ledger-t tbody th > .tag { vertical-align: 0; }
+
+/* 2. what the model sent: a chip a call, or the word "text" */
+.ledger-t tbody td:nth-child(2) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+/* the labels drawn here repeat a column head for the eye; a screen reader has the head itself */
+.ledger-t tbody td:nth-child(2)::before { content: "the model sent"; content: "the model sent" / ""; margin-inline-end: 2px; font-size: .75rem; font-weight: 600; color: var(--muted); }
+.ledger-t tbody td:nth-child(2) > .tag { vertical-align: 0; }
+.ledger-times { margin-inline: -2px 4px; font: var(--listing); white-space: nowrap; }
+
+/* 3. what the loop did: step lines and notices, as recorded */
+.ledger-t ul { display: grid; gap: var(--s-1); list-style: none; padding: 0; }
+.ledger-t .is-note code { font-size: .75rem; color: var(--muted); white-space: nowrap; }
+.ledger-t .step .tag { vertical-align: 0; }
+/* a line to spot: a call that was not run or was refused, a request sent again (dashed, warn);
+   a pointer (dashed, accent); the user turn that closes a question (solid, the mark); a stand-in */
+.ledger-x {
+  max-width: none; padding: 2px 8px 3px; border: 1px dashed var(--warn); border-radius: var(--r-chip);
+  background: var(--warn-soft); font: var(--listing); overflow-wrap: anywhere;
+}
+.step.ledger-x { padding-inline-start: calc(var(--line) + var(--s-2) + 4px); }
+.step.ledger-x::before { inset-inline-start: 4px; top: 4px; }
+.ledger-ptr { border-color: var(--accent); background: var(--accent-soft); }
+.step.ledger-ptr::before { border-style: dashed; background: none; }
+.ledger-close { border: 1px solid var(--mark-line); background: var(--mark-soft); }
+.ledger-stand { border-color: var(--border-strong); background: none; }
+.ledger-told { display: block; margin-top: 2px; }
+.ledger-told > b, .ledger-close > b, .ledger-stand > b { display: block; font: 600 .75rem/1.6 var(--font-sans); color: var(--muted); }
+/* the page's own words, in the sans face: never the library's */
+.ledger-say { max-width: 68ch; padding-inline-start: calc(var(--line) + var(--s-2)); font-size: .8125rem; line-height: 1.5; color: var(--muted); }
+.ledger-say b { font-weight: 600; color: var(--text); }
+
+/* 4. the request as sent: its number, a bar on the scale of the window, what was added since the
+   first request, and a thin bar for that on a scale of its own. The two bars are empty <i>. */
+.ledger-t tbody td:nth-child(4), .ledger-t tfoot td:nth-child(4) {
+  display: grid; grid-template-columns: 4.25rem minmax(0, 1fr); align-items: center; gap: 4px 10px;
+  font: var(--listing); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.ledger-t td > i { display: block; background-color: var(--sunken); border-inline: 1px solid var(--border-strong); }
+/* From the left: the file sent whole (--f, set on the table), the rest of the first request (--b),
+   what the tool rounds added (--a, set on the row). At the right end, hatched: kept free for the
+   answer (--k). Hard stops: these are segments, not a fade. */
+.ledger-t td > i:nth-child(2) {
+  --at: calc(var(--f, 0%) + max(var(--b, 0%), 2px));
+  height: 10px; color: var(--mark-line);
+  background-image: var(--hatch),
+    linear-gradient(to right, var(--fits) 0 var(--f, 0%), var(--muted) 0 var(--at), var(--accent) 0 calc(var(--at) + var(--a, 0%)), transparent 0);
+  background-size: var(--k, 0%) 100%, 100% 100%; background-position: 100% 0, 0 0; background-repeat: no-repeat;
+}
+.ledger-t td > i:last-child {
+  height: 4px; background-image: linear-gradient(var(--accent) 0 0); background-size: var(--w, 0%) 100%; background-repeat: no-repeat;
+}
+.ledger-t td > i[style]:last-child { background-size: max(var(--w), 1px) 100%; }
+
+/* 5. tool_turns_left */
+.ledger-t tbody td:nth-child(5) { font: var(--listing); font-variant-numeric: tabular-nums; text-align: end; }
+.ledger-t tbody td:nth-child(5):not(:empty)::before { content: "turns left "; content: "turns left " / ""; font: 600 .75rem/1 var(--font-sans); color: var(--muted); }
+
+/* the sum of the column, as the library reports it */
+.ledger-t tfoot tr { grid-template-areas: "req ." "size size"; border-top: 1px solid var(--border-strong); }
+.ledger-t tfoot td:empty { display: none; }
+.ledger-t tfoot td:nth-child(4) { align-items: baseline; }
+.ledger-t tfoot th { font-size: .75rem; line-height: var(--line); font-weight: 600; color: var(--muted); }
+.ledger-t tfoot td > :first-child { font-weight: 700; }
+.ledger-t tfoot td > span:last-child { font: 400 .8125rem/1.5 var(--font-sans); color: var(--muted); white-space: normal; }
+.ledger-t tfoot td b { font-weight: 600; color: var(--text); }
+
+/* rows to spot, and the row the stepper is on */
+.ledger-t tbody tr { transition: background-color .2s; }
+.ledger-t .is-closing { box-shadow: inset 3px 0 0 var(--mark-line); }
+.ledger-t .is-retry { box-shadow: inset 3px 0 0 var(--warn); }
+.ledger-t .is-explorer { box-shadow: inset 3px 0 0 var(--explorer); }
+.ledger-t tr[aria-current] { background: var(--accent-soft); outline: 2px solid var(--accent); outline-offset: -2px; }
+.ledger-t tr[aria-current] .ledger-ptr { background: var(--surface); }
+
+@container ledger (min-width: 640px) {
+  .ledger-t tr {
+    grid-template-columns: 5.75rem minmax(0, 1fr) 3.25rem; column-gap: var(--s-4);
+    grid-template-areas: "req size left" "req sent sent" "req did did";
+  }
+  /* in the head, "sent" and "did" share one line */
+  .ledger-t thead tr { grid-template-columns: 5.75rem auto minmax(0, 1fr) 3.25rem; grid-template-areas: "req size size left" "req sent did did"; }
+  .ledger-t tfoot tr { grid-template-areas: "req size left"; }
+  .ledger-t tbody td:nth-child(4), .ledger-t thead th:nth-child(4) { grid-template-columns: 4.25rem minmax(0, 1fr) 3.75rem 4.5rem; }
+  .ledger-t thead th:nth-child(4) > :first-child { grid-column: 1 / 3; }
+  .ledger-t thead th:nth-child(4) > :last-child { grid-column: 3 / 5; }
+  .ledger-t thead th:nth-child(5) { text-align: end; }
+  .ledger-t td > i + span { text-align: end; }
+  .ledger-t tbody td:nth-child(5):not(:empty)::before { content: none; }
+}
+
+.ledger-legend { padding: var(--s-3) var(--px); border-top: 1px solid var(--border); }
+.ledger-legend li { max-width: none; }
+.ledger-sw-base { color: var(--muted); }
+
+/* the rules, beside the ledger from 1024 px */
+.ledger-rules h4 { margin-bottom: var(--s-3); }
+.ledger-rules ol { display: grid; gap: var(--s-4); padding-inline-start: 1.6em; font-size: .9375rem; line-height: 1.55; }
+.ledger-rules li { max-width: 64ch; }
+.ledger-rules li::marker { font: 700 .8125rem var(--font-mono); }
+.ledger-rules .btn { display: flex; width: fit-content; margin-top: 6px; text-align: start; }
+@media (min-width: 600px) and (max-width: 1023.98px) {
+  .ledger-rules ol { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--s-7); }
+}
+
+/* ==================== A whole-file read ==================== */
+.mr-file { margin-top: var(--s-2); }
+.mr-file b { font: 700 var(--fs-listing)/var(--line) var(--font-mono); }
+/* the file, cut on line boundaries: each part as wide as its share of the lines */
+.mr-strip { display: flex; height: 24px; font: 700 .75rem/22px var(--font-mono); text-align: center; }
+.mr-strip span {
+  flex: 0 0 var(--w); min-width: 0; background: var(--sunken); border: 1px solid var(--border-strong);
+}
+.mr-strip span + span { border-inline-start-width: 0; box-shadow: inset 2px 0 0 var(--surface); }
+.mr-parts { display: grid; gap: var(--s-2); }
+.mr-parts li { display: grid; gap: 2px 10px; max-width: none; font: var(--listing); overflow-wrap: anywhere; }
+.mr-parts li > b { font-weight: 700; white-space: nowrap; }
+.mr-parts li > .tag { justify-self: start; vertical-align: 0; }
+.mr-none { border-style: dashed; }
+.mr-notes { border-color: var(--text); color: var(--text); }
+@media (min-width: 600px) {
+  .mr-parts li { grid-template-columns: 6.25rem minmax(0, 1fr); align-items: baseline; }
+  .mr-parts li > .tag { grid-column: 2; }
+}
+.mr-stage > .step { margin-top: var(--s-2); }
+.mr-res { font: var(--listing); }
+.mr-res b { font-weight: 700; }
+.mr-items { margin-top: var(--s-6); }
+
+/* ==================== A look at pages of a PDF ==================== */
+.pg-body { display: grid; gap: var(--s-4); padding: var(--s-4); }
+.pg-body > * { min-width: 0; }
+@media (min-width: 600px) { .pg-body { padding: var(--s-5); } }
+/* a strip of pages: a sketch. A page is a sheet with lines of text */
+.pg-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; max-width: 28rem; }
+.pg-strip li {
+  position: relative; max-width: none; aspect-ratio: 3 / 4; padding: 3px 4px;
+  border: 1px solid var(--border-strong); border-radius: 2px;
+  background: repeating-linear-gradient(to bottom, var(--border) 0 2px, transparent 2px 6px) 50% 26px / calc(100% - 10px) calc(100% - 32px) no-repeat var(--surface);
+}
+.pg-strip b { display: block; font: 700 .75rem/1.2 var(--font-mono); }
+/* a page with a picture: a solid block where the text cannot show it */
+.pg-strip .is-pic::after {
+  content: ""; position: absolute; inset: 44% 5px 5px; border-radius: 1px; background: var(--border-strong);
+}
+/* the pages of the call */
+.pg-strip .is-cut { border: 2px solid var(--accent); padding: 2px 3px; background-color: var(--accent-soft); }
+.pg-sw-pic { color: var(--border-strong); }
+.pg-sw-cut { color: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+.pg-cut { display: grid; gap: var(--s-2); padding-inline-start: var(--s-3); border-inline-start: 3px solid var(--accent); font-size: .875rem; line-height: 1.5; }
+.pg-file { display: flex; align-items: flex-start; gap: 10px; }
+.pg-mini { display: inline-flex; flex: none; gap: 2px; margin-top: 3px; }
+.pg-mini i { width: 11px; height: 14px; border: 1.5px solid var(--accent); border-radius: 1px; background: var(--accent-soft); }
+
+/* ==================== Preferences and print ==================== */
+@media (forced-colors: active) {
+  /* fills that carry meaning keep a colour of the system; state shows by border style */
+  .ledger-t td > i, .mr-strip span, .pg-strip li, .pg-mini i, .pg-sw-pic, .pg-sw-cut, .ledger-sw-base { forced-color-adjust: none; }
+  .ledger-t td > i {
+    --fits: CanvasText; --muted: GrayText; --accent: LinkText; --mark-line: CanvasText; --sunken: Canvas;
+    border: 1px solid CanvasText; box-sizing: content-box;
+  }
+  .ledger-sw-base { color: GrayText; }
+  .ledger-t tr[aria-current] { outline: 3px solid Highlight; }
+  .ledger-t :is(.is-closing, .is-retry, .is-explorer) { border-inline-start: 3px solid CanvasText; }
+  .ledger-t .is-retry { border-inline-start-style: dashed; }
+  .ledger-t .is-explorer { border-inline-start-style: double; }
+  .turn-end::before, .mr-end::before { forced-color-adjust: none; background: Highlight; border-color: Highlight; color: HighlightText; }
+  .mr-strip span, .pg-strip li { background: Canvas; border-color: CanvasText; color: CanvasText; box-shadow: none; }
+  .mr-strip span + span { border-inline-start-width: 1px; }
+  .pg-strip .is-pic::after, .pg-sw-pic { background: CanvasText; color: CanvasText; }
+  .pg-strip .is-cut { border: 3px solid Highlight; }
+  .pg-mini i { border-color: Highlight; background: Canvas; }
+  .pg-sw-cut { color: Canvas; box-shadow: inset 0 0 0 3px Highlight; }
+}
+@media print {
+  /* every recorded question prints, each under its title; the controls do not */
+  .ledger-nav, .ledger-chips, .ledger-rules .btn { display: none !important; }
+  .ledger.is-live .ledger-scn:not([data-ledger-shown]) { display: block; }
+  .ledger-scn + .ledger-scn { margin-top: var(--s-4); border-top: 1px solid var(--border-strong); }
+  .ledger-t tr[aria-current] { background: none; outline: 0; }
+  .ledger-t tbody tr, .turn-step, .mr-stage { break-inside: avoid; }
+  .ledger-t caption { break-after: avoid; }
+  .ledger-t td > i, .ledger-x, .mr-strip span, .pg-strip li, .pg-mini i,
+  .turn-step::before, .mr-stage::before, .ledger-sw-base, .pg-sw-pic, .pg-sw-cut {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+}
