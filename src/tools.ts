@@ -1,4 +1,4 @@
-import { safeErrorMessage } from "./errors.js";
+import { DocumentTextError, safeErrorMessage } from "./errors.js";
 import { until } from "./http.js";
 import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
 import { GROUP_BY_VALUES, MAX_GROUP_KEYS, type GroupBy, type GroupResult } from "./groups.js";
@@ -7,7 +7,7 @@ import { loadRenderBackend, PAGE_IMAGE_SIDE, renderPdfPages, type PageImages, ty
 import { cutPdfPages, type PageCut } from "./pdf-pages.js";
 import type { Limiter } from "./limiter.js";
 import { DocumentGoneError } from "./ranged.js";
-import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, type DocumentSource, type LineMatch } from "./search.js";
+import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, scanSource, type DocumentSource, type LineMatch } from "./search.js";
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
 import { plural, removeInvisible, sliceWhole, wellFormedJson } from "./text.js";
@@ -621,6 +621,58 @@ function searchScope(args: Record<string, unknown>): { fromLine?: number; toLine
   };
 }
 
+/** Sheets, and lines that hold a row asked for, named at most in the error of a read past the end of a workbook. */
+const MOST_SHEETS_NAMED = 20;
+
+/** A range of rows or lines, as an error names it: "rows 1–1048", "line 7". */
+const span = (word: string, from: number, to: number) => (from === to ? `${word} ${from}` : `${word}s ${from}–${to}`);
+
+/**
+ * The error of a `read_document` call whose `start_line` is past the last line, worded as
+ * `search_document`'s for a `from_line` past the end. A workbook's lines are not its rows, and a
+ * model often passes a row it saw ("Row 400") as a line: the error then says which line holds that
+ * row in each sheet that has it, and each sheet's rows with the lines they are on. Those name the
+ * sheets, which are text of the document: events, steps and SSE get only the first sentence
+ * (`DocumentTextError`). New in 0.99.13; before, the read was clamped to the last line, and gave a
+ * row of another sheet with no error.
+ */
+async function pastTheEnd(document: DocumentSource, start: number, signal: AbortSignal | undefined): Promise<Error> {
+  const total = document.lineCount;
+  const refusal = `start_line ${start} is past the end of the file, which has ${total} ${plural(total, "line")}.`;
+  if (document.meta.format !== "xlsx") return new Error(refusal);
+  // The sheets as the XLSX extractor writes them: a "## Sheet N: name" heading, then "Row R: | … |" lines.
+  type Sheet = { name: string; rows?: [number, number]; lines?: [number, number]; asked?: number };
+  const sheets: Sheet[] = [];
+  await scanSource(document, (chunk) => {
+    const count = chunk.lines.lineCount;
+    for (let local = 1; local <= count; local++) {
+      const text = chunk.lines.line(local);
+      const line = chunk.firstLine + local - 1;
+      const heading = /^## Sheet \d+: (.*?)(?: \(hidden sheet\))?$/.exec(text);
+      if (heading) {
+        sheets.push({ name: heading[1]! });
+        continue;
+      }
+      const row = /^Row (\d+): /.exec(text);
+      const sheet = sheets.at(-1);
+      if (!row || !sheet) continue;
+      const number = Number(row[1]);
+      sheet.rows = [sheet.rows?.[0] ?? number, number];
+      sheet.lines = [sheet.lines?.[0] ?? line, line];
+      if (number === start) sheet.asked ??= line;
+    }
+  }, signal);
+  const withRows = sheets.filter((sheet) => sheet.rows && sheet.lines);
+  if (withRows.length === 0) return new Error(refusal);
+  const found = withRows.filter((sheet) => sheet.asked !== undefined);
+  const where = found.length === 0
+    ? `no sheet has a Row ${start}.`
+    : `Row ${start} is ${found.slice(0, MOST_SHEETS_NAMED).map((sheet) => `on line ${sheet.asked} (sheet ${JSON.stringify(sheet.name)})`).join(", and ")}${found.length > MOST_SHEETS_NAMED ? `, and in ${found.length - MOST_SHEETS_NAMED} more sheets` : ""}.`;
+  const ranges = withRows.slice(0, MOST_SHEETS_NAMED).map((sheet) => `sheet ${JSON.stringify(sheet.name)}, ${span("row", ...sheet.rows!)} on ${span("line", ...sheet.lines!)}`).join("; ");
+  const more = withRows.length > MOST_SHEETS_NAMED ? `; and ${withRows.length - MOST_SHEETS_NAMED} more sheets` : "";
+  return new DocumentTextError(`${refusal} A line of a workbook is not its row: ${where} Its sheets: ${ranges}${more}.`, refusal);
+}
+
 /** The lines a `read_document` call asks for, as its handler reads them, before the end of the file is known. */
 function requestedLines(args: Record<string, unknown>): [number, number] {
   const start = integer(args.start_line, 1, 1, Number.MAX_SAFE_INTEGER);
@@ -739,11 +791,29 @@ export function failureKind(call: { name: string; args: Record<string, unknown> 
 }
 
 /**
+ * What events, steps and SSE say of the error of each tool result whose error quotes the document
+ * (`DocumentTextError`): the result the tool set returned, as it returned it. New in 0.99.13.
+ */
+const eventErrors = new WeakMap<ToolResult, string>();
+
+/**
+ * What events, steps and SSE say in place of `result.error`, when the error quotes the document: the
+ * column names of a table (`aggregate_table`), the sheet names of a workbook (`read_document` past
+ * the end). Undefined for any other result, whose error is told as it is. It knows the result object
+ * the tool set returned, not a copy of it. New in 0.99.13.
+ */
+export function eventErrorTextOf(result: ToolResult): string | undefined {
+  return eventErrors.get(result);
+}
+
+/**
  * What a finished tool call found, as a suffix for its `describe()` label, for a steps list:
- * "Search app.log (exact) for “timeout”" + " — 12 matching lines".
+ * "Search app.log (exact) for “timeout”" + " — 12 matching lines". Since 0.99.13 an error that quotes
+ * the document (the column names of a table) is told in the library's words, with a count, for a
+ * result the tool set returned: a step reaches users' screens.
  */
 export function toolResultSummary(label: string, result: ToolResult): string {
-  if (typeof result.error === "string") return ` — failed: ${result.error}`;
+  if (typeof result.error === "string") return ` — failed: ${eventErrorTextOf(result) ?? result.error}`;
   if (typeof result.total_matching_lines === "number") {
     const groups = typeof result.total_groups === "number" ? ` in ${result.total_groups.toLocaleString("en-US")} ${plural(result.total_groups, "group")}` : "";
     return ` — ${result.total_matching_lines.toLocaleString("en-US")} ${plural(result.total_matching_lines, "matching line")}${groups}`;
@@ -1171,6 +1241,10 @@ export function createDocumentTools(options: {
       const limit = limitOf(limits);
       const document = await documentFor(args, signal);
       const total = document.lineCount;
+      // A start past the last line is refused, as search_document refuses a from_line past it
+      // (since 0.99.13): clamped, it read the last line, of another sheet in a workbook, with no error.
+      const [asked] = requestedLines(args);
+      if (asked > total && total > 0) throw await pastTheEnd(document, asked, signal);
       const start = integer(args.start_line, 1, 1, total);
       const end = integer(args.end_line, start + DEFAULT_READ_LINES - 1, start, Math.min(total, start + MAX_READ_LINES - 1));
       // One read for the range asked; trimming to the size limit works on what was read.
@@ -1456,7 +1530,10 @@ export function createDocumentTools(options: {
     // Found gone when the call began, or while a read by range went through its text.
     if (error instanceof DocumentGoneError && typeof args.document_id === "string") hooks.onDocumentGone?.(args.document_id);
     else if (error instanceof PagesBusyError) hooks.onPagesBusy?.(error.documentId);
-    return { error: safeErrorMessage(error) };
+    const result: ToolResult = { error: safeErrorMessage(error) };
+    // An error that quotes the document: events, steps and SSE say it in the library's words.
+    if (error instanceof DocumentTextError) eventErrors.set(result, error.eventMessage);
+    return result;
   };
 
   /**

@@ -219,7 +219,8 @@ describe("createLargeFiles", () => {
     expect(tail).toMatchObject({ lines: "950-1000", total_lines: 1_000, note: "End of file." });
     expect(String(tail.text).split("\n")).toHaveLength(51);
     expect(await tools.execute("read_document", { document_id: meta.id, start_line: 100 })).toMatchObject({ lines: "100-299", next_start_line: 300 });
-    expect(await tools.execute("read_document", { document_id: meta.id, start_line: 5_000 })).toMatchObject({ lines: "1000-1000" });
+    // A start past the end is refused since 0.99.13, as search_document refuses a from_line past it (READ-END).
+    expect(await tools.execute("read_document", { document_id: meta.id, start_line: 5_000 })).toEqual({ error: "start_line 5000 is past the end of the file, which has 1000 lines." });
   });
 
   it("keeps tool results under the character budget", async () => {

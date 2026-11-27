@@ -1,7 +1,8 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
-import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type DocumentRef, type EventResult, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
+import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
 import { CitationHider, checkCitations, type CitationCheck } from "./citations.js";
+import { documentRef, eventResultOf } from "./event-visibility.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
 import type { LargeFiles } from "./library.js";
@@ -37,6 +38,7 @@ import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retr
 import { estimateTokens, jsonBytes, wellFormedJson } from "./text.js";
 import {
   alreadyShown,
+  eventErrorTextOf,
   failureKind,
   fitAnswer,
   LEAST_RESULT_CHARACTERS,
@@ -239,8 +241,9 @@ export type AskOptions = {
    * until its ")" or the end of its line, so that a citation never shows for a moment. What stays
    * (`CitationHider`): a parenthesis with other words in it, code, a form with no file name that is
    * written in the files the model read ("(L4-L5)" of a medical report), and a citation written
-   * into a sentence ("line 12 of the contract says"). A value that is not true or false is a
-   * `TypeError` before any request. New in 0.99.12.
+   * into a sentence ("line 12 of the contract says"). `AskResult.modelText` keeps the answer as the
+   * model wrote it, citations included (since 0.99.13): send that back as the assistant turn. A
+   * value that is not true or false is a `TypeError` before any request. New in 0.99.12.
    */
   showCitations?: boolean;
   /** Answer text as it arrives. The adapter streams when this is set and it can (see `streamText`). */
@@ -279,7 +282,9 @@ export type AskOptions = {
   /**
    * Put each tool result in its `tool.end` event (`result`), and the tool rounds in the result that
    * `run.finish` and `run.error` carry (`toolTurns`). Off by default: results hold the text of the
-   * documents, and events are often sent on to a browser.
+   * documents, and events are often sent on to a browser. Either way, since 0.99.13 the `error` and
+   * `step` of a call whose error quotes the document (a table's column names, a workbook's sheet
+   * names) say it in the library's words, with a count: the model and `result` have it whole.
    */
   eventResults?: boolean;
   /**
@@ -300,6 +305,15 @@ export type AskResult = {
    * `showCitations: false`, without its citations in parentheses, as it was shown (since 0.99.12).
    */
   text: string;
+  /**
+   * What the model wrote, as it wrote it: `text` with its citations, whatever `showCitations` says.
+   * Equal to `text` when nothing was hidden, and empty when `text` is (a filtered answer dropped).
+   * Send it back as the assistant turn of a later question, and show `text`: the requests of that
+   * question are then those it would have with citations shown. Also in the result of `run.finish`
+   * and the partial result of `run.error`, and in what `partialResultOf` gives; never in what
+   * `sseMessageOf` sends to a browser, since it holds the citations that were hidden. New in 0.99.13.
+   */
+  modelText: string;
   /**
    * False when the reply that should be the answer had no text: the prompt was blocked, or the
    * reply was cut off or filtered before any text. A turn whose tool call could not be read is
@@ -981,15 +995,6 @@ type RunState = {
   failed?: { error: unknown; result: AskResult };
 };
 
-/** A document as an event names it. */
-const documentRef = (meta: DocumentMeta): DocumentRef => ({
-  id: meta.id,
-  name: meta.name,
-  format: meta.format,
-  estimatedTokens: meta.estimatedTokens,
-  ...(meta.pages !== undefined ? { pages: meta.pages } : {}),
-});
-
 /** Which model a chat request goes to, and why. */
 type RequestKind = { role: RequestRole; purpose: RequestPurpose };
 
@@ -1031,26 +1036,6 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
     }
     throw error;
   }
-}
-
-/**
- * A result as `run.finish` and `run.error` carry it: a copy, so that a listener cannot change the
- * caller's, without the tool rounds and with the plan naming documents only (both hold text of
- * the documents: tool results, outline headings, the commonest lines of a log) unless `withTurns`.
- * Its plan never holds the owner, scope, SHA-256 or original of a document.
- */
-function eventResultOf(result: AskResult, withTurns: boolean): EventResult {
-  const { toolTurns, plan, ...rest } = result;
-  // The full metadata only with `withTurns`, and never what is to stay on the server: who owns a
-  // document, its scope, the SHA-256 and the ref of its original.
-  if (withTurns) return { ...rest, toolTurns, plan: { inline: plan.inline.map(withoutServerFields), searchable: plan.searchable.map(withoutServerFields) } };
-  return { ...rest, plan: { inline: plan.inline.map(documentRef), searchable: plan.searchable.map(documentRef) } };
-}
-
-/** A document's metadata without what is to stay on the server, for an event (since 0.10.0). */
-function withoutServerFields(meta: DocumentMeta): Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion"> {
-  const { owner: _owner, scope: _scope, sha256: _sha256, original: _original, metaVersion: _metaVersion, ...rest } = meta;
-  return rest;
 }
 
 /**
@@ -1490,6 +1475,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   };
   const result = (answered: boolean): AskResult => ({
     text: hider ? shownText : text,
+    modelText: text,
     answered,
     ...(blockReason ? { blockReason } : {}),
     steps,
@@ -2237,8 +2223,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           round,
         });
       };
-      /** `sent`: the result as the model gets it. `line`: the step, as `onStep` got it. */
-      const endTool = (index: number, outcome: ToolOutcome, sent: ToolResult, line?: string, shown?: Evidence) => {
+      /**
+       * `sent`: the result as the model gets it. `line`: the step, as `onStep` got it. `told`: what
+       * the event says of an error that quotes the document, in place of `sent.error` (since 0.99.13).
+       */
+      const endTool = (index: number, outcome: ToolOutcome, sent: ToolResult, line?: string, shown?: Evidence, told?: string) => {
         const open = openCalls.get(index);
         openCalls.delete(index);
         // A request of a whole-file read that its read left behind ends before its call does.
@@ -2252,7 +2241,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           ...(line !== undefined ? { step: line } : {}),
           ...(shown ? { evidence: { ...shown, callId: callIds[index]! } } : {}),
           resultCharacters: JSON.stringify(sent).length,
-          ...(typeof sent.error === "string" ? { error: sent.error } : {}),
+          ...(typeof sent.error === "string" ? { error: told ?? sent.error } : {}),
           ...(options.eventResults === true ? { result: sent } : {}),
         });
       };
@@ -2468,8 +2457,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           return left - took - others;
         };
 
+        /**
+         * What the step and the events of each call say of an error that quotes the document (the
+         * column names of a table, the sheet names of a workbook), by index: the library's words,
+         * while the model gets the error whole (since 0.99.13).
+         */
+        const toldErrors: Array<string | undefined> = [];
         // The answers in call order. Each call's `tool.end` goes out here, in the same order.
-        for (const [index, { call, label, late, refusal, pointer }] of planned.entries()) {
+        for (const [index, { call, label, late, refusal, pointer, twinOf }] of planned.entries()) {
           const { raw, output: judgedOutput, judged, copied } = await judgedOutputs[index]!;
           if (listenerError) throw listenerError.error;
           // A hook of a later call failed: nothing more of the turn reaches the model.
@@ -2513,7 +2508,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               failing = undefined;
             }
           }
-          const line = step(`${label}${toolResultSummary(label, output.result)}`);
+          // Read from the result the tool returned, or the first call's for a copy of its verdict: also
+          // when the hook kept the error, or sent a copy of it. Not when the hook refused the call,
+          // whose reason is the application's own words.
+          const told = typeof output.result.error === "string" && judged !== "refused"
+            ? (copied && twinOf !== undefined ? toldErrors[twinOf] : eventErrorTextOf(raw.result))
+            : undefined;
+          toldErrors[index] = told;
+          const line = step(`${label}${toolResultSummary(label, told !== undefined ? { ...output.result, error: told } : output.result)}`);
           // A copy of the first call's verdict shows nothing that the first did not. Nor does a
           // look at pages whose pages the hook kept back: the model saw none of them.
           const withheld = raw.files.length > 0 && output.files.length === 0;
@@ -2522,7 +2524,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           const sent = { ...output.result, tool_turns_left: turnsLeft };
           answers.push({ call, result: sent, files: output.files });
           const outcome: ToolOutcome = judged ?? (call.problem ? "error" : refusal ? "refused" : typeof output.result.error === "string" ? "error" : "ok");
-          endTool(index, outcome, sent, line, shown);
+          endTool(index, outcome, sent, line, shown, told);
         }
         // A listener of a read that went on after its call returned (its progress).
         if (listenerError) throw listenerError.error;

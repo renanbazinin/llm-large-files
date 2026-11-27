@@ -178,7 +178,9 @@ export async function runCase(options: RunCaseOptions): Promise<CaseRun> {
       continue;
     }
     messages.push(...result.toolTurns);
-    if (result.answered) messages.push({ role: "assistant", text: result.text });
+    // The model's own text goes back as the assistant turn, as the chatbot guide sends it (0.99.13):
+    // with citations shown it is `text`, and with them hidden the requests stay those recorded.
+    if (result.answered) messages.push({ role: "assistant", text: result.modelText });
     const factContext: FactContext = { ...context, evidence: result.evidence, documentIds: turn.documentIds, ...(result.citations ? { citations: result.citations } : {}) };
     const facts = turn.facts.map((fact) => checkFact(fact, result.text, factContext));
     const passed = facts.every((fact) => fact.status !== "fail");
