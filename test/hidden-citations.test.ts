@@ -75,13 +75,32 @@ const KEPT = [
   "The file (contract.docx) is named, and (see doc_contract) has words.",
 ];
 
+/**
+ * The cases above that the 0.99.14 rules (CIT-4, the default) show otherwise, on purpose: a whole
+ * table cell or list item of citations is put into words; square brackets, a run at the end of a
+ * parenthesis and a document ID in prose are new forms.
+ */
+const SHOWN_0_99_14: Record<string, string> = {
+  "| 30 days | (contract.docx L12) |": "| 30 days | line 12 |",
+  "- a\n- (L12)\n- b\n  1. (L3)\n* (L4)\n- (L5)": "- a\n- שורה 12\n- b\n  1. שורה 3\n* שורה 4\n- שורה 5",
+  "As (see the table, L12) shows.": "As (see the table) shows.",
+  "Due [L12] and [report.docx L12].": "Due and.",
+  "A time (1312ms, L22776) with words.": "A time (1312ms) with words.",
+  "The file (contract.docx) is named, and (see doc_contract) has words.": "The file (contract.docx) is named, and (see contract.docx) has words.",
+};
+
 describe("hideCitations", () => {
   it("takes the citations in parentheses out, with the space before them, in English and Hebrew", () => {
-    for (const [written, shown] of HIDDEN) expect(hideCitations(written, NAMES), written).toBe(shown);
+    for (const [written, shown] of HIDDEN) expect(hideCitations(written, NAMES), written).toBe(SHOWN_0_99_14[written] ?? shown);
   });
 
   it("keeps a parenthesis with other words in it, a citation outside parentheses, and an open parenthesis", () => {
-    for (const written of KEPT) expect(hideCitations(written, NAMES), written).toBe(written);
+    for (const written of KEPT) expect(hideCitations(written, NAMES), written).toBe(SHOWN_0_99_14[written] ?? written);
+  });
+
+  it("is the hider of 0.99.12, case for case, with rules: \"0.99.12\"", () => {
+    for (const [written, shown] of HIDDEN) expect(hideCitations(written, NAMES, [], { rules: "0.99.12" }), written).toBe(shown);
+    for (const written of KEPT) expect(hideCitations(written, NAMES, [], { rules: "0.99.12" }), written).toBe(written);
   });
 
   it("takes out the citations of a file name it was not given, when the name has a known extension", () => {
@@ -107,7 +126,9 @@ describe("parentheses of document IDs alone", () => {
 
   it("go: an ID alone, in backticks, or several, says nothing to the user", () => {
     expect(hideCitations("על פי מדיניות משאבי אנוש 2026 (policy-1):", IDS)).toBe("על פי מדיניות משאבי אנוש 2026:");
-    expect(hideCitations("Per (`policy-1`), (policy-1, contract-1) and (policy-1 and contract-1).", IDS)).toBe("Per, and.");
+    // The comma between two groups that go goes with them (0.99.14; 0.99.12 left "Per, and.").
+    expect(hideCitations("Per (`policy-1`), (policy-1, contract-1) and (policy-1 and contract-1).", IDS)).toBe("Per and.");
+    expect(hideCitations("Per (`policy-1`), (policy-1, contract-1) and (policy-1 and contract-1).", IDS, [], { rules: "0.99.12" })).toBe("Per, and.");
     expect(hideCitations("Stored as (64f1a2b3c4d5e6f7a8b9c0d1).", IDS)).toBe("Stored as.");
     expect(hideCitations("**Policy (policy-1)**", IDS)).toBe("**Policy**");
   });
@@ -116,7 +137,9 @@ describe("parentheses of document IDs alone", () => {
     expect(hideCitations("The form (policy-1) applies.", IDS, ["Form policy-1 applies to everyone."])).toBe("The form (policy-1) applies.");
     expect(hideCitations("The file (report.docx) and (report) stay.", { "report.docx": "report.docx", report: "report.docx" })).toBe("The file (report.docx) and (report) stay.");
     expect(hideCitations("Item (7) and (ab) stay.", { "7": "a.docx", ab: "b.docx" })).toBe("Item (7) and (ab) stay.");
-    expect(hideCitations("Not (policy-12), nor (see policy-1).", IDS)).toBe("Not (policy-12), nor (see policy-1).");
+    // An ID among other words: the parenthesis stays, and since 0.99.14 the ID is shown as its file's name.
+    expect(hideCitations("Not (policy-12), nor (see policy-1).", IDS)).toBe("Not (policy-12), nor (see מדיניות משאבי אנוש 2026.docx).");
+    expect(hideCitations("Not (policy-12), nor (see policy-1).", IDS, [], { rules: "0.99.12" })).toBe("Not (policy-12), nor (see policy-1).");
   });
 });
 
@@ -127,20 +150,35 @@ describe("citation forms written in the files (CitationHider.addContent)", () =>
     expect(hideCitations("Herniation at (L4–L5), and (L1) is fine.", NAMES, REPORT)).toBe("Herniation at (L4–L5), and (L1) is fine.");
     expect(hideCitations("Escalate to (L2) or (L3).", NAMES, REPORT)).toBe("Escalate to (L2) or (L3).");
     expect(hideCitations("Enter it on Form 1040 (line 12).", NAMES, REPORT)).toBe("Enter it on Form 1040 (line 12).");
-    // Without the files' text, the same parentheses are citations.
-    expect(hideCitations("Herniation at (L4–L5), and (L1) is fine.", NAMES)).toBe("Herniation at, and is fine.");
+    // Without the files' text, the same parentheses are citations. Right after "at", a place the
+    // answer needs, the 0.99.14 rules put it in words; 0.99.12 took it out.
+    expect(hideCitations("Herniation at (L4–L5), and (L1) is fine.", NAMES)).toBe("Herniation at lines 4–5, and is fine.");
+    expect(hideCitations("Herniation at (L4–L5), and (L1) is fine.", NAMES, [], { rules: "0.99.12" })).toBe("Herniation at, and is fine.");
   });
 
   it("knows a range by itself or by both of its ends, whatever its dash, its case, or its \"L\" before the end", () => {
     for (const written of ["(L4-L5)", "(L4–L5)", "(L4־L5)", "(l4-5)", "(L4)", "(L5)"]) expect(hideCitations(`At ${written}.`, {}, ["Disc L4-L5."]), written).toBe(`At ${written}.`);
     expect(hideCitations("At (L4-L5).", {}, ["Disc L4 and disc L5."])).toBe("At (L4-L5).");
-    expect(hideCitations("At (L4-L6).", {}, ["Disc L4-L5."])).toBe("At.");
+    expect(hideCitations("At (L4-L6).", {}, ["Disc L4-L5."])).toBe("At lines 4–6.");
+    expect(hideCitations("At (L4-L6).", {}, ["Disc L4-L5."], { rules: "0.99.12" })).toBe("At.");
   });
 
   it("matches whole words only: \"XL2\" and \"L20\" in a file do not keep (L2)", () => {
     expect(hideCitations("Tier (L2) here.", {}, ["Sizes XL2 and L20, row L2x, and A-L2B."])).toBe("Tier here.");
     // The form counts: "line 2" in a file does not keep "(L2)", nor "L2" a "(line 2)".
-    expect(hideCitations("At (L2) and (line 2).", {}, ["Read line 2."])).toBe("At and (line 2).");
+    expect(hideCitations("At (L2) and (line 2).", {}, ["Read line 2."])).toBe("At line 2 and (line 2).");
+    expect(hideCitations("At (L2) and (line 2).", {}, ["Read line 2."], { rules: "0.99.12" })).toBe("At and (line 2).");
+  });
+
+  it("does not read the library's own markers as the file's words (0.99.14): \"Row 8:\", \"12|\", headings, page markers", () => {
+    const sheet = ["## Sheet 1: לקוחות\nColumns: | A | B |\nRow 1: | שם | עיר |\nRow 8: | דני כהן | אשדוד |"];
+    expect(hideCitations("דני כהן גר באשדוד (Row 8).", { "customers-1": "לקוחות.xlsx" }, sheet)).toBe("דני כהן גר באשדוד.");
+    // A read result: each line after its number ("40| Row 8: | … |").
+    expect(hideCitations("The total is 40 (Row 8).", {}, ["39| Row 7: | a | 10 |\n40| Row 8: | total | 40 |"])).toBe("The total is 40.");
+    // A word of the file stays: "Row 8" written in a cell.
+    expect(hideCitations("See the note (Row 8).", {}, ["40| Row 3: | note | see Row 8 |"])).toBe("See the note (Row 8).");
+    // 0.99.12 read "Row 8:" as a word of the file, and kept the citation.
+    expect(hideCitations("דני כהן גר באשדוד (Row 8).", { "customers-1": "לקוחות.xlsx" }, sheet, { rules: "0.99.12" })).toBe("דני כהן גר באשדוד (Row 8).");
   });
 
   it("hides a citation that names a file, whatever the files say", () => {
@@ -304,7 +342,8 @@ describe("AskOptions.showCitations", () => {
   it("false: streams, at every piece size, exactly the text of the result, with emphasis, list items and code around citations", async () => {
     const { files, meta } = await noteLibrary();
     const answer = "## The word **(L3)**\n- (notes.md L3)\n- The word is heron (L3).\n**(L4)** The import\nCall `run(L4)` at 02:00 (`notes.md` L4).";
-    const shown = "## The word\n- The word is heron.\nThe import\nCall `run(L4)` at 02:00.";
+    // A list item of nothing but citations is put into words (0.99.14).
+    const shown = "## The word\n- line 3\n- The word is heron.\nThe import\nCall `run(L4)` at 02:00.";
     for (let size = 1; size <= 16; size++) {
       const deltas: string[] = [];
       const result = await askWithFiles({ files, model: streaming(answer, size), documentIds: [meta.id], messages: question("?"), showCitations: false, onText: (delta) => deltas.push(delta) });
@@ -325,7 +364,8 @@ describe("AskOptions.showCitations", () => {
     const log = await files.ingest({ name: "support.log", bytes: utf8(Array.from({ length: 3_000 }, (_, at) => (at === 1_499 ? "2026-11-12 escalated to tier L2 support" : `2026-11-12 line ${at + 1} ok`)).join("\n")) });
     const search = { id: "c1", name: "search_document", args: { document_id: log.id, query: "tier", mode: "exact" } };
     const searched = await askWithFiles({ files, model: fakeModel([calls([search]), says("Escalated to (L2) (support.log L1500), at (L1500).")]), documentIds: [log.id], messages: question("?"), showCitations: false });
-    expect(searched.text).toBe("Escalated to (L2), at.");
+    // Right after "at", the place is put into words (0.99.14).
+    expect(searched.text).toBe("Escalated to (L2), at line 1500.");
   });
 
   it("false: hides a document ID alone, though the frame of a table sent whole names it, and keeps one written in a file", async () => {
@@ -355,7 +395,7 @@ describe("AskOptions.showCitations", () => {
     }), { status: 200, headers: { "Content-Type": "text/event-stream" } });
     const deltas: string[] = [];
     const result = await askGemini({ files, endpoint: geminiApi({ apiKey: "test-key", model: "gemini-test" }), fetch, documentIds: [meta.id], messages: question("?"), showCitations: false, onText: (delta) => deltas.push(delta) });
-    expect(result.text).toBe("## The word\nThe word is heron.");
+    expect(result.text).toBe("## The word\n- line 3\nThe word is heron.");
     expect(deltas.join("")).toBe(result.text);
     expect(result.citations?.cited?.length).toBe(3);
   });
@@ -375,8 +415,8 @@ describe("AskOptions.showCitations", () => {
     const texts: string[] = [];
     for await (const event of run as AsyncIterable<AskEvent>) if (event.type === "text") texts.push(event.delta);
     const result = await run.result;
-    expect(texts.join("")).toBe("Checking.\n\n51 errors, the first at.");
-    expect(result.text).toBe("Checking.\n\n51 errors, the first at.");
+    expect(texts.join("")).toBe("Checking.\n\n51 errors, the first at line 97.");
+    expect(result.text).toBe("Checking.\n\n51 errors, the first at line 97.");
     expect(result.citations?.cited?.map((one) => [one.from, one.status])).toEqual([[1, "unsupported"], [97, "supported"]]);
   });
 
