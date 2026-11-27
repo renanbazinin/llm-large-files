@@ -571,7 +571,7 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
     const big = await upload(url, "a.txt", "x".repeat(5_000));
     expect(big.status).toBe(413);
     expect(big.headers.get("content-type")).toBe("application/json; charset=utf-8");
-    expect(await big.json()).toEqual({ error: "The file is larger than the 1000 B upload limit." });
+    expect(await big.json()).toEqual({ error: "The file is larger than the 1000 B upload limit.", code: "too_large", category: "ingest" });
     const unnamed = await fetch(url, { method: "POST", headers: { Accept: "text/event-stream" }, body: "x" });
     expect(unnamed.status).toBe(400);
     expect(((await unnamed.json()) as { error: string }).error).toMatch(/X-File-Name/);
@@ -586,7 +586,7 @@ describe("createDocumentHandlers().upload with Accept: text/event-stream", () =>
     const refusedUrl = await serve((request, response) => void documents.upload(request, response));
     const refused = await upload(refusedUrl, "a.txt", "notes");
     expect(refused.status).toBe(401);
-    expect(await refused.json()).toEqual({ error: "Sign in again." });
+    expect(await refused.json()).toEqual({ error: "Sign in again.", category: "unknown" });
   });
 
   it("answers with a 201 and JSON, as before, without the header", async () => {

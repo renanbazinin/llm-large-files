@@ -221,5 +221,10 @@ export function markdown(results: Results, cases: EvalCase[], lost?: LostFact[])
     lines.push("", "## Why cases fail on 0.9.0", "");
     for (const one of known) lines.push(`- **${one.id}**: ${one.failsOn090}`);
   }
+  const knownOnModel = cases.filter((one) => one.failsOn && Object.keys(one.failsOn).length);
+  if (knownOnModel.length) {
+    lines.push("", "## Known to fail on a model", "");
+    for (const one of knownOnModel) for (const [model, why] of Object.entries(one.failsOn!)) lines.push(`- **${one.id}** on ${model}: ${why}`);
+  }
   return `${lines.join("\n")}\n`;
 }

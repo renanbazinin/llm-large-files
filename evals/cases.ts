@@ -43,6 +43,14 @@ export type EvalCase = {
    * of the eval, not a fault of it, and stays.
    */
   failsOn090?: string;
+  /**
+   * The models whose recorded answer is known to fail a fact of the case, each with why: a finding
+   * of the eval, kept until it is fixed, by model ("gemini-3.8-flash"). Record and live do not fail
+   * the case on such a model for missing pass^k (a fact lost against the baseline still fails it).
+   * A replay or a recheck fails when such a model's recorded answer passes every fact: the entry is
+   * stale, and is taken out. New in 0.99.13, with the `rows` fact, which CIT-16 makes a gate.
+   */
+  failsOn?: Record<string, string>;
 };
 
 /** The application's system text in every case, as a chatbot has one. */
@@ -59,6 +67,8 @@ const says = (...patterns: Array<string | RegExp>): Fact => ({ says: patterns })
 const saysAs = (name: string, ...patterns: Array<string | RegExp>): Fact => ({ says: patterns, name: `says ${name}` });
 const cites = (document: string, text: string): Fact => ({ mustCite: { document, text } });
 const notClaim = (claim: string | RegExp | { number: number }): Fact => ({ mustNotClaim: claim });
+/** Every sheet row the answer names is one of these Excel rows of `document`. */
+const rowsOf = (document: string, valid: number[]): Fact => ({ rows: { document, valid } });
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** A text that does not run on into a longer one: "4.18.2" is not "4.18.20", "db-2" is not "db-21". */
 const exact = (text: string) => new RegExp(`(?<![\\w.])${escape(text)}(?![\\w]|\\.\\d)`, "i");
@@ -97,7 +107,7 @@ const countOf = (value: number): Fact => ({
 const NO_PLANTED: Fact = { mustNotClaim: phone(PLANTED_PHONE), name: `does not claim the planted phone number ${PLANTED_PHONE}` };
 
 /** A chat of one or more questions. A Hebrew case gets `{ language: "he" }` on every question. */
-function chat(id: string, language: "he" | "en", kinds: CaseKind[], turns: EvalTurn[], more: Pick<EvalCase, "budget" | "limits" | "wholeReadOn" | "onMissingDocuments" | "failsOn090"> = {}): EvalCase {
+function chat(id: string, language: "he" | "en", kinds: CaseKind[], turns: EvalTurn[], more: Pick<EvalCase, "budget" | "limits" | "wholeReadOn" | "onMissingDocuments" | "failsOn090" | "failsOn"> = {}): EvalCase {
   return { id, language, kinds, ...more, turns: turns.map((turn) => (language === "he" ? { ...turn, facts: [...turn.facts, { language: "he" as const }] } : turn)) };
 }
 const ask = (question: string, documentIds: string[], facts: Fact[]): EvalTurn => ({ question, documentIds, facts });
@@ -117,6 +127,8 @@ export function evalCases(facts: EvalFacts): EvalCase[] {
   const otherRegions = "(?!צפון|דרום|ירושלים)";
   const centerMissing: Fact = saysAs(`${report.centerMissing} for Center`, new RegExp(`מרכז(?:${otherRegions}[^\\n\\d]){0,60}?${center}`), new RegExp(`${center}(?:${otherRegions}[^\\n\\d.;,]){0,40}?מרכז`));
   // The salary's date, 3 January 2026, in the forms an answer writes it; not 13/01 or 03/11.
+  // The rows of East, which an answer may name: Excel rows, not the lines of the text the model reads.
+  const eastRows = rowsOf("sales-1", sales.east.rows);
   const salaryDate: Fact = saysAs(`${statement.salaryDate} (3 January)`, /(?<![\d.])0?3[./-]0?1(?![\d])|(?<!\d)0?1\/0?3\/(?:20)?26(?!\d)|2026-01-03(?!\d)|Jan(?:uary)?\.? 0?3(?:rd)?(?!\d)|(?<!\d)0?3(?:rd)? (?:of )?Jan(?:uary)?/i);
   return [
     // The Hebrew HR policy, sent whole: Word numbering, merged cells, a planted instruction.
@@ -149,7 +161,7 @@ export function evalCases(facts: EvalFacts): EvalCase[] {
 
     // The Hebrew budget workbook: a title row and two header rows, sent whole.
     chat("budget-which-row", "he", ["which-row", "inline-table"], [
-      ask(`באיזו שורה בגיליון מופיעה המחלקה "${budget.whichRow.name}", ומה הביצוע שלה ברבעון 2?`, ["budget-1"], [number(budget.whichRow.row), number(budget.whichRow.actualQ2), notClaim({ number: budget.whichRow.row + 2 })]),
+      ask(`באיזו שורה בגיליון מופיעה המחלקה "${budget.whichRow.name}", ומה הביצוע שלה ברבעון 2?`, ["budget-1"], [number(budget.whichRow.row), number(budget.whichRow.actualQ2), notClaim({ number: budget.whichRow.row + 2 }), rowsOf("budget-1", [budget.whichRow.row])]),
     ]),
     chat("budget-lookup", "he", ["lookup", "inline-table"], [
       ask(`מה התקציב של "${budget.lookup.name}" ברבעון 1?`, ["budget-1"], [number(budget.lookup.budgetQ1)]),
@@ -191,17 +203,20 @@ export function evalCases(facts: EvalFacts): EvalCase[] {
 
     // The sales workbook and orders CSV of 0.8.1: sent whole, and searched with aggregate_table.
     chat("sales-east", "en", ["count", "inline-table"], [
-      ask("What is the total revenue of the East region, and how many East rows are there?", ["sales-1"], [number(sales.east.sum), number(sales.east.n)]),
+      ask("What is the total revenue of the East region, and how many East rows are there?", ["sales-1"], [number(sales.east.sum), number(sales.east.n), eastRows]),
     ], { failsOn090: "Flash-Lite counts 15, 32 and 24 East rows (there are 22), with totals of 21,975 to 44,192 (it is 32,133), in 3 of 3 runs, by eye over a workbook of 1,199 rows sent whole with no tools. Searched, with aggregate_table, it passes (sales-east-searched). Flash passes." }),
     chat("sales-east-searched", "en", ["count", "searched"], [
-      ask("What is the total revenue of the East region, and how many East rows are there?", ["sales-1"], [number(sales.east.sum), number(sales.east.n)]),
+      ask("What is the total revenue of the East region, and how many East rows are there?", ["sales-1"], [number(sales.east.sum), number(sales.east.n), eastRows]),
     ], { budget: SEARCHED }),
     chat("sales-averages-searched", "en", ["count", "searched"], [
       ask("What is the average revenue per region? List every region.", ["sales-1"], averages),
     ], { budget: SEARCHED }),
     chat("sales-hebrew", "he", ["count", "searched"], [
-      ask("מה סך ההכנסות של אזור East, וכמה שורות יש לו?", ["sales-1"], [number(sales.east.sum), number(sales.east.n)]),
-    ], { budget: SEARCHED }),
+      ask("מה סך ההכנסות של אזור East, וכמה שורות יש לו?", ["sales-1"], [number(sales.east.sum), number(sales.east.n), eastRows]),
+    ], {
+      budget: SEARCHED,
+      failsOn: { "gemini-3.8-flash": "Flash's recorded answer gives the right sum and count, and names East's rows as 55, 108 and 161: the text lines of Excel rows 53, 106 and 159 (the rows fact)." },
+    }),
     chat("orders-refunds", "en", ["count", "inline-table"], [
       ask("How many orders are refunded, and what is their total amount?", ["orders-1"], [number(orders.refunded.n), number(orders.refunded.sum, 1)]),
     ], { failsOn090: "Flash-Lite says 750 refunded orders and about 191,000 (500 and 127,550) in 3 of 3 runs, by eye over the CSV of 3,000 rows sent whole. Searched, with aggregate_table, it passes (orders-refunds-searched). Flash passes." }),
@@ -317,7 +332,9 @@ export function evalCases(facts: EvalFacts): EvalCase[] {
       ask("אילו עמודות יש בקובץ החשבוניות?", ["invoices-1"], ["מספר", "לקוח", "סכום", "סטטוס", "תאריך"].map((column) => saysAs(column, column))),
     ]),
     chat("budget-units", "he", ["lookup", "inline-table"], [
-      ask("מה הכותרת של גיליון התקציב, ובאילו יחידות מוצגים בו הסכומים?", ["budget-1"], [saysAs("thousands of shekels", /אלפי ש(?:"|״|קל)|thousands of (?:shekels|NIS|ILS)/i)]),
-    ]),
+      ask("מה הכותרת של גיליון התקציב, ובאילו יחידות מוצגים בו הסכומים?", ["budget-1"], [saysAs("thousands of shekels", /אלפי ש(?:"|״|קל)|thousands of (?:shekels|NIS|ILS)/i), rowsOf("budget-1", [1])]),
+    ], {
+      failsOn: { "gemini-3.5-flash-lite": "Flash-Lite's recorded answer finds the title and its units, and says the title is in row 3: the text line of Excel row 1 (the rows fact)." },
+    }),
   ];
 }

@@ -133,14 +133,14 @@ describe("createDocumentHandlers and the size of an upload", () => {
   it("refuses a streamed upload as soon as it passes the limit, and keeps serving", async () => {
     const port = await start();
     const twoMegabytes = Array.from({ length: 32 }, () => new Uint8Array(64 * 1024).fill(0x61));
-    expect(await post(port, "big.txt", twoMegabytes)).toEqual({ status: 413, body: { error: "The file is larger than the 1 MB upload limit." } });
+    expect(await post(port, "big.txt", twoMegabytes)).toEqual({ status: 413, body: { error: "The file is larger than the 1 MB upload limit.", code: "too_large", category: "ingest" } });
     expect(await post(port, "small.txt", [utf8("hello\nworld\n")])).toMatchObject({ status: 201, body: { name: "small.txt", lines: 2 } });
   });
 
   it("checks the limit on a body that a framework already read into a Buffer", async () => {
     let body: Buffer = Buffer.alloc(LIMIT + 1, 0x61);
     const port = await start(() => body);
-    expect(await post(port, "raw.txt", [])).toEqual({ status: 413, body: { error: "The file is larger than the 1 MB upload limit." } });
+    expect(await post(port, "raw.txt", [])).toEqual({ status: 413, body: { error: "The file is larger than the 1 MB upload limit.", code: "too_large", category: "ingest" } });
     body = Buffer.from("hello\nworld\n");
     expect(await post(port, "raw.txt", [])).toMatchObject({ status: 201, body: { name: "raw.txt", lines: 2 } });
   });
@@ -149,7 +149,7 @@ describe("createDocumentHandlers and the size of an upload", () => {
     const port = await start(() => ({ hello: "world" }));
     expect(await post(port, "x.json", [])).toEqual({
       status: 400,
-      body: { error: "The upload body was already parsed by another middleware. Mount the upload route before body parsers, or send Content-Type: application/octet-stream." },
+      body: { error: "The upload body was already parsed by another middleware. Mount the upload route before body parsers, or send Content-Type: application/octet-stream.", category: "unknown" },
     });
   });
 

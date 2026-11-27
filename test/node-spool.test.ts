@@ -119,7 +119,7 @@ async function uploadAfterHold(base: string, name: string, body: string): Promis
   for (let attempt = 1; ; attempt++) {
     const answer = await upload(base, name, body);
     const text = await answer.text();
-    if (attempt < 3 && answer.status === 503 && text === JSON.stringify({ error: "Upload failed (ETIMEDOUT)." })) continue;
+    if (attempt < 3 && answer.status === 503 && text === JSON.stringify({ error: "Upload failed (ETIMEDOUT).", code: "ETIMEDOUT", category: "unknown", retryAfterMs: 5000 })) continue;
     return { status: answer.status, body: text };
   }
 }
@@ -297,7 +297,7 @@ describe("uploadSpool", () => {
     const full = await upload(base, "notes.txt", "x".repeat(500));
     expect(full.status).toBe(503);
     expect(full.headers.get("retry-after")).toBe("30");
-    expect(await full.json()).toEqual({ error: "The server has no room for this file right now. Try again later." });
+    expect(await full.json()).toEqual({ error: "The server has no room for this file right now. Try again later.", code: "busy", category: "ingest", retryAfterMs: 30000 });
     expect(await spooled()).toEqual([]);
     disk.fullUnder = undefined;
     expect((await upload(base, "notes.txt", "x".repeat(500))).status).toBe(201);
@@ -320,7 +320,7 @@ describe("uploadSpool", () => {
         // A 503, to try again, since 0.10.0 (a 500 before).
         expect(hung.status).toBe(503);
         const body = hung instanceof Response ? await hung.text() : hung.body;
-        expect(body).toBe(JSON.stringify({ error: "Upload failed (ETIMEDOUT)." }));
+        expect(body).toBe(JSON.stringify({ error: "Upload failed (ETIMEDOUT).", code: "ETIMEDOUT", category: "unknown", retryAfterMs: 5000 }));
         // Its room is back: another upload of 800 bytes is taken.
         expect(await uploadAfterHold(base, "next.txt", "y".repeat(800))).toMatchObject({ status: 201 });
         // The file is removed at once, or once the call that hung ends (an opening that made it late).
@@ -349,7 +349,7 @@ describe("uploadSpool", () => {
       disk.hold = undefined;
       disk.removalsHeld = undefined;
       expect(full.status).toBe(503);
-      expect(await full.json()).toEqual({ error: "The server has no room for this file right now. Try again later." });
+      expect(await full.json()).toEqual({ error: "The server has no room for this file right now. Try again later.", code: "busy", category: "ingest", retryAfterMs: 30000 });
       // Its room is back: another upload of 800 bytes is taken.
       expect(await uploadAfterHold(base, "next.txt", "y".repeat(800))).toMatchObject({ status: 201 });
       // The file is removed at once, or once the call that hung ends.
@@ -414,7 +414,7 @@ describe("uploadSpool", () => {
     const refused = await upload(base, "held-2.txt", "x".repeat(600));
     expect(refused.status).toBe(503);
     expect(refused.headers.get("retry-after")).toBe("5");
-    expect(await refused.json()).toEqual({ error: "The server is receiving other files right now. Try again in a moment." });
+    expect(await refused.json()).toEqual({ error: "The server is receiving other files right now. Try again in a moment.", code: "busy", category: "ingest", retryAfterMs: 5000 });
     // A body held in memory counts in maxPendingUploadBytes only.
     const small = upload(base, "held-small.txt", "x".repeat(90));
     await expect.poll(() => state.running).toBe(2);
@@ -454,7 +454,7 @@ describe("uploadSpool", () => {
     // A spool folder that is gone: answered with the code only.
     const gone = await serve(files, { uploadSpool: { directory: path.join(spool, "gone"), minBytes: 0 } });
     const missing = await (await upload(gone, "notes.txt", "Notes.")).text();
-    expect(missing).toBe(JSON.stringify({ error: "Upload failed (ENOENT)." }));
+    expect(missing).toBe(JSON.stringify({ error: "Upload failed (ENOENT).", code: "ENOENT", category: "unknown" }));
     const model = fakeModel([says("On Tuesday.")]);
     await askWithFiles({ files, model, documentIds: [small.id, largeId], messages: [{ role: "user", text: "When is the meeting?" }] });
     const sent = JSON.stringify(model.requests);

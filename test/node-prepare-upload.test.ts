@@ -300,7 +300,7 @@ describe("prepareUpload with a path", () => {
         const response = await upload(base, "notes.txt", "Someone else's words.", {}, events);
         // Answered before the stream starts, with the ID's code.
         expect(response.status).toBe(409);
-        expect(await response.json()).toEqual({ error: "A file is already saved for this upload." });
+        expect(await response.json()).toEqual({ error: "A file is already saved for this upload.", category: "unknown" });
       }
     }
     expect(await readFile(there, "utf8")).toBe("mine");
@@ -372,7 +372,7 @@ describe("prepareUpload with a path", () => {
     const full = await upload(base, "notes.txt", "x".repeat(300));
     expect(full.status).toBe(503);
     expect(full.headers.get("retry-after")).toBe("30");
-    expect(await full.json()).toEqual({ error: "The server has no room for this file right now. Try again later." });
+    expect(await full.json()).toEqual({ error: "The server has no room for this file right now. Try again later.", code: "busy", category: "ingest", retryAfterMs: 30000 });
     expect(await uploads()).toEqual(kept);
   });
 
@@ -389,7 +389,7 @@ describe("prepareUpload with a path", () => {
     const base = await serve(files, options);
     const json = await upload(base, "notes.txt", "The meeting is on Tuesday.");
     expect(json.status).toBe(409);
-    expect(await json.json()).toEqual({ error: "This chat has too many files." });
+    expect(await json.json()).toEqual({ error: "This chat has too many files.", category: "unknown" });
     const streamed = await (await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, true)).text();
     expect(streamed).toContain('"type":"ingest.error"');
     expect(streamed).toContain("This chat has too many files.");
@@ -461,7 +461,7 @@ describe("prepareUpload with a path", () => {
       prepared = wrong;
       const response = await upload(base, "notes.txt", "Wrong.");
       expect(response.status).toBe(500);
-      expect(await response.json()).toEqual({ error: "Upload failed." });
+      expect(await response.json()).toEqual({ error: "Upload failed.", category: "input" });
     }
     expect(ingest).not.toHaveBeenCalled();
     expect(await uploads()).toEqual(before);
@@ -475,7 +475,7 @@ describe("prepareUpload with a path", () => {
     });
     const refused = await upload(refusing, "notes.txt", "Refused.");
     expect(refused.status).toBe(403);
-    expect(await refused.json()).toEqual({ error: "This chat has too many files." });
+    expect(await refused.json()).toEqual({ error: "This chat has too many files.", category: "unknown" });
     // Checked when the handlers are made.
     expect(() => createDocumentHandlers(files, { getOwner: userOf, getScope: scopeOf, prepareUpload: "uploads" as never })).toThrow("prepareUpload must be a function, and is string.");
     expect(() => createDocumentHandlers(files, { getOwner: userOf, getScope: scopeOf, uploadFileMode: 0o1000 })).toThrow("uploadFileMode must be a file mode from 0 to 0o777, such as 0o640.");
@@ -488,7 +488,7 @@ describe("prepareUpload with a path", () => {
     const base = await serve(files, options);
     const response = await upload(base, "report.pdf", numberedPdf(1));
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "Upload failed." });
+    expect(await response.json()).toEqual({ error: "Upload failed.", category: "input" });
     expect(writes(path.join(root, "alice", "chat-1", "uploads", "up-1"))).toHaveLength(1);
     expect(await uploads()).toEqual([]);
   });
@@ -506,7 +506,7 @@ describe("prepareUpload with a path", () => {
       // A 503, to try again, since 0.10.0 (a 500 before).
       expect(response.status).toBe(503);
       expect(response.headers.get("retry-after")).toBe("5");
-      expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT)." });
+      expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT).", code: "ETIMEDOUT", category: "unknown", retryAfterMs: 5000 });
     }
     expect(writes(saved("up-1"))).toHaveLength(1);
     expect(writes(saved("up-2"))).toHaveLength(1);
@@ -528,7 +528,7 @@ describe("prepareUpload with a path", () => {
       // Answered before the event stream starts: JSON on both paths.
       const response = await upload(base, "notes.txt", "The meeting is on Tuesday.", {}, events, AbortSignal.timeout(10_000));
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT)." });
+      expect(await response.json()).toEqual({ error: "Upload failed (ETIMEDOUT).", code: "ETIMEDOUT", category: "unknown", retryAfterMs: 5000 });
     }
     expect(disk.opens.filter((entry) => entry.flags === "wx")).toEqual([]);
     expect(await uploads()).toEqual([]);
@@ -581,7 +581,7 @@ describe("prepareUpload with a path", () => {
       } else {
         expect(blank.status).toBe(422);
         expect(refused.status).toBe(409);
-        expect(await refused.json()).toEqual({ error: "This chat has too many files." });
+        expect(await refused.json()).toEqual({ error: "This chat has too many files.", category: "unknown" });
       }
     }
     // The document of a refused upload is deleted all the same.
@@ -616,7 +616,7 @@ describe("prepareUpload with a path", () => {
         for (const events of [false, true]) {
           const response = await upload(base, "report.pdf", numberedPdf(1), { "X-Chat": chatId }, events);
           expect(response.status).toBe(500);
-          expect(await response.json()).toEqual({ error: "Upload failed (ELOOP)." });
+          expect(await response.json()).toEqual({ error: "Upload failed (ELOOP).", code: "ELOOP", category: "unknown" });
         }
       }
       expect(disk.opens.filter((entry) => entry.flags === "wx")).toEqual([]);
@@ -673,7 +673,7 @@ describe("prepareUpload with a path", () => {
     const base = await serve(files, { getOwner: userOf, getScope: scopeOf, prepareUpload: (_request, info) => ({ path: path.join(root, ...info.scope!, "gone", "up-1") }) });
     const response = await upload(base, "notes.txt", "Notes.");
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "Upload failed (ENOENT)." });
+    expect(await response.json()).toEqual({ error: "Upload failed (ENOENT).", code: "ENOENT", category: "unknown" });
     expect(await exists(path.join(root, "alice", "chat-1", "gone"))).toBe(false);
   });
 });
@@ -792,7 +792,7 @@ describe("what leaves the server", () => {
     for (const text of [small, large, pdf, failed, streamedFailure, sent]) {
       for (const secret of [root, "llf-saved-root-", "uploads/up-", "uploads\\\\up-", "nowhere"]) expect(text).not.toContain(secret);
     }
-    expect(failed).toBe(JSON.stringify({ error: "Upload failed (ENOENT)." }));
+    expect(failed).toBe(JSON.stringify({ error: "Upload failed (ENOENT).", code: "ENOENT", category: "unknown" }));
   });
 });
 
@@ -805,6 +805,6 @@ describe("prepareUpload without a path", () => {
     expect(await first.json()).toMatchObject({ id: "chat-file-1" });
     const again = await upload(base, "notes.txt", "Notes.");
     expect(again.status).toBe(409);
-    expect(await again.json()).toEqual({ error: "notes.txt: a document with this ID already exists." });
+    expect(await again.json()).toEqual({ error: "notes.txt: a document with this ID already exists.", code: "exists", category: "ingest" });
   });
 });

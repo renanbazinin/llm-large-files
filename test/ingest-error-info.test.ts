@@ -144,7 +144,7 @@ describe("an ingest from a path that is not a file the library reads", () => {
     const json = await fetch(base, { method: "POST", headers: { "X-File-Name": "upload.txt" }, body: "x" });
     expect(json.status).toBe(500);
     const answer = await json.text();
-    expect(JSON.parse(answer)).toEqual({ error: "Upload failed (ELOOP)." });
+    expect(JSON.parse(answer)).toEqual({ error: "Upload failed (ELOOP).", code: "ELOOP", category: "unknown" });
     const stream = await (await fetch(base, { method: "POST", headers: { "X-File-Name": "upload.txt", Accept: "text/event-stream" }, body: "x" })).text();
     const data = stream.split("\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)) as { type: string; error?: EventError });
     const error = data.find((event) => event.type === "ingest.error")?.error;
@@ -176,7 +176,7 @@ describe("an extractor of your own that fails with a host in a system error's co
     const json = await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf" }, body: "%PDF-1.4 hello" });
     expect(json.status).toBe(500);
     const answer = await json.text();
-    expect(JSON.parse(answer)).toEqual({ error: "Upload failed." });
+    expect(JSON.parse(answer)).toEqual({ error: "Upload failed.", category: "unknown" });
     const stream = await (await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf", Accept: "text/event-stream" }, body: "%PDF-1.4 hello" })).text();
     expectNoPath(event, errorInfoOf(thrown), errorInfoOf(event), uploadAnswerOf(thrown), answer, stream);
   });

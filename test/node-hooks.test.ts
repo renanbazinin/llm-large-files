@@ -166,7 +166,7 @@ describe("onUploaded", () => {
     });
     const refused = await upload(base, asUser("alice"));
     expect(refused.status).toBe(409);
-    expect(await refused.json()).toEqual({ error: "This chat has too many files." });
+    expect(await refused.json()).toEqual({ error: "This chat has too many files.", category: "unknown" });
     expect(await files.getMeta(stored[0]!, { owner: "alice" })).toBeUndefined();
 
     const streamed = parse(await (await upload(base, asUser("alice"), "notes", true)).text());
@@ -178,7 +178,7 @@ describe("onUploaded", () => {
     thrown = new Error("MongoServerSelectionError: connect ECONNREFUSED mongo-prod.internal.corp:27017");
     const failed = await upload(base, asUser("alice"));
     expect(failed.status).toBe(500);
-    expect(await failed.text()).toBe(JSON.stringify({ error: "Upload failed." }));
+    expect(await failed.text()).toBe(JSON.stringify({ error: "Upload failed.", category: "unknown" }));
     expect(await files.getMeta(stored[2]!, { owner: "alice" })).toBeUndefined();
     const failedEvents = await (await upload(base, asUser("alice"), "notes", true)).text();
     expect(failedEvents).not.toContain("mongo-prod");
@@ -201,7 +201,7 @@ describe("onUploaded", () => {
     });
     const response = await upload(base, {});
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: "This chat has too many files." });
+    expect(await response.json()).toEqual({ error: "This chat has too many files.", category: "unknown" });
   });
 
   it("fails the upload, and deletes the document, for an answer that is not a plain object JSON can hold", async () => {
@@ -217,7 +217,7 @@ describe("onUploaded", () => {
     for (const _ of answers) {
       const response = await upload(base, {});
       expect(response.status).toBe(500);
-      expect(await response.json()).toEqual({ error: "Upload failed." });
+      expect(await response.json()).toEqual({ error: "Upload failed.", category: "input" });
     }
     for (const id of stored) expect(await files.getMeta(id)).toBeUndefined();
     // What a database returns, without an `answer`, adds nothing and fails nothing.
@@ -365,7 +365,7 @@ describe("onRemoved", () => {
     const { id } = (await (await upload(base, {})).json()) as { id: string };
     const response = await fetch(`${base}/${id}`, { method: "DELETE" });
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: "The chat record could not be updated." });
+    expect(await response.json()).toEqual({ error: "The chat record could not be updated.", category: "unknown" });
     expect(await files.getMeta(id)).toBeUndefined();
   });
 });
@@ -409,12 +409,12 @@ describe("requireOwner and requireScope in the handlers", () => {
       client.on("error", (error) => (client.destroyed ? undefined : reject(error)));
       client.write("The first piece of a body that never ends.");
     });
-    expect(answer).toEqual({ status: 401, body: JSON.stringify({ error: "Sign in first." }) });
+    expect(answer).toEqual({ status: 401, body: JSON.stringify({ error: "Sign in first.", category: "unknown" }) });
     expect(ingest).not.toHaveBeenCalled();
     for (const method of ["GET", "DELETE"]) {
       const refused = await fetch(`${base}/doc_0123456789abcdef0123456789abcdef`, { method });
       expect(refused.status).toBe(401);
-      expect(await refused.json()).toEqual({ error: "Sign in first." });
+      expect(await refused.json()).toEqual({ error: "Sign in first.", category: "unknown" });
     }
     expect((await upload(base, asUser("alice"))).status).toBe(201);
   });
@@ -427,16 +427,16 @@ describe("requireOwner and requireScope in the handlers", () => {
     const base = await serve({ ...files, ingest }, { getOwner: () => null as unknown as string });
     const refused = await upload(base, {});
     expect(refused.status).toBe(401);
-    expect(await refused.json()).toEqual({ error: "Sign in first." });
+    expect(await refused.json()).toEqual({ error: "Sign in first.", category: "unknown" });
     for (const method of ["GET", "DELETE"]) {
       const other = await fetch(`${base}/doc_0123456789abcdef0123456789abcdef`, { method });
       expect(other.status).toBe(401);
-      expect(await other.json()).toEqual({ error: "Sign in first." });
+      expect(await other.json()).toEqual({ error: "Sign in first.", category: "unknown" });
     }
     expect(ingest).not.toHaveBeenCalled();
     // An empty owner is still the server's mistake, as without requireOwner.
     const empty = await serve(files, { getOwner: () => "" });
-    expect(await (await upload(empty, {})).json()).toEqual({ error: "Upload failed (empty owner)." });
+    expect(await (await upload(empty, {})).json()).toEqual({ error: "Upload failed (empty owner).", category: "unknown" });
   });
 
   // An owner of "" (`req.user?.id ?? ""`) is refused by the library's checkOwner: the upload said
@@ -462,18 +462,18 @@ describe("requireOwner and requireScope in the handlers", () => {
     for (const empty of ["", "   "]) {
       owner = empty;
       expect(await answers(), JSON.stringify(empty)).toEqual([
-        [500, { error: "Upload failed (empty owner)." }],
-        [500, { error: "The file could not be looked up (empty owner)." }],
-        [500, { error: "The file could not be deleted (empty owner)." }],
+        [500, { error: "Upload failed (empty owner).", category: "unknown" }],
+        [500, { error: "The file could not be looked up (empty owner).", category: "unknown" }],
+        [500, { error: "The file could not be deleted (empty owner).", category: "unknown" }],
       ]);
     }
     owner = "alice";
     for (const empty of ["", [""], []]) {
       scope = empty;
       expect(await answers(), JSON.stringify(empty)).toEqual([
-        [500, { error: "Upload failed (invalid scope)." }],
-        [500, { error: "The file could not be looked up (invalid scope)." }],
-        [500, { error: "The file could not be deleted (invalid scope)." }],
+        [500, { error: "Upload failed (invalid scope).", category: "unknown" }],
+        [500, { error: "The file could not be looked up (invalid scope).", category: "unknown" }],
+        [500, { error: "The file could not be deleted (invalid scope).", category: "unknown" }],
       ]);
     }
     expect(reached).toEqual([]);
@@ -529,13 +529,13 @@ describe("getScope", () => {
     const base = await serve({ ...files, ingest }, { getScope: () => scope as DocumentScope });
     const invalid = await upload(base, {});
     expect(invalid.status).toBe(500);
-    expect(await invalid.json()).toEqual({ error: "Upload failed (invalid scope)." });
-    expect(await (await fetch(`${base}/doc_0123456789abcdef0123456789abcdef`)).json()).toEqual({ error: "The file could not be looked up (invalid scope)." });
-    expect(await (await fetch(`${base}/doc_0123456789abcdef0123456789abcdef`, { method: "DELETE" })).json()).toEqual({ error: "The file could not be deleted (invalid scope)." });
+    expect(await invalid.json()).toEqual({ error: "Upload failed (invalid scope).", category: "unknown" });
+    expect(await (await fetch(`${base}/doc_0123456789abcdef0123456789abcdef`)).json()).toEqual({ error: "The file could not be looked up (invalid scope).", category: "unknown" });
+    expect(await (await fetch(`${base}/doc_0123456789abcdef0123456789abcdef`, { method: "DELETE" })).json()).toEqual({ error: "The file could not be deleted (invalid scope).", category: "unknown" });
     scope = undefined;
     const none = await upload(base, {});
     expect(none.status).toBe(500);
-    expect(await none.json()).toEqual({ error: "Upload failed (no scope)." });
+    expect(await none.json()).toEqual({ error: "Upload failed (no scope).", category: "unknown" });
     scope = ["alice", "c1"];
     expect((await upload(base, {})).status).toBe(201);
     expect(ingest).toHaveBeenCalledTimes(1);
@@ -548,7 +548,7 @@ describe("getScope", () => {
       const base = await serve(files, { getOwner: userOf, getScope: scopeOf });
       const gone = await upload(base, asUser("alice", "c1"));
       expect(gone.status).toBe(404);
-      expect(await gone.json()).toEqual({ error: "This chat no longer exists." });
+      expect(await gone.json()).toEqual({ error: "This chat no longer exists.", code: "scope_missing", category: "missing" });
       expect(parse(await (await upload(base, asUser("alice", "c1"), "notes", true)).text()).at(-1)).toMatchObject({
         event: "ingest.error",
         data: { error: { message: "This chat no longer exists.", status: 404 } },
@@ -574,7 +574,7 @@ describe("errors as the upload answers them (S12)", () => {
     const response = await upload(base, {});
     expect(response.status).toBe(500);
     const body = await response.text();
-    expect(body).toBe(JSON.stringify({ error: "Upload failed." }));
+    expect(body).toBe(JSON.stringify({ error: "Upload failed.", category: "unknown" }));
     const events = await (await upload(base, {}, "notes", true)).text();
     expect(events).not.toContain("mongo-prod");
     expect(parse(events).at(-1)).toMatchObject({ event: "ingest.error", data: { error: { message: "Upload failed.", status: 500 } } });
@@ -613,9 +613,9 @@ describe("errors as the upload answers them (S12)", () => {
       const response = await upload(base, {});
       return { status: response.status, body: await response.json() };
     };
-    expect(await answer()).toEqual({ status: 422, body: { error: "report.docx is protected by a password." } });
+    expect(await answer()).toEqual({ status: 422, body: { error: "report.docx is protected by a password.", code: "encrypted", category: "ingest" } });
     thrown = new other.IngestError("no_text", "scan.pdf has no text layer.");
-    expect(await answer()).toEqual({ status: 422, body: { error: "scan.pdf has no text layer." } });
+    expect(await answer()).toEqual({ status: 422, body: { error: "scan.pdf has no text layer.", code: "no_text", category: "ingest" } });
   });
 
   // An "unreadable" file has the words of a parser, or of an extractor of your own, which may name
@@ -629,7 +629,7 @@ describe("errors as the upload answers them (S12)", () => {
     const unreadable = "This file could not be read. It may be damaged, or not of the type its name says.";
     const response = await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf" }, body: "%PDF-1.4 hello" });
     expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: unreadable });
+    expect(await response.json()).toEqual({ error: unreadable, code: "unreadable", category: "ingest" });
     const events = await (await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf", Accept: "text/event-stream" }, body: "%PDF-1.4 hello" })).text();
     expect(events).not.toContain("ocr-prod");
     expect(parse(events).at(-1)).toMatchObject({ event: "ingest.error", data: { error: { message: unreadable, status: 422, code: "unreadable" } } });
@@ -647,11 +647,11 @@ describe("errors as the upload answers them (S12)", () => {
       const response = await fetch(base, { method: "POST", headers: { "X-File-Name": "scan.pdf" }, body: "%PDF-1.4 hello" });
       return { status: response.status, body: await response.json() };
     };
-    expect(await answer()).toEqual({ status: 422, body: { error: "scan.pdf is protected by a password." } });
+    expect(await answer()).toEqual({ status: 422, body: { error: "scan.pdf is protected by a password.", code: "encrypted", category: "ingest" } });
     thrown = new Error("The OCR service could not read scan.pdf.");
-    expect(await answer()).toEqual({ status: 422, body: { error: "This file could not be read. It may be damaged, or not of the type its name says." } });
+    expect(await answer()).toEqual({ status: 422, body: { error: "This file could not be read. It may be damaged, or not of the type its name says.", code: "unreadable", category: "ingest" } });
     thrown = new IngestError("no_text", "The OCR service found no text in scan.pdf.");
-    expect(await answer()).toEqual({ status: 422, body: { error: "The OCR service found no text in scan.pdf." } });
+    expect(await answer()).toEqual({ status: 422, body: { error: "The OCR service found no text in scan.pdf.", code: "no_text", category: "ingest" } });
   });
 
   it("uploadAnswerOf: each IngestErrorCode gets its status and code", () => {
@@ -786,7 +786,7 @@ describe("errorInfoOf on the upload's ingest.error", () => {
       // And as the JSON answer says it.
       const answer = await upload(base, {});
       expect(answer.status).toBe(info.status);
-      expect(await answer.json()).toEqual({ error: info.message });
+      expect(await answer.json()).toEqual({ error: info.message, code: info.code, category: "model", ...(_wait !== undefined ? { retryAfterMs: _wait } : {}) });
     }
     // The library's own errors, which have a status, never get a model's kind.
     const own = [
