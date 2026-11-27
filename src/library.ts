@@ -1118,10 +1118,12 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
   /**
    * `TOUCH_ON_USE`: a document with less than half of `ttlMs` left is touched, as `touch` does; one
    * that never expires, or has more left, is not. A store without `patchMeta` is a TypeError, as
-   * for `touch`.
+   * for `touch`, on every question, whether a document is due or not: otherwise it would show only
+   * once a file has passed half of its time to live, 36 hours after its upload by the default.
    */
   const touchOnUse: TouchOnUse = async (documents, access) => {
     if (!Number.isFinite(ttlMs) || ttlMs <= 0) return;
+    if (!usableStoreMethod(store, "patchMeta")) throw new TypeError("touchOnUse needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one, or one whose put, get, getMeta or delete was replaced, needs its own patchMeta).");
     const at = now().getTime();
     const due = documents.filter((meta) => Date.parse(meta.expiresAt) - at < ttlMs / 2);
     if (due.length === 0) return;

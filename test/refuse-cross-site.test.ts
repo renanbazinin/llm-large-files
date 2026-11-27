@@ -10,12 +10,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLargeFiles, MemoryDocumentStore, type DocumentSummary } from "llm-large-files";
 import { createDocumentHandlers, type DocumentHandlerOptions } from "llm-large-files/node";
 
-let server: Server | undefined;
+// Every server a test started (one test starts two), all closed after it.
+const servers: Server[] = [];
 afterEach(async () => {
-  if (server) {
+  for (const server of servers.splice(0)) {
     server.closeAllConnections();
-    await new Promise<void>((resolve) => server!.close(() => resolve()));
-    server = undefined;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
 
@@ -30,7 +30,7 @@ async function serve(options: Partial<DocumentHandlerOptions> = {}) {
     getScope: (request) => ["victim", new URL(request.url ?? "/", "http://x").searchParams.get("chat") ?? "c1"],
     ...options,
   });
-  server = createServer((request, response) => {
+  const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     const id = url.pathname.split("/")[3];
     if (request.method === "POST") return void documents.upload(request, response);
@@ -38,8 +38,9 @@ async function serve(options: Partial<DocumentHandlerOptions> = {}) {
     if (id !== undefined) return void documents.get(request, response, id);
     return void documents.list(request, response);
   });
-  await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve));
-  const port = (server!.address() as AddressInfo).port;
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
   const stored = async () => (await files.list({ owner: "victim", scope: ["victim", "c1"] })).map((document) => document.name);
   return { port, origin: `http://127.0.0.1:${port}`, getOwner, stored };
 }

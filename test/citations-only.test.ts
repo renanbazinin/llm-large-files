@@ -76,6 +76,15 @@ describe("an answer made only of citations, shown without them", () => {
     expect((await asked("contract-1", "(contract.txt Row 2)", { showCitations: false })).result.text).toBe("row 2");
   });
 
+  it("puts a space between the words and the punctuation the citations left", async () => {
+    const english = await asked("contract-1", "(contract.txt L2).", { showCitations: false });
+    expect(english.result.text).toBe(". line 2");
+    expect(english.shown).toBe(". line 2");
+    expect(english.streamed).toBe(". line 2");
+    expect(english.result.modelText).toBe("(contract.txt L2).");
+    expect((await asked("contract-1", "(contract.txt L2).", { showCitations: false, question: "איפה?" })).result.text).toBe(". שורה 2");
+  });
+
   it("changes nothing in an answer with words, or with a symbol, left", async () => {
     for (const answer of ["The fee is 5% (contract.txt L2).", "5% (L2)", "👍 (contract.txt L2)"]) {
       const hidden = await asked("contract-1", answer, { showCitations: false });

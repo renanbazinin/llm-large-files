@@ -79,7 +79,9 @@ async function question(setup: Awaited<ReturnType<typeof library>>, documentIds 
   return { result, roundTrips: atFirst!.ticks, calls: atFirst!.calls, largestBatch: counts.largestBatch, sha256: createHash("sha256").update(body).digest("hex"), bytes: Buffer.byteLength(body) };
 }
 
-describe("the documents of a question, read before its first request", () => {
+// Each test ingests 20 files (5 of them 4,000-line logs) through a ticking store: about 1 s alone,
+// near 3 s in a full run and over 5 s on a busy machine, so they get the 60 s of the coverage run.
+describe("the documents of a question, read before its first request", { timeout: 60_000 }, () => {
   it("take at most 6 store round trips on a first question and 3 on a follow-up, and send the request of 0.99.12", async () => {
     const setup = await library();
     const first = await question(setup);

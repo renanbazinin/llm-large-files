@@ -1377,11 +1377,13 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
    * `AskResult.citations` reads them from the whole text, which is unchanged.
    */
   const citationsOnly = (written: string, shownFrom: number, requestId: string) => {
-    if (!hider || signal?.aborted || !showsNothing(shownText.slice(shownFrom))) return;
+    const before = shownText.slice(shownFrom);
+    if (!hider || signal?.aborted || !showsNothing(before)) return;
     const names = Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name]));
     const words = linesInWords(checkCitations(written, [], names).cited ?? [], hebrewWords(written, question, citedFiles.map((meta) => meta.name)));
     if (!words) return;
-    show(words, requestId);
+    // Not glued to what the hider left of the request ("." of "(contract.txt L2)."): a space between.
+    show(before && !/\s$/u.test(before) ? ` ${words}` : words, requestId);
     if (citationsOnlySaid) return;
     citationsOnlySaid = true;
     notice("citations_only", "The answer was only line citations, which are not shown: the lines it cited are shown in words.");
@@ -2362,7 +2364,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           },
           end: (last) => {
             // The read's own request failed: told as the model's, even with no kind of its own (0.99.13).
-            if (last.error !== undefined && !signal?.aborted) noteModelFailure(last.error);
+            // Not when it ended with why the turn's calls were stopped (a hook or a listener that
+            // threw, another call that failed): that error is not the model's.
+            const stopped = halt.signal.aborted && last.error === halt.signal.reason;
+            if (last.error !== undefined && !signal?.aborted && !stopped) noteModelFailure(last.error);
             end(last);
           },
         };

@@ -4,6 +4,7 @@
 // result (and run.error's partial, and partialResultOf), and never in sseMessageOf. A chat that sends
 // it back as the assistant turn, with citations hidden, makes the requests the evals recorded
 // (specs/05-quick-fixes §2).
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,11 +19,13 @@ import { evalCases, SYSTEM } from "../evals/cases.js";
 
 const CASSETTES = fileURLToPath(new URL("../evals/cassettes", import.meta.url));
 const MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
+// The sha256 of each shown text (showCitations: false) that 0.99.12 gave on the same replay.
+const SHOWN_0_99_12 = JSON.parse(readFileSync(new URL("./fixtures/shown-0.99.12.json", import.meta.url), "utf8")) as Record<string, string>;
 
 describe("modelText on the recorded answers (replay, citations hidden, history from modelText)", async () => {
   const library = await evalLibrary();
   const cases = evalCases(library.facts);
-  type Turn = { id: string; turn: number; misses: number; error?: string; text?: string; modelText?: unknown; recorded: string; finishModelText?: unknown; sseKeys?: string[] };
+  type Turn = { id: string; turn: number; misses: number; error?: string; text?: string; modelText?: unknown; recorded: string; finishModelText?: unknown; sseKeys?: string[]; notices: string[] };
   const turns: Turn[] = [];
   let recordings = 0;
   for (const model of MODELS) {
@@ -37,7 +40,7 @@ describe("modelText on the recorded answers (replay, citations hidden, history f
       for (const [index, turn] of evalCase.turns.entries()) {
         messages.push({ role: "user", text: turn.question });
         const before = replay.misses.length;
-        const entry: Turn = { id: `${model}/${evalCase.id}#${index + 1}`, turn: index + 1, misses: 0, recorded: recorded.questions[index]!.answer };
+        const entry: Turn = { id: `${model}/${evalCase.id}#${index + 1}`, turn: index + 1, misses: 0, recorded: recorded.questions[index]!.answer, notices: [] };
         try {
           const result = await askWithFiles({
             files: library.files, model: adapter, documentIds: turn.documentIds, messages: [...messages], system: SYSTEM,
@@ -48,6 +51,7 @@ describe("modelText on the recorded answers (replay, citations hidden, history f
             showCitations: false,
             retry: { sleep: async () => undefined },
             onEvent: (event: AskEvent) => {
+              if (event.type === "notice") entry.notices.push(event.code);
               if (event.type !== "run.finish") return;
               entry.finishModelText = event.result.modelText;
               entry.sseKeys = Object.keys((sseMessageOf(event).data as { result: object }).result);
@@ -94,6 +98,14 @@ describe("modelText on the recorded answers (replay, citations hidden, history f
   it("shows the hidden text: 78 of the 112 shown answers differ from modelText, and none is longer", () => {
     expect(turns.filter((t) => t.text !== t.modelText)).toHaveLength(78);
     for (const t of turns) expect((t.text ?? "").length, t.id).toBeLessThanOrEqual(t.recorded.length);
+  });
+
+  it("leaves the shown text of 0.99.12 unchanged on all 112, with no citations_only notice (LOOP-10, §4.4)", () => {
+    expect(Object.keys(SHOWN_0_99_12)).toHaveLength(112);
+    expect(turns.map((t) => t.id).sort()).toEqual(Object.keys(SHOWN_0_99_12).sort());
+    const changed = turns.filter((t) => createHash("sha256").update(t.text ?? "").digest("hex") !== SHOWN_0_99_12[t.id]).map((t) => t.id);
+    expect(changed).toEqual([]);
+    expect(turns.filter((t) => t.notices.includes("citations_only")).map((t) => t.id)).toEqual([]);
   });
 });
 

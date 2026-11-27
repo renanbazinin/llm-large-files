@@ -90,6 +90,31 @@ describe("touchOnUse", () => {
     expect(model.requests).toHaveLength(0);
   });
 
+  it("is a TypeError on the first question with a store without patchMeta, whether a document is due or not", async () => {
+    let clock = Date.parse("2026-11-10T08:00:00Z");
+    const now = () => new Date(clock);
+    const inner = new MemoryDocumentStore({ now });
+    // A store written before patchMeta existed.
+    const store = new Proxy(inner, {
+      get(target, key) {
+        if (key === "patchMeta") return undefined;
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === "function" ? (value as (...given: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as DocumentStore;
+    const files = createLargeFiles({ store, now });
+    const used = await files.ingest({ id: "used-1", name: "used.txt", bytes: utf8("Used on day 2.\n"), owner, scope });
+    const error = new TypeError("touchOnUse needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one, or one whose put, get, getMeta or delete was replaced, needs its own patchMeta).");
+    for (const hours of [0, 10, 37]) {
+      clock = Date.parse("2026-11-10T08:00:00Z") + hours * HOUR;
+      const model = fakeModel([says("ok")]);
+      await expect(askWithFiles({ files, model, owner, scope, documentIds: [used.id], messages: [{ role: "user", text: "q" }], touchOnUse: true })).rejects.toThrow(error);
+      expect(model.requests).toHaveLength(0);
+    }
+    // Without the option, the store serves as before.
+    expect((await ask(files, [used.id])).answered).toBe(true);
+  });
+
   it("calls touch of a library of your own by the default of 72 hours, by the clock of this process, and needs one", async () => {
     const { files, used, later, now } = await library();
     const touched: string[] = [];

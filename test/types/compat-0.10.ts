@@ -9,6 +9,7 @@ import {
   createLargeFiles,
   resolveBudget,
   type AccessOptions,
+  type AskEvent,
   type AskResult,
   type Budget,
   type ChatTurn,
@@ -156,6 +157,29 @@ export const resultOf09: AskResult = {
   budget: resolveBudget(),
   turns: 1,
   usage: { requests: 1, inputTokens: 10, cachedInputTokens: 0, outputTokens: 2, thoughtTokens: 0, byModel: {} },
+};
+
+/**
+ * A `run.finish` event built by hand, as an app's test of its SSE or UI code writes it: its result
+ * is an `EventResult`, an `AskResult` without `toolTurns`, so since 0.99.13 it needs `modelText`
+ * too (decision D5), and so does the `partial` of `run.error`.
+ */
+export const finishOf09WithoutModelText: AskEvent = {
+  type: "run.finish",
+  seq: 9,
+  runId: "run_1",
+  time: 0,
+  // @ts-expect-error -- Property 'modelText' is missing (TS2741), since 0.99.13.
+  result: {
+    text: "3.",
+    answered: true,
+    steps: [],
+    evidence: [],
+    plan: { inline: [], searchable: [] },
+    budget: resolveBudget(),
+    turns: 1,
+    usage: { requests: 1, inputTokens: 10, cachedInputTokens: 0, outputTokens: 2, thoughtTokens: 0, byModel: {} },
+  },
 };
 
 /** What createLargeFiles makes has `stats()` and `toolsFor()`: no `?.` under strict. */
