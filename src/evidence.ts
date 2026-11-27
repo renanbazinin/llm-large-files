@@ -201,11 +201,12 @@ function standIn(call: ToolCall, result: ToolResult): ToolResult {
       // A read that lists items (since 0.10.0): its counts stay, and its first items. Since 0.99.13
       // (LOOP-5) an incomplete one keeps what says so: the parts that failed or were cut short, the
       // items it does not show (`more_items`, counted again against the items kept) and its note,
-      // without the sentence on how many items its result showed.
+      // without the sentence on how many items its result showed. The stand-in of a complete read
+      // is the one of 0.10.0, `more_items` left out.
       if (typeof result.total_items === "number") {
         const items = Array.isArray(result.items) ? result.items.slice(0, KEPT_ITEMS) : undefined;
-        const more = typeof result.more_items === "number" ? result.total_items - (items?.length ?? 0) : 0;
         const incomplete = fieldsOf(result, INCOMPLETE_ITEMS_FIELDS);
+        const more = typeof result.more_items === "number" && Object.keys(incomplete).length > 0 ? result.total_items - (items?.length ?? 0) : 0;
         const readNote = typeof result.note === "string" ? result.note.replace(ITEMS_SHOWN, "") : undefined;
         return {
           ...base,

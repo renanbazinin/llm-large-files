@@ -67,6 +67,9 @@ describe("an answer made only of citations, shown without them", () => {
     // Nothing to go by in the answer or the question: the name of a Hebrew file.
     expect((await asked("customers-1", "(L3-L4)", { showCitations: false, question: "?" })).result.text).toBe("שורות 3–4");
     expect((await asked("contract-1", "(L3-L4)", { showCitations: false, question: "?" })).result.text).toBe("lines 3–4");
+    // A Hebrew chat about a file with a Latin name is still a Hebrew chat.
+    expect((await asked("contract-1", "(contract.txt L2)", { showCitations: false, question: "איפה כתוב על הקנס?" })).result.text).toBe("שורה 2");
+    expect((await asked("contract-1", "- (contract.txt L2)\n- (L3)", { showCitations: false, question: "איפה?" })).result.text).toBe("שורות 2 ו-3");
   });
 
   it("says rows for rows", async () => {

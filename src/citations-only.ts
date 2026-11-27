@@ -24,12 +24,16 @@ function hebrewBy(text: string): boolean | undefined {
 }
 
 /**
- * Whether the words for the lines of an answer are Hebrew: by the answer itself (its citations, with
- * their file names), else by the question, else by the names of the question's files. English
- * otherwise.
+ * Whether the words for the lines of an answer are Hebrew: when the answer (its citations, with their
+ * file names) or the question has Hebrew letters, so that a Hebrew chat about "contract.txt" gets
+ * "שורה 8"; English when either has words in Latin letters; else by the names of the question's
+ * files. English otherwise.
  */
 export function hebrewWords(answer: string, question: string | undefined, names: readonly string[]): boolean {
-  return hebrewBy(answer) ?? (question !== undefined ? hebrewBy(question) : undefined) ?? names.some((name) => HEBREW.test(name));
+  const by = [hebrewBy(answer), question !== undefined ? hebrewBy(question) : undefined];
+  if (by.includes(true)) return true;
+  if (by.includes(false)) return false;
+  return names.some((name) => HEBREW.test(name));
 }
 
 /**

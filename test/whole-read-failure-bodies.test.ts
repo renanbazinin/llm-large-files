@@ -221,5 +221,10 @@ describe("a stand-in of a whole-file read keeps what says it is incomplete", () 
     const stub = stubResult(call, JSON.parse(JSON.stringify(list)) as ToolResult)!;
     expect(Object.keys(stub)).toEqual(["document", "dropped", "parts_read", "total_items", "counts_by_label", "unverified_items", "items", "note"]);
     expect(stub.note).toBe("This is the start of the list of the whole-file read, with its counts. The rest of the list was dropped from the conversation to make room.");
+    // A complete read with more items than its result showed: the stand-in of 0.10.0, without `more_items`.
+    const longer: ToolResult = { ...items, parts_failed: undefined, parts_cut_short: undefined, note: "The first 50 items are shown; total_items counts them all." };
+    const longStub = stubResult(call, JSON.parse(JSON.stringify(longer)) as ToolResult)!;
+    expect(Object.keys(longStub)).toEqual(["document", "dropped", "parts_read", "total_items", "counts_by_label", "unverified_items", "items", "note"]);
+    expect(longStub.note).toBe("This is the start of the list of the whole-file read, with its counts. The rest of the list was dropped from the conversation to make room.");
   });
 });
