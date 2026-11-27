@@ -2,6 +2,7 @@
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
 import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type DocumentRef, type EventResult, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
 import { CitationHider, checkCitations, type CitationCheck } from "./citations.js";
+import { hebrewWords, linesInWords, showsNothing } from "./citations-only.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
 import type { LargeFiles } from "./library.js";
@@ -17,6 +18,7 @@ import {
   TOOL_TURN_VERSION,
   UsageMeter,
   type ChatMessage,
+  type ChatTurn,
   type ModelAdapter,
   type ModelMessage,
   type ModelReply,
@@ -1336,6 +1338,27 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   };
   /** A notice that earlier versions did not show. */
   const notice = (code: NoticeCode, message: string, documentIds?: string[]) => events.emit({ type: "notice", code, message, display: "none", ...(documentIds ? { documentIds } : {}) });
+  /** The question's last turn of the user, for the language of the words below. */
+  const question = [...options.messages].reverse().find((message): message is ChatTurn => message.role === "user" && typeof (message as Partial<ChatTurn>).text === "string")?.text;
+  /** "citations_only" is told once a question. */
+  let citationsOnlySaid = false;
+  /**
+   * An answer of a request made only of citations, which the hider took out (LOOP-10, since
+   * 0.99.13): what was shown of it (`shownFrom` on) has no letter, digit or symbol. The lines it
+   * cited are shown in words after it ("line 8", "שורה 8"), and a "citations_only" notice says so.
+   * `written` is what the model wrote in the request: its citations are read from it, as
+   * `AskResult.citations` reads them from the whole text, which is unchanged.
+   */
+  const citationsOnly = (written: string, shownFrom: number, requestId: string) => {
+    if (!hider || signal?.aborted || !showsNothing(shownText.slice(shownFrom))) return;
+    const names = Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name]));
+    const words = linesInWords(checkCitations(written, [], names).cited ?? [], hebrewWords(written, question, citedFiles.map((meta) => meta.name)));
+    if (!words) return;
+    show(words, requestId);
+    if (citationsOnlySaid) return;
+    citationsOnlySaid = true;
+    notice("citations_only", "The answer was only line citations, which are not shown: the lines it cited are shown in words.");
+  };
   const budgetReached = () => {
     if (state.budgetSaid) return;
     state.budgetSaid = true;
@@ -1391,6 +1414,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const began = Date.now();
     let separated = text.length === 0;
     let got = "";
+    /** Where the text this request shows starts, in `shownText`. */
+    const shownFrom = shownText.length;
     const write = (delta: string) => {
       // Nothing more is shown once the question was stopped, by an adapter that goes on regardless.
       if (!delta || signal?.aborted) return;
@@ -1439,6 +1464,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     // the text of a reply a filter stopped, when such an answer is dropped: it was not shown yet.
     if (shown && reply.text.length > got.length && reply.text.startsWith(got) && !(dropFiltered && reply.finish === "filtered")) write(reply.text.slice(got.length));
     if (got) release(requestId);
+    // What the request showed was nothing but citations: they are shown in words.
+    if (got) citationsOnly(got, shownFrom, requestId);
     answeredRequests++;
     lastReply = reply;
     // A reply without its input tokens is counted by the estimate, in the model's own tokens.
