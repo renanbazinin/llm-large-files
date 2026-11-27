@@ -1,3 +1,4 @@
+import { TOOL_NAMES } from "./tool-names.js";
 import { DocumentTextError, safeErrorMessage } from "./errors.js";
 import { until } from "./http.js";
 import { aggregateTable, FILTER_OPS, MAX_SHOWN_GROUPS, type AggregateRequest, type FilterOp } from "./aggregate.js";
@@ -42,14 +43,9 @@ export const LEAST_RESULT_CHARACTERS = 600;
  */
 export const MAX_WHOLE_DOCUMENT_READS = 1;
 
-export const TOOL_NAMES = {
-  search: "search_document",
-  read: "read_document",
-  overview: "get_document_overview",
-  analyze: "analyze_whole_document",
-  view: "view_pages",
-  aggregate: "aggregate_table",
-} as const satisfies Record<string, ToolName>;
+// The tools' names, in a module of their own since 0.99.14 (no Node-only import, for the browser
+// entry). Still exported from here.
+export { TOOL_NAMES };
 
 const documentId = { type: "string" as const, description: "The document_id from the file's card." };
 

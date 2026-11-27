@@ -4,7 +4,7 @@ import type { AskResult } from "./ask.js";
 import { connectionFailure, type ConnectionFailure } from "./connection-failure.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
-import { modelFailureReason } from "./map-reduce.js";
+import { modelFailureReason } from "./model-failure.js";
 import { classifyModelError, DocumentsNotFoundError, isModelStatus, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
 import type { CitationAnchor, CitedSource } from "./sources.js";
 import type { DocumentFormat, DocumentMeta, DocumentSummary, ToolResult } from "./types.js";

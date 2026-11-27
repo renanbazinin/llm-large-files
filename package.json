@@ -63,6 +63,10 @@
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
     },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
+    },
     "./node/ingest-child.js": "./dist/node/ingest-child.js",
     "./package.json": "./package.json"
   },
@@ -82,6 +86,9 @@
       ],
       "testing": [
         "./dist/testing/index.d.ts"
+      ],
+      "client": [
+        "./dist/client/index.d.ts"
       ]
     }
   },
