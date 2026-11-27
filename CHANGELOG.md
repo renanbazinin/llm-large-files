@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.99.13 — not released yet
+## 0.99.13 — 2026-11-27
 
 Quick fixes. A chat that hides citations can send the model's own words back as history
 (`AskResult.modelText`), a key or token function that fails once no longer ends the question, and
