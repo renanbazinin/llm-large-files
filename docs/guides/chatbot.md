@@ -88,7 +88,7 @@ its tool rounds.
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { MongoClient } from "mongodb";
-import { compactToolTurns, isSafeScopeSegment, type AskResult, type ChatTurn, type DocumentScope, type ToolTurn, type UsageTotals } from "llm-large-files";
+import { compactToolTurns, isSafeScopeSegment, type AskResult, type ChatTurn, type CitationAnchor, type CitedSource, type DocumentScope, type ToolTurn, type UsageTotals } from "llm-large-files";
 import { DOCUMENTS_DIR } from "./large-files.js";
 
 type ChatRecord = { _id: string; userId: string };
@@ -101,6 +101,8 @@ type TurnRecord = {
   toolTurns: ToolTurn[]; // in full: historyOf makes those of older questions small
   text?: string; // the answer as the page showed it
   modelText?: string; // the answer as the model wrote it: sent back as its turn
+  anchors?: CitationAnchor[]; // where each chip goes in `text`
+  sources?: Array<Omit<CitedSource, "quote">>; // what each chip opens, without quotes: hover text is read live
   usedDocumentIds: string[]; // the files of the chat the question had
   finish?: AskResult["finish"];
   usage: UsageTotals;
@@ -195,8 +197,13 @@ export async function deleteChat(userId: string, chatId: string): Promise<void> 
   stored whole-file read's answer to 6,000 characters for good, the last two questions' too
   ([Keeping the history inside the window](./conversations.md#what-your-application-does)).
 - Show `text`, and send `modelText` back as the assistant's turn (new in 0.99.13). With
-  `showCitations: false` they differ: the page gets the answer without its line citations, and the
-  model gets its own words with them, so a follow-up is asked as it would be with citations shown.
+  `citationMarkers: "remove"` they differ: the page gets the answer without its line citations, and
+  the model gets its own words with them, so a follow-up is asked as it would be with citations
+  shown.
+- Keep `anchors` and `sources` with the turn (new in 0.99.14), so that a chat opened again draws
+  its chips. Keep the sources without their quotes: a page reads the cited lines when it shows a
+  hover card (step 5), so a file that was deleted since reads "file removed" instead of showing
+  text the chat no longer has.
 - An answer that is not one (`answered: false`) is not kept as the assistant's turn: the model
   would read your error message as its own words.
 - The chat keeps the ID and name of each of its files (`keepFile` and `forgetFiles`, called by the
@@ -231,10 +238,14 @@ const documents = createDocumentHandlers(files, {
   refuseCrossSite: true, // a page of another site cannot upload into a chat, or delete from it
   onUploaded: (document, { scope }) => keepFile(scope![1], document.id, document.name), // scope is [userId, chatId]
   onRemoved: (id) => forgetFiles([id]), // the user removed it: no notice needed
+  // The cited lines for a chip's hover card, through the same mask as what the model is sent
+  // (`maskIds` stands for your onToolResult; null shows the lines as stored). Required to turn the route on.
+  preview: { onPreview: maskIds },
 });
 
 app.post("/api/documents", documents.upload); // before any body parser: the body is the file
 app.get("/api/documents", documents.list); // the files of the chat, for its panel
+app.get("/api/documents/:id/lines", (req, res) => documents.preview!(req, res, req.params.id)); // ?from=12&to=14&version=…
 app.delete("/api/documents/:id", (req, res) => documents.remove(req, res, req.params.id));
 ```
 
@@ -257,6 +268,11 @@ const uploaded = await response.json(); // 201: { id, name, format, lines, estim
   a page in another language words the error from them.
 - Every status, multipart forms, progress of a long upload, and saving the uploaded file itself in
   the chat's folder: [Web app](./web-app.md#uploads-with-createdocumenthandlers).
+- The preview route (new in 0.99.14) answers a chip's hover card: the cited lines (at most 50 lines
+  and 8 KB), `404` alike for a file that is gone, another user's or another chat's, and `409` with
+  no text when the file was replaced since the answer (`version`). It needs an explicit `onPreview`:
+  pass the function you give `onToolResult`, so a preview never shows what the model was not shown
+  ([Security](../security.md#quotes-and-previews)).
 
 ## 5. Questions
 
@@ -297,6 +313,7 @@ app.post("/api/chat", express.json(), async (req, res) => {
       documentIds,
       onMissingDocuments: "drop", // a file that expired or was deleted is left out, with a notice
       touchOnUse: true, // a file the chat still uses is kept: see step 6
+      citationMarkers: "remove", // line citations become chips: see below
       messages,
       streamText: true,
       onEvent,
@@ -321,7 +338,7 @@ app.post("/api/chat", express.json(), async (req, res) => {
     await saveTurn(chatId, {
       question,
       toolTurns: result.toolTurns,
-      ...(result.answered ? { text: result.text, modelText: result.modelText } : {}),
+      ...(result.answered ? { text: result.text, modelText: result.modelText, anchors: result.anchors, sources: result.sources?.map(({ quote: _quote, ...source }) => source) } : {}),
       usedDocumentIds: documentIds.filter((id) => !result.missing?.includes(id)),
       ...(result.finish !== undefined ? { finish: result.finish } : {}),
       usage: result.usage,
@@ -339,6 +356,7 @@ The page reads the events and shows them:
 |---|---|
 | `tool.start`, `tool.end` | What the model is doing: `label`, then `step` ("Search app.log (exact) for “timeout” — 12 matching lines"). |
 | `text` | The answer, growing: add each `delta`. |
+| `citation` | A chip (new in 0.99.14): at `anchor.at` in the text shown so far, opening `sources` (the file, and a sheet and row, a page, a slide or a clause). See "Chips" below. |
 | `notice` | Most codes need nothing. `documents_missing`: files of the chat that expired or were deleted, which the question was answered without: show `names` ("contract.txt is no longer available"). `read_incomplete` (new in 0.99.13): a whole-file read could not read some of its parts, and the model was told to say its answer is incomplete. |
 | `run.finish` | The end. `result.answered` is `false` when no answer came: show your own message. |
 | `run.error` | `error.message`, which is safe to show, or your own words for `error.kind`. |
@@ -347,13 +365,81 @@ The page reads the events and shows them:
   broken connection: [Web app](./web-app.md#reading-the-events-in-the-browser).
 - Show labels and steps as plain text, never as markdown or HTML: they quote the model's words,
   which a file can steer.
-- With `showCitations: false`, an answer made only of line citations comes as the lines in words
-  ("line 8", "שורה 8") in the `text` events, with a `citations_only` notice (new in 0.99.13): the
-  page needs nothing more.
+- With `citationMarkers: "remove"`, an answer made only of line citations comes as the lines in
+  words ("line 8", "שורה 8") in the `text` events, with a `citations_only` notice (new in 0.99.13):
+  the page needs nothing more.
 - The model answers in the language of the question. The labels, the steps and the error messages
   are English: for a page in another language, show your own words for each event and each kind of
   error. The messages of a chatbot for Hebrew speakers are in
   [Errors and reliability](./errors-and-reliability.md#your-users-words-errorinfoof).
+
+### Chips
+
+With `citationMarkers: "remove"` (new in 0.99.14) the model cites as it always did, the citations
+leave the text, and each one leaves a chip: `result.anchors` says where it goes in `text`, and
+`result.sources` what it opens. A `citation` event brings each one while the answer streams, and
+`run.finish` brings them all, so a page that joined late, or opened the chat again, draws the same
+chips.
+
+```ts
+// In the browser: a chip after the text it cites. `describeLocator` gives "גיליון לקוחות · שורה 8".
+import { describeLocator, type CitationAnchor, type CitedSource } from "llm-large-files/client";
+
+function chip(anchor: CitationAnchor, sources: Map<string, CitedSource>): HTMLElement {
+  const source = sources.get(anchor.sources[0]!)!;
+  const place = describeLocator(source.locators[0]!, "he");
+  const button = document.createElement("button");
+  button.className = "chip"; // CSS: user-select: none, so a copied answer has no chip numbers in it
+  const isolated = document.createElement("bdi"); // keeps the chip's own direction in a Hebrew sentence
+  isolated.textContent = String(anchor.label);
+  button.append(isolated);
+  button.setAttribute("aria-label", `מקור: ${[source.name, place].filter(Boolean).join(", ")}`);
+  return button;
+}
+```
+
+- Put each chip in a `<bdi>`, give it an accessible name that says the source, and never put a bare
+  number next to a number of the answer: "30 ש״ח 1" reads as a price. A chip label is its
+  `anchor.label`, 1 for the first chip of the answer.
+- `user-select: none` keeps the chips out of a copy; a copy handler can add the sources as
+  footnotes.
+- The hover card fetches the cited lines from the preview route of step 4, with the source's
+  `documentId`, `from`, `to` and `version`. Show them with `dir="auto"`. A `404` reads "file
+  removed", and a `409` "the file was replaced since this answer".
+- A source of a whole-file read may name lines the model saw only through the read's notes
+  (`seen: "noted"`): the preview shows the lines themselves.
+- For a page that renders Markdown, `citationMarkers: "token"` puts `⟦1⟧` at each chip's place in
+  the text, which survives trimming; `insertCitationTokens` makes the same text from the anchors.
+
+### A chat with files as knowledge, and no chips
+
+A chat where the files are background, such as a group chat that answers from a shared handbook,
+may show no chip and no preview. Ask with `sources: "off"` (new in 0.99.14): the text is as with
+`citationMarkers: "remove"`, no `citation` event is sent, and `anchors` and `sources` are empty in
+the result, so no event and no SSE message carries a file name, a sheet and row, or a quote of a
+source. The model is asked as it always is.
+
+```ts
+// server.ts: the route of a group chat. A preview is refused for its files.
+import { askGemini } from "llm-large-files/gemini";
+import { createDocumentHandlers } from "llm-large-files/node";
+
+const groupDocuments = createDocumentHandlers(files, {
+  getOwner: (request) => currentUserId(request),
+  getScope: async (request) => groupScopeOf(request),
+  // The lines of a group chat's files are never previewed: every preview is refused (403, no text).
+  preview: { onPreview: () => ({ reject: "This chat shows no sources." }) },
+});
+
+const result = await askGemini({ files, endpoint, owner, scope, documentIds, messages, sources: "off" });
+```
+
+- `result.citations` keeps its meaning, for checks on your server, and `modelText` is the model's
+  own text as always.
+- The model is not told to keep file names out of its words: a line in your own `system` text can
+  ask it to.
+- The simplest way to refuse previews is not to mount the preview route for those chats; the
+  refusing hook above serves a route that both kinds of chat share.
 
 ## 6. Deleting and expiry
 

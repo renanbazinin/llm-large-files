@@ -158,6 +158,7 @@ The events of `askWithFiles`, `askGemini` and `askStream`, by `type`:
 | [`request.start`](#requeststart) | A model request starts: a turn of the chat, or one request of a whole-file read. |
 | [`retry`](#retry) | That request failed and is sent again after a wait. |
 | [`text`](#text) | Answer text arrives. |
+| [`citation`](#citation) | A chip of the answer, with the sources it opens (`citationMarkers` `"remove"` or `"token"`). New in 0.99.14. |
 | [`request.end`](#requestend) | The request ended, after any retries. |
 | [`tool.start`](#toolstart) | A tool call starts to run, or is settled without running. |
 | [`tool.progress`](#toolprogress) | Progress of a long tool call: a whole-file read. |
@@ -247,6 +248,23 @@ for a connection that failed, the request is sent again as one that got no answe
 Joined, the deltas of a run are `AskResult.text`. Only the text that is shown comes: the answering
 model's, never an explorer's. When a later reply adds text, it starts with a delta of `"\n\n"`, as
 for `onText`.
+
+#### `citation`
+
+New in 0.99.14. Sent with `citationMarkers: "remove"` or `"token"`, unless `sources: "off"`: one for
+each citation the hider took out or put in words.
+
+| Field | Type | What it holds |
+|---|---|---|
+| `requestId` | `string` | The request whose text holds the chip. |
+| `anchor` | [`CitationAnchor`](./ask.md#citationanchor) | Where the chip goes: `anchor.at` in the text of the `text` events so far, its `label`, its `status`. |
+| `sources` | [`CitedSource[]`](./ask.md#citedsource) | What it opens, inline: the file, where the cited lines are in it, the document's `version`. No `quote` unless `eventResults` is true. |
+
+It comes after the `text` event that holds `anchor.at`, once the line of the citation is complete:
+the file of a citation may be named after it on its line ("(L12) according to report.docx").
+Chips whose file was not read during the question come before `run.finish`, within a second. A
+caller that joins a running question misses the chips sent before it joined: `run.finish` has them
+all in `result.anchors` and `result.sources`.
 
 #### `request.end`
 
@@ -584,12 +602,15 @@ on a result that `AskResult` does not declare is left out of every event:
 |---|---|---|---|
 | `answered`, `text`, `finish`, `finishReason`, `blockReason`, `citations`, `turns`, `questionId` | yes | yes | no |
 | `steps`, `evidence`, `usage`, `missing` | yes | yes | yes |
-| `modelText`, `budget`, `lastUsage` | yes | no | no |
+| `anchors` (0.99.14) | yes | yes | no |
+| `sources` (0.99.14) | without `quote`, or with it under `eventResults: true` | yes, never with `quote` | no |
+| `modelText`, `lineTalk` (0.99.14), `budget`, `lastUsage` | yes | no | no |
 | `toolTurns` | only with `eventResults: true` | no | no |
 | `plan` | names only (`DocumentRef`), or the metadata without server fields with `eventResults: true` | no | no |
 
 The keys of 0.99.12 keep their place: what `sseMessageOf` sends is byte for byte the same, but for
-tool errors that quote the document.
+tool errors that quote the document. `anchors` and `sources` (0.99.14) come after `questionId`, and
+only with `citationMarkers` `"remove"` or `"token"`.
 
 ```ts
 type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
@@ -617,6 +638,9 @@ What events carry without `eventResults`, and you should know before you send th
   its words, which can quote the documents.
 - `text`, `run.finish.result.text` and `steps`: the answer and the steps.
 - `plan` (the event, and `plan` in the result): the name, format, size and pages of each document.
+- `citation` events, and `anchors` and `sources` in `run.finish` (0.99.14, with `citationMarkers`
+  `"remove"` or `"token"`): where each chip goes, and its source's file name, locator (a sheet name
+  and row, a page, a heading) and version; never its text. `sources: "off"` sends none.
 - `run.finish.result` and `run.error.partial` whole: besides the answer, `budget` and `lastUsage`,
   the provider's own usage report. [`sseMessageOf`](#ssemessageofevent), the default of
   `writeSseEvents`, leaves these out.
@@ -874,7 +898,7 @@ Two events are made smaller:
 
 | Event | `data` |
 |---|---|
-| `run.finish` | `{ type, seq, runId, questionId, time, result }`, where `result` is `{ answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId }`: not `toolTurns`, `plan`, `budget`, `lastUsage` or `modelText` (0.99.13). Keep `toolTurns` and `modelText` on the server, with the conversation. |
+| `run.finish` | `{ type, seq, runId, questionId, time, result }`, where `result` is `{ answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId, anchors, sources }`: not `toolTurns`, `plan`, `budget`, `lastUsage`, `modelText` (0.99.13) or `lineTalk` (0.99.14), and `sources` without their `quote`, whatever `eventResults` says (0.99.14). Keep `toolTurns` and `modelText` on the server, with the conversation. |
 | `run.error` | `{ type, seq, runId, questionId, time, error, partial }`, where `partial` is `{ steps, evidence, usage, missing }` of the partial result, or `undefined`. |
 | Any other event | The event as it is. Ingest events too. |
 

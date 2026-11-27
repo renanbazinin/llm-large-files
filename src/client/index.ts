@@ -9,4 +9,4 @@ export { answerInfoOf } from "../answer-info.js";
 export type { AnswerInfo } from "../answer-info.js";
 export { errorInfoOf } from "../error-info.js";
 export type { ErrorCategory, ErrorInfo } from "../error-info.js";
-export type { CitationAnchor, CitedSource, LineTalk, SourceLocator } from "../sources.js";
+export type { CitationAnchor, CitationMarkers, CitedSource, LineTalk, SourceBasis, SourceLocator, SourceSeen, SourcesMode } from "../sources.js";

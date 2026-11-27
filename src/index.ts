@@ -12,6 +12,9 @@ export { createQuestionRegistry } from "./questions.js";
 export type { QuestionAskOptions, QuestionRegistry, QuestionRegistryOptions, QuestionRegistryStats } from "./questions.js";
 export * from "./answer-info.js";
 export * from "./citations.js";
+export { insertCitationTokens } from "./citation-tokens.js";
+export { describeLocator } from "./describe-locator.js";
+export type { CitationAnchor, CitationMarkers, CitedSource, LineTalk, SourceBasis, SourceLocator, SourceSeen, SourcesMode } from "./sources.js";
 export { classifyModelError, DocumentsNotFoundError, errorKindOf, ModelRequestError, TOOL_TURN_VERSION, UsageMeter } from "./model.js";
 export type {
   ChatMessage,
