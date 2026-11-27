@@ -1,3 +1,4 @@
+import { connectionFailure } from "../connection-failure.js";
 import { notJsonMessage, unreachableReason, waitText } from "../http.js";
 import { ModelRequestError, type ModelReply } from "../model.js";
 
@@ -9,8 +10,13 @@ export class GeminiRequestError extends ModelRequestError {
   }
 }
 
-/** What to say of a request that never got an answer: the reason, without the stack of the HTTP client. */
+/**
+ * What to say of a request that never got an answer: the reason, without the stack of the HTTP
+ * client. Since 0.99.13 an answer that did not come in time (undici's headers or body timeout) is
+ * of kind "timeout", and is sent again once, not three times (`connectionFailure`).
+ */
 export function unreachable(error: unknown): GeminiRequestError {
+  if (connectionFailure(error)?.kind === "timeout") return new GeminiRequestError(`Gemini took too long to answer${unreachableReason(error)}.`, 0, { kind: "timeout", cause: error });
   return new GeminiRequestError(`Gemini could not be reached${unreachableReason(error)}.`, 0, { cause: error });
 }
 

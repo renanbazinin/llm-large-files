@@ -6,6 +6,8 @@ import type { DocumentsCapability, ToolResult } from "../types.js";
 import { retryAfterMs } from "../retry.js";
 import { base64, idleWatch, noteCutReply, readJson, streamedReply, type IdleWatch } from "../http.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
+import { connectionFailure } from "../connection-failure.js";
+import { headerFailure } from "../token-failure.js";
 import { resolveHeaders, type GeminiEndpoint } from "./endpoints.js";
 import { errorBodyOf, finishOfGemini, geminiFailure, GeminiRequestError, notJson, silent, statusOfError, unreachable } from "./errors.js";
 import { createGeminiGenerateText, discard, geminiFunctionResponseTurns, usageOfGemini, type GeminiContent, type GeminiPart, type GeminiRequestFields, type GeminiToolFilePlacement } from "./generate.js";
@@ -312,8 +314,11 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
 
     async send(request: ModelRequest, hooks: SendHooks = {}): Promise<ModelReply> {
       const stream = Boolean(hooks.onText && endpoint.streamUrl);
-      // Headers are asked for with each request: an access token may have been renewed since the last.
-      const headers = await resolveHeaders(endpoint);
+      // Headers are asked for with each request: an access token may have been renewed since the
+      // last. A token function that throws fails the request before anything is sent (0.99.13).
+      const headers = await resolveHeaders(endpoint).catch((error: unknown) => {
+        throw headerFailure(error, GeminiRequestError, "Gemini");
+      });
       const body = JSON.stringify(bodyOf(request));
       const watch = idleWatch(hooks.signal, { firstByteTimeoutMs: options.firstByteTimeoutMs, idleTimeoutMs: options.idleTimeoutMs });
       // A request the watch aborted got nothing back for the whole wait: that is no failed connection.
@@ -336,10 +341,18 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
         // A token that was refused may be one a cache kept past its time: one more try, with
         // headers asked for anew. A second 401 is the error.
         if (response.status === 401 && refreshable) {
+          // Told as a retry of reason "auth_refresh" (0.99.13): a refresh left no trace before.
+          hooks.onRefresh?.(new GeminiRequestError("Gemini returned HTTP 401.", 401, { kind: "auth" }));
           let fresh: Record<string, string>;
           try {
             fresh = await resolveHeaders(endpoint, { refresh: true });
           } catch (error) {
+            // A connection that failed while the new token was fetched: the request is sent again,
+            // as any that got no answer (0.99.13).
+            if (connectionFailure(error)) {
+              discard(response);
+              throw headerFailure(error, GeminiRequestError, "Gemini");
+            }
             // No new token came: the refusal is the error, and why none came is its cause.
             throw await failureOf(response, error);
           }

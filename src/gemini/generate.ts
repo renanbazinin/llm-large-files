@@ -2,10 +2,12 @@
 // auth headers, so this works with the Gemini API, Vertex AI, or an enterprise gateway.
 import type { ToolAnswer, ToolCall } from "../model.js";
 import { completeWithinLimit, noTextReason, type LimitedReply } from "../output-limit.js";
+import { connectionFailure } from "../connection-failure.js";
 import { base64, partTimer, readJson, resolveHeaderSource, until, type HeaderSource } from "../http.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
 import type { GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
-import { errorBodyOf, finishOfGemini, geminiFailure, notJson, statusOfError, tooSlow, unreachable } from "./errors.js";
+import { headerFailure } from "../token-failure.js";
+import { errorBodyOf, finishOfGemini, geminiFailure, GeminiRequestError, notJson, statusOfError, tooSlow, unreachable } from "./errors.js";
 
 /**
  * More fields for the body of a Gemini request (`gemini({ body, analysisBody })`): `safetySettings`,
@@ -158,7 +160,7 @@ export function createGeminiGenerateText(options: {
 }): GenerateText {
   const fetchImpl = options.fetchImpl ?? fetch;
   const { url } = options;
-  return async ({ system, prompt, maxOutputTokens, signal, onTruncated, onUsage }) => {
+  return async ({ system, prompt, maxOutputTokens, signal, onTruncated, onUsage, onRefresh }) => {
     /** Set when Gemini blocked the prompt: sent again, it would be blocked again. */
     let blocked = false;
     /** One request with an output limit: the text of the reply, why it ended, and what it thought. */
@@ -189,13 +191,22 @@ export function createGeminiGenerateText(options: {
           const data = errorBodyOf(await response.json().catch(() => null));
           return geminiFailure(response.status, data, retryAfterMs(response.headers, data), `The model returned HTTP ${response.status}.`, cause);
         };
-        let response = await post(await resolveHeaderSource(options.headers));
+        // A token function that throws fails the request before anything is sent (0.99.13).
+        let response = await post(await resolveHeaderSource(options.headers).catch((error: unknown) => {
+          throw headerFailure(error, GeminiRequestError, "Gemini");
+        }));
         // A token that was refused may be one a cache kept past its time: one more try, with a new one.
         if (response.status === 401 && options.refreshable) {
+          onRefresh?.(new GeminiRequestError("The model returned HTTP 401.", 401, { kind: "auth" }));
           let fresh: Record<string, string>;
           try {
             fresh = await resolveHeaderSource(options.headers, { refresh: true });
           } catch (error) {
+            // A connection that failed while the new token was fetched: sent again (0.99.13).
+            if (connectionFailure(error)) {
+              discard(response);
+              throw headerFailure(error, GeminiRequestError, "Gemini");
+            }
             // No new token came: the refusal is the error, and why none came is its cause.
             throw await failureOf(response, error);
           }

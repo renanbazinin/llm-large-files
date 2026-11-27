@@ -1,6 +1,6 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
-import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
+import { eventErrorOf, EventEmitter, eventStream, newRunId, noteModelFailure, type AskEvent, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
 import { CitationHider, checkCitations, type CitationCheck } from "./citations.js";
 import { documentRef, eventResultOf } from "./event-visibility.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
@@ -874,7 +874,12 @@ export function shareRoom(caps: number[], room: number, rates?: number[]): Array
   return shares;
 }
 
-function retryMessage({ error, delayMs }: RetryNotice): string {
+/** The retry of a request refused with HTTP 401 and sent again at once with a new token (ADAPT-REFRESH, 0.99.13). */
+const AUTH_REFRESH = { attempt: 1, delayMs: 0, reason: "auth_refresh" } as const;
+
+function retryMessage({ error, delayMs, reason }: RetryNotice): string {
+  // A 401 sent again at once with a new token (0.99.13): no wait, and no failed connection.
+  if (reason === "auth_refresh") return "The model refused the token (HTTP 401). Trying again with a new one…";
   const status = statusOf(error);
   const seconds = delayMs >= 1_000 ? ` in ${Math.round(delayMs / 1_000)} s` : "";
   const what = errorKindOf(error) === "timeout" && status === 0 ? "The model sent nothing for too long"
@@ -1399,6 +1404,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           // The adapter streams only when the text is asked for as it is written: a listener of
           // the events alone does not change how the model is asked.
           ...(shown && streamText ? { onText: write } : {}),
+          // A 401 that the adapter sends again with a new token (0.99.13): told as a retry with no
+          // wait. Not to `onActivity`, which is told of waits.
+          ...(events.active ? { onRefresh: (refused: unknown) => events.emit({ type: "retry", requestId, ...AUTH_REFRESH, error: eventErrorOf(refused), message: retryMessage({ error: refused, ...AUTH_REFRESH }) }) } : {}),
         });
         // The question stops when the signal aborts, whether the adapter does or not: one that does
         // not look at it would hold the question, and the user, until its request ends, if it ever
@@ -1417,6 +1425,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       });
     } catch (error) {
       if (got) release(requestId);
+      // Told as the model's, in this event and in `run.error`, even with no kind of its own (0.99.13).
+      if (!signal?.aborted) noteModelFailure(error);
       if (events.active) events.emit({ type: "request.end", requestId, ms: Date.now() - began, outcome: "error", error: eventErrorOf(error) });
       throw error;
     }
@@ -2284,9 +2294,13 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         tell(() => events.emit({ type: "request.start", requestId, role: "reader", purpose: start.purpose, model: toolModel.id, callId: callIds[index]!, detail: start.detail }));
         return {
           retry: (retried) => {
-            if (!ended && events.active) tell(() => events.emit({ type: "retry", requestId, attempt: retried.attempt, delayMs: retried.delayMs, error: eventErrorOf(retried.error), message: retryMessage(retried) }));
+            if (!ended && events.active) tell(() => events.emit({ type: "retry", requestId, attempt: retried.attempt, delayMs: retried.delayMs, ...(retried.reason ? { reason: retried.reason } : {}), error: eventErrorOf(retried.error), message: retryMessage(retried) }));
           },
-          end,
+          end: (last) => {
+            // The read's own request failed: told as the model's, even with no kind of its own (0.99.13).
+            if (last.error !== undefined && !signal?.aborted) noteModelFailure(last.error);
+            end(last);
+          },
         };
       };
       /** A look of this turn waited `pageLookWaitMs` and was told the server is busy: the others do not wait (`maxWaitMs`). */

@@ -168,6 +168,13 @@ export type SendHooks = {
    */
   onText?: (delta: string) => void;
   signal?: AbortSignal;
+  /**
+   * Called when a request refused with HTTP 401 is sent again at once with headers asked for with
+   * `{ refresh: true }` (`vertexAi({ accessToken })` as a function), just before the new token is
+   * asked for. `refused` is the 401. The loop tells it as a `retry` event of reason
+   * "auth_refresh". New in 0.99.13.
+   */
+  onRefresh?: (refused: unknown) => void;
 };
 
 /** What a model can take, as far as its adapter knows. */

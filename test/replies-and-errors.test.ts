@@ -583,9 +583,10 @@ describe("part reads, since the 0.6 review", () => {
       const result = await files.tools([meta], { generate: failing, retry: { retries: 0 } }).execute("analyze_whole_document", { document_id: meta.id, task: "Summarize." });
       expect(result, String(error)).toEqual({ error: `Could not read any part of app.log: ${reason}` });
     }
-    // The built-in Gemini part reader, whose token could not be renewed during the read.
+    // The built-in Gemini part reader, whose token could not be renewed during the read: since
+    // 0.99.13 a token function that fails on anything but a connection is an "auth" error (ADAPT-3).
     const vertex = gemini(vertexAi({ project: "p", model: "gemini-test", accessToken: () => { throw new Error(`impersonation of sa@acme-prod-4471.iam.gserviceaccount.com failed`); } }), { fetch: (async () => json({})) as typeof globalThis.fetch });
-    expect(await files.tools([meta], { generate: vertex.generateText!, retry: { retries: 0 } }).execute("analyze_whole_document", { document_id: meta.id, task: "Summarize." })).toEqual({ error: "Could not read any part of app.log: The model request failed." });
+    expect(await files.tools([meta], { generate: vertex.generateText!, retry: { retries: 0 } }).execute("analyze_whole_document", { document_id: meta.id, task: "Summarize." })).toEqual({ error: "Could not read any part of app.log: The model refused the key or token it was sent." });
     // A part that failed among others that were read, and a last step that failed: the model is
     // told neither in the notes it writes the answer from, nor in the result.
     let part = 0;
