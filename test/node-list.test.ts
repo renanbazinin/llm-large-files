@@ -110,7 +110,7 @@ describe("handlers.list", () => {
     for (const headers of [as(), as(undefined, "chat-1")]) {
       const response = await list(base, headers);
       expect(response.status).toBe(401);
-      expect(await response.json()).toEqual({ error: "Sign in first." });
+      expect(await response.json()).toEqual({ error: "Sign in first.", category: "unknown" });
     }
     expect(listOwned).not.toHaveBeenCalled();
     server!.closeAllConnections();
@@ -122,7 +122,7 @@ describe("handlers.list", () => {
     const anonymous = await serve({ ...open, list: listOpen }, { getScope: chatOf });
     const response = await list(anonymous);
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: "Sign in first." });
+    expect(await response.json()).toEqual({ error: "Sign in first.", category: "unknown" });
     expect(listOpen).not.toHaveBeenCalled();
   });
 
@@ -156,11 +156,11 @@ describe("handlers.list", () => {
       server = undefined;
     }
     expect(answers).toEqual([
-      [500, { error: "The files could not be listed (empty owner)." }],
-      [500, { error: "The files could not be listed (empty owner)." }],
-      [500, { error: "The files could not be listed (owner is not a string)." }],
-      [500, { error: "The files could not be listed (invalid scope)." }],
-      [500, { error: "The files could not be listed (no scope)." }],
+      [500, { error: "The files could not be listed (empty owner).", category: "unknown" }],
+      [500, { error: "The files could not be listed (empty owner).", category: "unknown" }],
+      [500, { error: "The files could not be listed (owner is not a string).", category: "unknown" }],
+      [500, { error: "The files could not be listed (invalid scope).", category: "unknown" }],
+      [500, { error: "The files could not be listed (no scope).", category: "unknown" }],
     ]);
     expect(listed).not.toHaveBeenCalled();
   });
@@ -171,7 +171,7 @@ describe("handlers.list", () => {
     const base = await serve(createLargeFiles({ store: bare }), { getOwner: userOf });
     const response = await list(base, as("alice"));
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "The files could not be listed." });
+    expect(await response.json()).toEqual({ error: "The files could not be listed.", category: "input" });
     server!.closeAllConnections();
     server!.close();
 
@@ -179,7 +179,7 @@ describe("handlers.list", () => {
     const ours = await serve(own, { getOwner: userOf });
     const answered = await list(ours, as("alice"));
     expect(answered.status).toBe(500);
-    expect(await answered.json()).toEqual({ error: "The files could not be listed." });
+    expect(await answered.json()).toEqual({ error: "The files could not be listed.", category: "input" });
   });
 
   it("answers 503 with Retry-After: 5 when the store cannot be read, and 404 for a scope the store says is gone", async () => {
@@ -202,7 +202,7 @@ describe("handlers.list", () => {
     const chats = await serve(createLargeFiles({ store: gone }), { getOwner: userOf, getScope: chatOf });
     const answered = await list(chats, as("alice", "chat-1"));
     expect(answered.status).toBe(404);
-    expect(await answered.json()).toEqual({ error: "This chat no longer exists." });
+    expect(await answered.json()).toEqual({ error: "This chat no longer exists.", code: "scope_missing", category: "missing" });
   });
 
   it("answers what getOwner or getScope throws with a status, with that status and message", async () => {
@@ -219,15 +219,15 @@ describe("handlers.list", () => {
     });
     const banned = await list(base, { ...as("alice", "chat-1"), "X-Banned": "1" });
     expect(banned.status).toBe(403);
-    expect(await banned.json()).toEqual({ error: "This account is suspended." });
+    expect(await banned.json()).toEqual({ error: "This account is suspended.", category: "unknown" });
     const gone = await list(base, as("alice", "chat-1"));
     expect(gone.status).toBe(404);
-    expect(await gone.json()).toEqual({ error: "This chat no longer exists." });
+    expect(await gone.json()).toEqual({ error: "This chat no longer exists.", category: "unknown" });
     // A hook that throws without a status: a 500 that does not repeat its words.
     const plain = await serve(files, { getOwner: () => { throw new Error("db.users is not reachable at 10.0.0.7"); } });
     const failed = await list(plain);
     expect(failed.status).toBe(500);
-    expect(await failed.json()).toEqual({ error: "The files could not be listed." });
+    expect(await failed.json()).toEqual({ error: "The files could not be listed.", category: "unknown" });
     expect(listed).not.toHaveBeenCalled();
   });
 
@@ -239,7 +239,7 @@ describe("handlers.list", () => {
     const base = await serve(files, { getOwner: userOf });
     const looked = await fetch(`${base}/${legacy.id}`, { headers: as("alice") });
     expect(looked.status).toBe(404);
-    expect(await looked.json()).toEqual({ error: "This file is no longer available." });
+    expect(await looked.json()).toEqual({ error: "This file is no longer available.", code: "documents_missing", category: "missing" });
     expect(await (await fetch(`${base}/${legacy.id}`, { method: "DELETE", headers: as("alice") })).json()).toEqual({ deleted: false });
     expect(await (await list(base, as("alice"))).json()).toEqual({ documents: [toDocumentSummary(mine)] });
     // Still in the store.

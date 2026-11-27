@@ -106,7 +106,7 @@ describe("errorInfoOf and transient system errors", () => {
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("5");
     const text = await response.text();
-    expect(text).toBe(JSON.stringify({ error: "Upload failed (ETIMEDOUT)." }));
+    expect(text).toBe(JSON.stringify({ error: "Upload failed (ETIMEDOUT).", code: "ETIMEDOUT", category: "unknown", retryAfterMs: 5000 }));
     expect(text).not.toContain(HOST);
     // On the event stream too: ingest.error says 503, which errorInfoOf reads in the browser.
     const streamed = await (await fetch(url, { method: "POST", headers: { "X-File-Name": "notes.txt", Accept: "text/event-stream" }, body: "one\n" })).text();

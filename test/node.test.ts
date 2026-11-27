@@ -116,7 +116,7 @@ describe("createDocumentHandlers", () => {
     const agent = new Agent({ keepAlive: true, maxSockets: 1 });
     try {
       const answer = await chunkedUpload(base, 4 * 1024 * 1024, agent);
-      expect(answer).toEqual({ status: 413, body: JSON.stringify({ error: "The file is larger than the 1000 B upload limit." }) });
+      expect(answer).toEqual({ status: 413, body: JSON.stringify({ error: "The file is larger than the 1000 B upload limit.", code: "too_large", category: "ingest" }) });
       // The next request goes on the same connection, and is answered.
       const next = await new Promise<number | undefined>((resolve, reject) => {
         httpRequest(`${base}/${UNKNOWN_ID}`, { agent }, (response) => {
@@ -158,7 +158,7 @@ describe("createDocumentHandlers", () => {
     for (const method of ["GET", "DELETE"]) {
       const refused = await fetch(`${base}/${UNKNOWN_ID}`, { method, headers: { "X-User": "expired" } });
       expect(refused.status).toBe(401);
-      expect(await refused.json()).toEqual({ error: "Sign in again." });
+      expect(await refused.json()).toEqual({ error: "Sign in again.", category: "unknown" });
       const failed = await fetch(`${base}/${UNKNOWN_ID}`, { method, headers: { "X-User": "broken" } });
       expect(failed.status).toBe(500);
       expect(JSON.stringify(await failed.json())).not.toContain("10.0.0.5");
@@ -182,15 +182,15 @@ describe("createDocumentHandlers", () => {
     // A store that could not write is a DocumentStoreError since 0.9.0, whose status is 503 (it was
     // answered 500, "Upload failed (ENOSPC).").
     expect(upload.status).toBe(503);
-    expect(await upload.json()).toEqual({ error: "The document could not be stored (ENOSPC). Try again." });
+    expect(await upload.json()).toEqual({ error: "The document could not be stored (ENOSPC). Try again.", code: "ENOSPC", category: "store", retryAfterMs: 5000 });
     // A store that could not be read is a DocumentStoreError, whose status is 503 since 0.9.0 (it
     // was answered 500, "The file could not be looked up (EIO).").
     const lookup = await fetch(`${base}/${UNKNOWN_ID}`);
     expect(lookup.status).toBe(503);
-    expect(await lookup.json()).toEqual({ error: "The document store could not be read (EIO). Try again." });
+    expect(await lookup.json()).toEqual({ error: "The document store could not be read (EIO). Try again.", code: "EIO", category: "store", retryAfterMs: 5000 });
     const removal = await fetch(`${base}/${UNKNOWN_ID}`, { method: "DELETE" });
     expect(removal.status).toBe(503);
-    expect(await removal.json()).toEqual({ error: "The document store could not be read (EIO). Try again." });
+    expect(await removal.json()).toEqual({ error: "The document store could not be read (EIO). Try again.", code: "EIO", category: "store", retryAfterMs: 5000 });
   });
 
   it("answers a custom store's own error with a 503 that does not repeat its message", async () => {
@@ -210,19 +210,19 @@ describe("createDocumentHandlers", () => {
       failing = thrown;
       const failed = await upload();
       expect(failed.status).toBe(503);
-      expect(await failed.json()).toEqual({ error: "The document could not be stored. Try again." });
+      expect(await failed.json()).toEqual({ error: "The document could not be stored. Try again.", category: "store", retryAfterMs: 5000 });
     }
     // So is an error the store gave a status of its own, as http-errors does (it was answered with
     // that status and its message): the store's words are the cause, for the server's log.
     failing = Object.assign(new Error("The document database is down. Try again in a minute."), { status: 503 });
     const refused = await upload();
     expect(refused.status).toBe(503);
-    expect(await refused.json()).toEqual({ error: "The document could not be stored. Try again." });
+    expect(await refused.json()).toEqual({ error: "The document could not be stored. Try again.", category: "store", retryAfterMs: 5000 });
     // A file that cannot be read is still the client's 422, with the reason.
     failing = undefined;
     const empty = await fetch(base, { method: "POST", headers: { "X-File-Name": "blank.txt" }, body: "   \n\n" });
     expect(empty.status).toBe(422);
-    expect(await empty.json()).toEqual({ error: "blank.txt did not contain any text." });
+    expect(await empty.json()).toEqual({ error: "blank.txt did not contain any text.", code: "no_text", category: "ingest" });
   });
 
   // On Node 22 the client's fetch keeps the aborted connection about 4 s.

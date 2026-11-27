@@ -185,7 +185,7 @@ describe("the upload handler and a busy reader", () => {
     const json = await post({});
     expect(json.status).toBe(503);
     expect(json.headers["retry-after"]).toBe("3");
-    expect(JSON.parse(json.body)).toEqual({ error: "The server is reading other files right now. Try again in a moment." });
+    expect(JSON.parse(json.body)).toEqual({ error: "The server is reading other files right now. Try again in a moment.", code: "busy", category: "ingest", retryAfterMs: 2500 });
     const events = await post({ accept: "text/event-stream" });
     expect(events.body).toContain('"code":"busy"');
   });

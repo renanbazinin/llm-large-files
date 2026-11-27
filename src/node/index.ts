@@ -3,6 +3,7 @@ export type {
   DocumentHandlerOptions,
   DocumentHandlers,
   DocumentHandlerStats,
+  ErrorBody,
   PreparedUpload,
   PrepareUploadInfo,
   RemovedContext,

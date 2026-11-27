@@ -276,7 +276,7 @@ describe("childScript and a reader that does not start (finding 43)", () => {
         post.end(Buffer.from(bytes));
       });
       expect(answer.status).toBe(500);
-      expect(JSON.parse(answer.body)).toEqual({ error: "The server could not start a reader for a.xlsx (exit code 1)." });
+      expect(JSON.parse(answer.body)).toEqual({ error: "The server could not start a reader for a.xlsx (exit code 1).", category: "unknown" });
     } finally {
       server.close();
       await isolated.close();
