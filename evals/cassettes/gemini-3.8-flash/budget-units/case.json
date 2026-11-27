@@ -16,6 +16,10 @@
      "status": "pass"
     },
     {
+     "fact": "names only row 1 of budget-1",
+     "status": "pass"
+    },
+    {
      "fact": "answers in Hebrew",
      "status": "pass"
     }
@@ -32,7 +36,25 @@
     "checked": 1,
     "supported": 1,
     "unchecked": 1,
-    "unsupported": []
+    "unsupported": [],
+    "cited": [
+     {
+      "document": "תקציב מחלקות 2026.xlsx",
+      "documentId": "budget-1",
+      "from": 3,
+      "to": 3,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "תקציב מחלקות 2026.xlsx",
+      "documentId": "budget-1",
+      "from": 1,
+      "to": 1,
+      "form": "row",
+      "status": "unchecked"
+     }
+    ]
    },
    "tools": [],
    "reads": 0,

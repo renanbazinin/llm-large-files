@@ -247,8 +247,9 @@ export function recheckRun(run: CaseRun, evalCase: EvalCase, context: Omit<FactC
 
 /**
  * What differs between a replay and its recording: a request that missed, recordings left over, a
- * fact that held and no longer does, facts that changed since the recording, and a case of kind
- * "whole-read" whose recording made no whole read.
+ * fact that held and no longer does, facts that changed since the recording, a case of kind
+ * "whole-read" whose recording made no whole read, and (0.99.13) a case listed in `failsOn` for the
+ * model whose recorded answer passes every fact.
  */
 function compare(recorded: CaseFile, run: CaseRun, replay: ReturnType<typeof replayFetch>, evalCase: EvalCase): string[] {
   const problems: string[] = [];
@@ -275,6 +276,9 @@ function compare(recorded: CaseFile, run: CaseRun, replay: ReturnType<typeof rep
     for (const [at, fact] of before.facts.entries()) {
       if (fact.status === "pass" && now.facts[at]?.status === "fail") problems.push(`question ${index + 1}: the fact "${fact.fact}" held when recorded and does not now (${now.facts[at]!.detail ?? ""})`);
     }
+  }
+  if (evalCase.failsOn && Object.hasOwn(evalCase.failsOn, run.model) && run.passed && !replay.misses.length) {
+    problems.push(`known to fail, and passes: case "${run.model}/${run.case}" is in failsOn for ${run.model}, and its recorded answer passes every fact. Take it out of failsOn in evals/cases.ts.`);
   }
   return problems;
 }

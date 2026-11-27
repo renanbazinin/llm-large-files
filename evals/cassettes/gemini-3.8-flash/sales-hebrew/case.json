@@ -20,11 +20,16 @@
      "status": "pass"
     },
     {
+     "fact": "names only rows 53, 106, 159 … 1166 (22 rows) of sales-1",
+     "status": "fail",
+     "detail": "row 55 is text line 55, Excel row 53; row 108 is text line 108, Excel row 106; row 161 is text line 161, Excel row 159"
+    },
+    {
      "fact": "answers in Hebrew",
      "status": "pass"
     }
    ],
-   "passed": true,
+   "passed": false,
    "requests": 4,
    "inputTokens": 14144,
    "cachedInputTokens": 4112,
@@ -36,7 +41,17 @@
     "checked": 0,
     "supported": 0,
     "unchecked": 1,
-    "unsupported": []
+    "unsupported": [],
+    "cited": [
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 55,
+      "to": 55,
+      "form": "row",
+      "status": "unchecked"
+     }
+    ]
    },
    "tools": [
     "aggregate_table",
@@ -123,8 +138,9 @@
      "toolCalls": 0
     }
    ],
+   "excerpt": "עבור אזור **East** בגיליון Sales:\n\n* **סך כל ההכנסות (Revenue):** 32,133\n* **מספר השורות (עסקאות):** 22 שורות (לדוגמה: שורה 55, 108, 161).",
    "answer": "עבור אזור **East** בגיליון Sales:\n\n* **סך כל ההכנסות (Revenue):** 32,133\n* **מספר השורות (עסקאות):** 22 שורות (לדוגמה: שורה 55, 108, 161)."
   }
  ],
- "passed": true
+ "passed": false
 }

@@ -16,11 +16,16 @@
      "status": "pass"
     },
     {
+     "fact": "names only row 1 of budget-1",
+     "status": "fail",
+     "detail": "row 3 is text line 3, Excel row 1"
+    },
+    {
      "fact": "answers in Hebrew",
      "status": "pass"
     }
    ],
-   "passed": true,
+   "passed": false,
    "requests": 1,
    "inputTokens": 3862,
    "cachedInputTokens": 0,
@@ -32,7 +37,17 @@
     "checked": 0,
     "supported": 0,
     "unchecked": 1,
-    "unsupported": []
+    "unsupported": [],
+    "cited": [
+     {
+      "document": "תקציב מחלקות 2026.xlsx",
+      "documentId": "budget-1",
+      "from": 3,
+      "to": 3,
+      "form": "row",
+      "status": "unchecked"
+     }
+    ]
    },
    "tools": [],
    "reads": 0,
@@ -58,8 +73,9 @@
      "toolCalls": 0
     }
    ],
+   "excerpt": "על פי קובץ התקציב (שורה 3 בגיליון), כותרת גיליון התקציב היא:\n**תקציב מחלקות 2026**\n\nוהסכומים מוצגים ב**אלפי ש\"ח**.",
    "answer": "על פי קובץ התקציב (שורה 3 בגיליון), כותרת גיליון התקציב היא:\n**תקציב מחלקות 2026**\n\nוהסכומים מוצגים ב**אלפי ש\"ח**."
   }
  ],
- "passed": true
+ "passed": false
 }

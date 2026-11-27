@@ -13,6 +13,11 @@ import { checkCitations, type CitationCheck, type DocumentFormat, type Evidence 
  *   `checkCitations` ("not checked yet" while it is not available): the citation names the file,
  *   or the question has that file alone;
  * - `{ mustNotClaim }`: none of this text, pattern, or number;
+ * - `{ rows: { document, valid } }`: every sheet row the answer names is one of `valid`, the Excel
+ *   rows of the answer in the workbook `document`: a right number told with a wrong row fails
+ *   (0.99.13). It reads "Row N", "שורה N", "שורות N-M" and the list that follows ("שורה 55, 108,
+ *   161", "שורות 5, 7 ו-9"; a range by its two ends), not line citations (L55). An answer that
+ *   names no row passes;
  * - `{ language: "he" }`: at least 60% of the answer's letters are Hebrew letters, once citations,
  *   file names, numbers, code (a quoted log line), identifiers (payments-service, /api/v2), names
  *   and acronyms (words that start with a capital), and Latin words in quotes or in parentheses
@@ -23,6 +28,7 @@ export type Fact = (
   | { says: string | RegExp | Array<string | RegExp> }
   | { mustCite: { document: string; text: string } }
   | { mustNotClaim: string | RegExp | { number: number } }
+  | { rows: { document: string; valid: number[] } }
   | { language: "he" }
 ) & {
   /** The fact in words, for the report, in place of its pattern: "says 09:31". A recording compares facts by these words. */
@@ -55,6 +61,11 @@ export function describeFact(fact: Fact): string {
     const claim = fact.mustNotClaim;
     return `does not claim ${typeof claim === "object" && !(claim instanceof RegExp) ? `the number ${claim.number}` : String(claim)}`;
   }
+  if ("rows" in fact) {
+    const { valid, document } = fact.rows;
+    const listed = valid.length <= 3 ? valid.join(", ") : `${valid.slice(0, 3).join(", ")} … ${valid.at(-1)} (${valid.length} rows)`;
+    return `names only ${valid.length === 1 ? "row" : "rows"} ${listed} of ${document}`;
+  }
   return `answers in ${fact.language === "he" ? "Hebrew" : fact.language}`;
 }
 
@@ -62,6 +73,18 @@ export function describeFact(fact: Fact): string {
 export function numbersIn(text: string): number[] {
   const plain = text.replace(/(?<=\d)[,٬’'](?=\d{3}(?!\d))/g, "");
   return [...plain.matchAll(/(?<![\d.])\d+(?:\.\d+)?/g)].map((match) => Number(match[0]));
+}
+
+/**
+ * A sheet row the answer names, with the list or range that follows it: "Row 32", "rows 53, 106 and
+ * 159", "שורה 55, 108, 161", "בשורות 5, 7 ו-9", "שורות 53-106", "שורה מס' 8". "22 rows" names
+ * none: the number comes first.
+ */
+const ROW_REF = /(?<![\p{L}\p{N}_])(?:[בלמוהכש]{0,2}שור(?:ה|ות)|[Rr]ows?)\s+(?:(?:מס['׳"]?|מספר)\s*)?(\d{1,7}(?:\s*(?:,|;|[-–—־]|ו[-־]?|and|&|עד|to)\s*\d{1,7})*)(?![\p{L}\p{N}_])/gu;
+
+/** The sheet rows an answer names (see `ROW_REF`), in order, a row named twice twice. */
+export function rowsNamed(text: string): number[] {
+  return [...plainAnswer(text).matchAll(ROW_REF)].flatMap((match) => (match[1]!.match(/\d+/g) ?? []).map(Number));
 }
 
 /** The text without its line citations in the library's form (L12, L12-14), whose numbers are no answer. */
@@ -182,6 +205,16 @@ export function checkFact(fact: Fact, text: string, context: FactContext): FactR
     const claim = fact.mustNotClaim;
     if (typeof claim === "object" && !(claim instanceof RegExp)) return result(!numbersIn(withoutCitations(plain)).includes(claim.number), `the answer gives ${claim.number}`);
     return result(!matches(plain, claim), "the answer has it");
+  }
+  if ("rows" in fact) {
+    const { document, valid } = fact.rows;
+    const wrong = [...new Set(rowsNamed(text))].filter((row) => !valid.includes(row));
+    // A wrong row that is the text line of a right one: the model counted lines, not Excel rows.
+    const why = (row: number) => {
+      const meant = valid.find((excel) => context.linesWith(document, `Row ${excel}:`).includes(row));
+      return meant === undefined ? `row ${row} is not a row of the answer` : `row ${row} is text line ${row}, Excel row ${meant}`;
+    };
+    return result(wrong.length === 0, wrong.map(why).join("; "));
   }
   if ("language" in fact) {
     const share = hebrewShare(text, Object.values(context.names));
