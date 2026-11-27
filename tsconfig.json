@@ -18,7 +18,8 @@
       "llm-large-files/openai": ["./src/openai/index.ts"],
       "llm-large-files/anthropic": ["./src/anthropic/index.ts"],
       "llm-large-files/node": ["./src/node/index.ts"],
-      "llm-large-files/testing": ["./src/testing/index.ts"]
+      "llm-large-files/testing": ["./src/testing/index.ts"],
+      "llm-large-files/client": ["./src/client/index.ts"]
     }
   },
   "include": ["src", "test", "examples", "evals", "scripts"]
