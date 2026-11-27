@@ -1018,6 +1018,9 @@ export const pptx: Extractor = async (bytes, input) => {
   const names = await slideOrder(read, Object.keys(archive.files));
   if (names.length === 0) throw new Error("This PPTX does not contain any slides.");
   const slides: string[] = [];
+  // The line of each notes marker, counted from 1 over the text as it is joined below.
+  const notesLines: number[] = [];
+  let line = 1;
   for (const [index, name] of names.entries()) {
     const { paragraphs, hiddenSlide } = await read.paragraphs(name, "a");
     const notesPart = await notesOf(read, name);
@@ -1026,9 +1029,14 @@ export const pptx: Extractor = async (bytes, input) => {
     const notes = notesPart ? (await read.paragraphs(notesPart, "a", { notesPage: true })).paragraphs : [];
     const text = paragraphs.join("\n");
     // A hidden slide keeps its text, and says that the slide show skips it.
-    slides.push(`## Slide ${index + 1}${hiddenSlide ? ` ${HIDDEN_SLIDE}` : ""}\n${text || "[No text on this slide]"}${notes.length > 0 ? `\n${SPEAKER_NOTES}\n${notes.join("\n")}` : ""}`);
+    const head = `## Slide ${index + 1}${hiddenSlide ? ` ${HIDDEN_SLIDE}` : ""}\n${text || "[No text on this slide]"}`;
+    const slide = `${head}${notes.length > 0 ? `\n${SPEAKER_NOTES}\n${notes.join("\n")}` : ""}`;
+    if (notes.length > 0) notesLines.push(line + head.split("\n").length);
+    // The slide's lines, and the blank line that joins it to the next.
+    line += slide.split("\n").length + 1;
+    slides.push(slide);
     input?.onProgress?.({ done: index + 1, total: names.length, unit: "parts" });
   }
-  return { text: slides.join("\n\n"), pages: names.length };
+  return { text: slides.join("\n\n"), pages: names.length, ...(notesLines.length > 0 ? { notesLines } : {}) };
 };
 

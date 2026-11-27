@@ -5,7 +5,7 @@ import { checkMetaVersion, checkOwner, checkStuck, formatDuration, heldBy, isTim
 import { buildLogProfileInSlices, buildOutlineInSlices, looksLikeLog } from "./analyze.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isStoreWriteFailure, noteStoreWriteFailure, toIngestError } from "./errors.js";
 import { EventEmitter, eventErrorOf, newRunId, type EventError, type IngestEvent, type IngestStage } from "./events.js";
-import { detectFormat, extractorFor, extractText, isZip, namedFormat, sniffParts, SNIFFED_FIRST, SNIFFED_HEAD, SNIFFED_TAIL } from "./extract.js";
+import { detectFormat, extractorFor, extractText, isZip, namedFormat, sniffParts, SNIFFED_FIRST, SNIFFED_HEAD, SNIFFED_TAIL, SPEAKER_NOTES } from "./extract.js";
 import type { IngestFromSource, IngestInput } from "./library.js";
 import type { Limiter } from "./limiter.js";
 import { TimeSlicer } from "./pause.js";
@@ -362,6 +362,40 @@ function fileOf(extracted: ExtractedText): { bytes: number; sha256: string } | u
   if (typeof file !== "object" || file === null) return undefined;
   const { bytes, sha256 } = file as { bytes?: unknown; sha256?: unknown };
   return typeof bytes === "number" && Number.isSafeInteger(bytes) && bytes >= 0 && isSha256(sha256) ? { bytes, sha256 } : undefined;
+}
+
+/** The version of the text the extractors of this library write (`DocumentMeta.textVersion`). New in 0.99.14. */
+export const TEXT_VERSION = 1;
+/** The most notes markers kept for a deck. */
+const MAX_NOTES_LINES = 4_096;
+
+/** A deck's notes markers as its extractor said (`ExtractedText.notesLines`): lines from 1, in order, or undefined. */
+function notesMarkersOf(extracted: ExtractedText): number[] | undefined {
+  const given: unknown = extracted.notesLines;
+  if (!Array.isArray(given) || given.length === 0 || given.length > MAX_NOTES_LINES) return undefined;
+  const lines = given.filter((line): line is number => Number.isSafeInteger(line) && line >= 1);
+  return lines.length === given.length ? [...new Set(lines)].sort((left, right) => left - right) : undefined;
+}
+
+/**
+ * The notes markers of a deck as lines of the stored text: each extracted line moved down by the
+ * pieces of split lines before it (`continued`, the lines of the stored text that continue a split
+ * line), and kept only when the stored line is the marker. Undefined when one is not, or none is left.
+ */
+function notesLinesIn(markers: number[], continued: number[] | undefined, lines: string[]): number[] | undefined {
+  const out: number[] = [];
+  let pieces = 0;
+  for (const marker of markers) {
+    // Every piece before the marker's stored line moves it down one.
+    let line = marker + pieces;
+    while (continued && pieces < continued.length && continued[pieces]! <= line) {
+      pieces++;
+      line = marker + pieces;
+    }
+    if (lines[line - 1] !== SPEAKER_NOTES) return undefined;
+    out.push(line);
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /**
@@ -726,6 +760,9 @@ async function ingestFile(
   let text: string;
   let wrapped: number;
   let lines: string[];
+  /** The lines that continue a line split at 2,000 characters, and a deck's notes markers (0.99.14). */
+  let lineSplits: number[] | undefined;
+  let notesLines: number[] | undefined;
   let measured: Awaited<ReturnType<typeof measureText>>;
   let outline: DocumentMeta["outline"];
   let logProfile: DocumentMeta["logProfile"];
@@ -812,10 +849,14 @@ async function ingestFile(
       // A character is at least one byte: a text this long is too large whatever it holds.
       if (extracted.text.length > maxTextBytes) throw tooMuchText(name, maxTextBytes);
       await slicer.pauseNow();
-      return { pages: extracted.pages, reading: readingOf(extracted), file: fileOf(extracted), headings: format === "pdf" ? headingsOf(extracted) : undefined, ...await prepareText(extracted.text, slicer, progress && ((done, total) => progress.report("prepare", done, total, "characters"))) };
+      const markers = format === "pptx" ? notesMarkersOf(extracted) : undefined;
+      const prepared = await prepareText(extracted.text, slicer, progress && ((done, total) => progress.report("prepare", done, total, "characters")), { keepsLines: markers !== undefined });
+      return { pages: extracted.pages, reading: readingOf(extracted), file: fileOf(extracted), headings: format === "pdf" ? headingsOf(extracted) : undefined, ...prepared, markers };
     };
     const done = await read();
     ({ pages, reading, text, wrapped, lines, headings } = done);
+    lineSplits = done.continued;
+    notesLines = done.markers && done.keptLines ? notesLinesIn(done.markers, done.continued, lines) : undefined;
     progress?.end();
     // Bytes given are hashed once the extractor is done with them, a slice at a time: the extractor
     // is called at once at the ingest's turn, as before 0.9.0, so the ingests of one turn reach it
@@ -882,6 +923,10 @@ async function ingestFile(
     lines: lines.length,
     estimatedTokens: measured.tokens,
     wrappedLines: wrapped,
+    // Where lines were split, and a deck's notes markers, for the sources of an answer (0.99.14).
+    ...(wrapped > 0 && lineSplits ? { lineSplits } : {}),
+    ...(notesLines ? { notesLines } : {}),
+    textVersion: TEXT_VERSION,
     ...(pages ? { pages } : {}),
     ...reading,
     ...(keepOriginal ? { originalKept: true } : {}),

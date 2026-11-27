@@ -90,6 +90,29 @@ export type DocumentMeta = {
   estimatedTokens: number;
   /** Lines longer than the wrap limit are split so every line stays readable by line number. */
   wrappedLines: number;
+  /**
+   * The lines of the text, from 1 and in order, that continue a line split at 2,000 characters
+   * (`wrappedLines` counts the lines that were split; this names each piece after the first). With
+   * it, a source can name a log line, a CSV row or a workbook row as they are in the file even when
+   * a line was split. Absent when no line was split, when there would be more than
+   * `MAX_LINE_SPLITS` (4,096), and on documents from before 0.99.14: a source then names no line of
+   * the file after a split. New in 0.99.14.
+   */
+  lineSplits?: number[];
+  /**
+   * For a deck (PPTX): the line of each slide's "[Speaker notes]" marker that the extractor wrote,
+   * from 1 and in order, so that a source can tell a slide's notes from a slide whose own text says
+   * "[Speaker notes]". Absent for a deck without notes, when the text did not keep the extractor's
+   * lines, and on documents from before 0.99.14: a source then names the slide without saying
+   * "notes". New in 0.99.14.
+   */
+  notesLines?: number[];
+  /**
+   * The version of the extractor's text for this format, 1 when absent. A source names only the
+   * sheet, page or slide of a document whose text is of a version newer than this library knows.
+   * New in 0.99.14 (1 for every format).
+   */
+  textVersion?: number;
   pages?: number;
   /**
    * The older encoding a text file was read in, because it is not UTF-8: "windows-1255" for a
@@ -277,6 +300,13 @@ export type ExtractedText = {
    * to keep that outline. New in 0.10.0.
    */
   headings?: Array<{ page: number; level: number; title: string; skip?: number }>;
+  /**
+   * A deck's speaker-notes markers: the line of `text`, from 1, of each "[Speaker notes]" line the
+   * extractor wrote before a slide's notes (not one a slide's own text holds). The built-in PPTX
+   * extractor returns them; `ingest` keeps them as `DocumentMeta.notesLines` when the text it stores
+   * has the same lines. Read for a PPTX only. New in 0.99.14.
+   */
+  notesLines?: number[];
 };
 
 export type ExtractInput = {

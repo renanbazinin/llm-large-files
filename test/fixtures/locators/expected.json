@@ -1,0 +1,1547 @@
+{
+ "about": "Expected places of the synthetic locator fixtures, from specs/01-locators/truth/expected-synthetic.json (independent ground truth built from the original bytes; HIDDEN-ROWS item added for 0.99.14). Tests only; syn-many (450 sheets) is generated in the test.",
+ "files": {
+  "syn-book": {
+   "file": "book.xlsx",
+   "name": "book.xlsx",
+   "format": "xlsx",
+   "textLines": 69
+  },
+  "syn-long-row": {
+   "file": "long-row.xlsx",
+   "name": "long-row.xlsx",
+   "format": "xlsx",
+   "textLines": 7
+  },
+  "syn-records": {
+   "file": "records.csv",
+   "name": "records.csv",
+   "format": "csv",
+   "textLines": 14
+  },
+  "syn-long-record": {
+   "file": "long-record.csv",
+   "name": "long-record.csv",
+   "format": "csv",
+   "textLines": 5
+  },
+  "syn-events": {
+   "file": "events.log",
+   "name": "events.log",
+   "format": "log",
+   "textLines": 12
+  },
+  "syn-headings-docx": {
+   "file": "handbook.docx",
+   "name": "handbook.docx",
+   "format": "docx",
+   "textLines": 1296
+  },
+  "syn-headings-md": {
+   "file": "handbook.md",
+   "name": "handbook.md",
+   "format": "markdown",
+   "textLines": 2172
+  },
+  "syn-deck": {
+   "file": "launch.pptx",
+   "name": "launch.pptx",
+   "format": "pptx",
+   "textLines": 21
+  },
+  "syn-pdf": {
+   "file": "quarter.pdf",
+   "name": "quarter.pdf",
+   "format": "pdf",
+   "textLines": 11
+  },
+  "dup-a": {
+   "file": "report-a.md",
+   "name": "report.md",
+   "format": "markdown",
+   "textLines": 5
+  },
+  "dup-b": {
+   "file": "report-b.md",
+   "name": "report.md",
+   "format": "markdown",
+   "textLines": 5
+  }
+ },
+ "tests": [
+  {
+   "id": "book-summary-row1",
+   "doc": "syn-book",
+   "line": 3,
+   "anchor": "Row 1: | Regional summary 2026 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Summary",
+    "excelRow": 1
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-summary-row2",
+   "doc": "syn-book",
+   "line": 4,
+   "anchor": "Row 2: | Prepared by finance; figures in thousands |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Summary",
+    "excelRow": 2
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-summary-row3",
+   "doc": "syn-book",
+   "line": 5,
+   "anchor": "Row 3: | Region | Q1 | Q2 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Summary",
+    "excelRow": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-summary-row8",
+   "doc": "syn-book",
+   "line": 10,
+   "anchor": "Row 8: | Center | 1104 | 2136 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Summary",
+    "excelRow": 8
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-summary-row12",
+   "doc": "syn-book",
+   "line": 14,
+   "anchor": "Row 12: | Galil | 1156 | 2204 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Summary",
+    "excelRow": 12
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-data-row2",
+   "doc": "syn-book",
+   "line": 19,
+   "anchor": "Row 2: | ORD-1002 | Customer 2 | 222 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Data",
+    "excelRow": 2
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-data-row8",
+   "doc": "syn-book",
+   "line": 25,
+   "anchor": "Row 8: | ORD-1008 | Customer 8 | 888 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Data",
+    "excelRow": 8
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-data-row29",
+   "doc": "syn-book",
+   "line": 46,
+   "anchor": "Row 29: | ORD-1029 | Customer 29 | 3219 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Data",
+    "excelRow": 29
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-data-row31",
+   "doc": "syn-book",
+   "line": 47,
+   "anchor": "Row 31: | ORD-1031 | Customer 31 | 3441 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Data",
+    "excelRow": 31
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-data-row40",
+   "doc": "syn-book",
+   "line": 56,
+   "anchor": "Row 40: | ORD-1040 | Customer 40 | 4440 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Data",
+    "excelRow": 40
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-hidden-row1",
+   "doc": "syn-book",
+   "line": 60,
+   "anchor": "Row 1: | Rate | 0.17 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Hidden calc",
+    "excelRow": 1
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-hidden-row3",
+   "doc": "syn-book",
+   "line": 62,
+   "anchor": "Row 3: | Cap | 4500 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Hidden calc",
+    "excelRow": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-notes-row2",
+   "doc": "syn-book",
+   "line": 67,
+   "anchor": "Row 2: | See Row 8 of Data for the largest early order |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Notes",
+    "excelRow": 2
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-notes-row4",
+   "doc": "syn-book",
+   "line": 68,
+   "anchor": "Row 4: | Checked by audit on 2026-11-02 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Notes",
+    "excelRow": 4
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-heading-1",
+   "doc": "syn-book",
+   "line": 1,
+   "anchor": "## Sheet 1: Summary",
+   "expect": {
+    "kind": "sheet",
+    "sheet": "Summary"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-columns-1",
+   "doc": "syn-book",
+   "line": 2,
+   "anchor": "Columns: | A |",
+   "expect": {
+    "kind": "sheet",
+    "sheet": "Summary"
+   },
+   "status": "coarser"
+  },
+  {
+   "id": "book-heading-2",
+   "doc": "syn-book",
+   "line": 16,
+   "anchor": "## Sheet 2: Data",
+   "expect": {
+    "kind": "sheet",
+    "sheet": "Data"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-columns-2",
+   "doc": "syn-book",
+   "line": 17,
+   "anchor": "Columns: | A | B | C |",
+   "expect": {
+    "kind": "sheet",
+    "sheet": "Data"
+   },
+   "status": "coarser"
+  },
+  {
+   "id": "book-heading-3",
+   "doc": "syn-book",
+   "line": 58,
+   "anchor": "## Sheet 3: Hidden calc (hidden sheet)",
+   "expect": {
+    "kind": "sheet",
+    "sheet": "Hidden calc"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-columns-3",
+   "doc": "syn-book",
+   "line": 59,
+   "anchor": "Columns: | A | B |",
+   "expect": {
+    "kind": "sheet",
+    "sheet": "Hidden calc"
+   },
+   "status": "coarser"
+  },
+  {
+   "id": "book-heading-4",
+   "doc": "syn-book",
+   "line": 64,
+   "anchor": "## Sheet 4: Notes",
+   "expect": {
+    "kind": "sheet",
+    "sheet": "Notes"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "book-columns-4",
+   "doc": "syn-book",
+   "line": 65,
+   "anchor": "Columns: | A |",
+   "expect": {
+    "kind": "sheet",
+    "sheet": "Notes"
+   },
+   "status": "coarser"
+  },
+  {
+   "id": "long-row-part1",
+   "doc": "syn-long-row",
+   "line": 5,
+   "anchor": "Row 3: | long | cell0w cell919w cell838w cell757w cell676w c",
+   "expect": {
+    "kind": "row",
+    "sheet": "Long",
+    "excelRow": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "long-row-part2",
+   "doc": "syn-long-row",
+   "line": 6,
+   "anchor": "cell937w cell856w cell775w cell694w cell613w cell532w cell45",
+   "expect": {
+    "kind": "row",
+    "sheet": "Long",
+    "excelRow": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "long-row-after",
+   "doc": "syn-long-row",
+   "line": 7,
+   "anchor": "Row 4: | after | the row after the long one |",
+   "expect": {
+    "kind": "row",
+    "sheet": "Long",
+    "excelRow": 4
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-header",
+   "doc": "syn-records",
+   "line": 1,
+   "anchor": "id,name,comment,amount",
+   "expect": {
+    "kind": "row",
+    "excelRow": 1
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-1",
+   "doc": "syn-records",
+   "line": 2,
+   "anchor": "1,Avi,plain,100",
+   "expect": {
+    "kind": "row",
+    "excelRow": 2
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-2",
+   "doc": "syn-records",
+   "line": 3,
+   "anchor": "2,Bat,\"has, a comma\",200",
+   "expect": {
+    "kind": "row",
+    "excelRow": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-3",
+   "doc": "syn-records",
+   "line": 4,
+   "anchor": "3,Gal,\"says \"\"hi\"\"\",300",
+   "expect": {
+    "kind": "row",
+    "excelRow": 4
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-4",
+   "doc": "syn-records",
+   "line": 5,
+   "anchor": "4,Dana,\"first line of comment",
+   "expect": {
+    "kind": "row",
+    "excelRow": 5
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-second-line-of-comment",
+   "doc": "syn-records",
+   "line": 6,
+   "anchor": "second line of comment\",400",
+   "expect": {
+    "kind": "row",
+    "excelRow": 5
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-5",
+   "doc": "syn-records",
+   "line": 7,
+   "anchor": "5,Eli,plain,500",
+   "expect": {
+    "kind": "row",
+    "excelRow": 6
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-8",
+   "doc": "syn-records",
+   "line": 10,
+   "anchor": "8,Hod,plain,800",
+   "expect": {
+    "kind": "row",
+    "excelRow": 9
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-9",
+   "doc": "syn-records",
+   "line": 12,
+   "anchor": "9,Ido,after the blank line,900",
+   "expect": {
+    "kind": "row",
+    "excelRow": 11
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-11",
+   "doc": "syn-records",
+   "line": 14,
+   "anchor": "11,Zev,last,1100",
+   "expect": {
+    "kind": "row",
+    "excelRow": 13
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "records-blank",
+   "doc": "syn-records",
+   "line": 11,
+   "anchor": "",
+   "expect": {
+    "kind": "row",
+    "excelRow": 10
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "long-record-part1",
+   "doc": "syn-long-record",
+   "line": 3,
+   "anchor": "b,\"field0w field919w field838w field757w field676w field595w",
+   "expect": {
+    "kind": "row",
+    "excelRow": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "long-record-part2",
+   "doc": "syn-long-record",
+   "line": 4,
+   "anchor": "field638w field557w field476w field395w field314w field233w ",
+   "expect": {
+    "kind": "row",
+    "excelRow": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "long-record-after",
+   "doc": "syn-long-record",
+   "line": 5,
+   "anchor": "c,after the long record,3",
+   "expect": {
+    "kind": "row",
+    "excelRow": 4
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "events-line4-part1",
+   "doc": "syn-events",
+   "line": 4,
+   "anchor": "{\"ts\":\"2026-11-12T08:00:04Z\",\"level\":\"ERROR\",\"event\":\"event-",
+   "expect": {
+    "kind": "line",
+    "line": 4,
+    "part": 1,
+    "parts": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "events-line4-part2",
+   "doc": "syn-events",
+   "line": 5,
+   "anchor": "\"v\":\"value-987\"},{\"k\":\"key65\",\"v\":\"value-21\"},{\"k\":\"key66\",\"",
+   "expect": {
+    "kind": "line",
+    "line": 4,
+    "part": 2,
+    "parts": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "events-line4-part3",
+   "doc": "syn-events",
+   "line": 6,
+   "anchor": "{\"k\":\"key130\",\"v\":\"value-42\"},{\"k\":\"key131\",\"v\":\"value-73\"},",
+   "expect": {
+    "kind": "line",
+    "line": 4,
+    "part": 3,
+    "parts": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "events-line3",
+   "doc": "syn-events",
+   "line": 3,
+   "anchor": "{\"ts\":\"2026-11-12T08:00:03Z\",\"level\":\"INFO\",\"event\":\"event-3",
+   "expect": {
+    "kind": "line",
+    "line": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "events-line5",
+   "doc": "syn-events",
+   "line": 7,
+   "anchor": "{\"ts\":\"2026-11-12T08:00:05Z\",\"level\":\"INFO\",\"event\":\"event-5",
+   "expect": {
+    "kind": "line",
+    "line": 5
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "events-line10",
+   "doc": "syn-events",
+   "line": 12,
+   "anchor": "{\"ts\":\"2026-11-12T08:00:10Z\",\"level\":\"INFO\",\"event\":\"event-1",
+   "expect": {
+    "kind": "line",
+    "line": 10
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-rule1",
+   "doc": "syn-headings-docx",
+   "line": 4,
+   "anchor": "1. Rule 1: the limit for topic 101 is 3 units.",
+   "expect": {
+    "kind": "clause",
+    "clause": "1",
+    "headings": [
+     "Chapter 1 – area 1",
+     "Section 1.1 – topic 101"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-background1",
+   "doc": "syn-headings-docx",
+   "line": 5,
+   "anchor": "Background for topic 101.",
+   "expect": {
+    "kind": "clause",
+    "clause": "1",
+    "headings": [
+     "Chapter 1 – area 1",
+     "Section 1.1 – topic 101"
+    ],
+    "part": "body paragraph"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-heading1.1",
+   "doc": "syn-headings-docx",
+   "line": 3,
+   "anchor": "## Section 1.1 – topic 101",
+   "expect": {
+    "kind": "heading",
+    "headings": [
+     "Chapter 1 – area 1",
+     "Section 1.1 – topic 101"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-rule198",
+   "doc": "syn-headings-docx",
+   "line": 611,
+   "anchor": "198. Rule 198: the limit for topic 1706 is 594 units.",
+   "expect": {
+    "kind": "clause",
+    "clause": "198",
+    "headings": [
+     "Chapter 17 – area 17",
+     "Section 17.6 – topic 1706"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-background198",
+   "doc": "syn-headings-docx",
+   "line": 612,
+   "anchor": "Background for topic 1706.",
+   "expect": {
+    "kind": "clause",
+    "clause": "198",
+    "headings": [
+     "Chapter 17 – area 17",
+     "Section 17.6 – topic 1706"
+    ],
+    "part": "body paragraph"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-heading17.6",
+   "doc": "syn-headings-docx",
+   "line": 610,
+   "anchor": "## Section 17.6 – topic 1706",
+   "expect": {
+    "kind": "heading",
+    "headings": [
+     "Chapter 17 – area 17",
+     "Section 17.6 – topic 1706"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-rule355",
+   "doc": "syn-headings-docx",
+   "line": 1095,
+   "anchor": "355. Rule 355: the limit for topic 3007 is 1065 units.",
+   "expect": {
+    "kind": "clause",
+    "clause": "355",
+    "headings": [
+     "Chapter 30 – area 30",
+     "Section 30.7 – topic 3007"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-background355",
+   "doc": "syn-headings-docx",
+   "line": 1096,
+   "anchor": "Background for topic 3007.",
+   "expect": {
+    "kind": "clause",
+    "clause": "355",
+    "headings": [
+     "Chapter 30 – area 30",
+     "Section 30.7 – topic 3007"
+    ],
+    "part": "body paragraph"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-heading30.7",
+   "doc": "syn-headings-docx",
+   "line": 1094,
+   "anchor": "## Section 30.7 – topic 3007",
+   "expect": {
+    "kind": "heading",
+    "headings": [
+     "Chapter 30 – area 30",
+     "Section 30.7 – topic 3007"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-rule420",
+   "doc": "syn-headings-docx",
+   "line": 1295,
+   "anchor": "420. Rule 420: the limit for topic 3512 is 1260 units.",
+   "expect": {
+    "kind": "clause",
+    "clause": "420",
+    "headings": [
+     "Chapter 35 – area 35",
+     "Section 35.12 – topic 3512"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-background420",
+   "doc": "syn-headings-docx",
+   "line": 1296,
+   "anchor": "Background for topic 3512.",
+   "expect": {
+    "kind": "clause",
+    "clause": "420",
+    "headings": [
+     "Chapter 35 – area 35",
+     "Section 35.12 – topic 3512"
+    ],
+    "part": "body paragraph"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-heading35.12",
+   "doc": "syn-headings-docx",
+   "line": 1294,
+   "anchor": "## Section 35.12 – topic 3512",
+   "expect": {
+    "kind": "heading",
+    "headings": [
+     "Chapter 35 – area 35",
+     "Section 35.12 – topic 3512"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "docx-title",
+   "doc": "syn-headings-docx",
+   "line": 1,
+   "anchor": "Operations handbook",
+   "expect": {
+    "kind": "document"
+   },
+   "status": "coarser"
+  },
+  {
+   "id": "markdown-rule1",
+   "doc": "syn-headings-md",
+   "line": 7,
+   "anchor": "1. Rule 1: the limit for topic 101 is 3 units.",
+   "expect": {
+    "kind": "line",
+    "line": 7,
+    "headings": [
+     "Chapter 1 – area 1",
+     "Section 1.1 – topic 101"
+    ],
+    "clause": "1"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-background1",
+   "doc": "syn-headings-md",
+   "line": 8,
+   "anchor": "Background for topic 101.",
+   "expect": {
+    "kind": "line",
+    "line": 8,
+    "headings": [
+     "Chapter 1 – area 1",
+     "Section 1.1 – topic 101"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-heading1.1",
+   "doc": "syn-headings-md",
+   "line": 5,
+   "anchor": "## Section 1.1 – topic 101",
+   "expect": {
+    "kind": "line",
+    "line": 5,
+    "headings": [
+     "Chapter 1 – area 1",
+     "Section 1.1 – topic 101"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-rule198",
+   "doc": "syn-headings-md",
+   "line": 1024,
+   "anchor": "198. Rule 198: the limit for topic 1706 is 594 units.",
+   "expect": {
+    "kind": "line",
+    "line": 1024,
+    "headings": [
+     "Chapter 17 – area 17",
+     "Section 17.6 – topic 1706"
+    ],
+    "clause": "198"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-background198",
+   "doc": "syn-headings-md",
+   "line": 1025,
+   "anchor": "Background for topic 1706.",
+   "expect": {
+    "kind": "line",
+    "line": 1025,
+    "headings": [
+     "Chapter 17 – area 17",
+     "Section 17.6 – topic 1706"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-heading17.6",
+   "doc": "syn-headings-md",
+   "line": 1022,
+   "anchor": "## Section 17.6 – topic 1706",
+   "expect": {
+    "kind": "line",
+    "line": 1022,
+    "headings": [
+     "Chapter 17 – area 17",
+     "Section 17.6 – topic 1706"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-rule355",
+   "doc": "syn-headings-md",
+   "line": 1835,
+   "anchor": "355. Rule 355: the limit for topic 3007 is 1065 units.",
+   "expect": {
+    "kind": "line",
+    "line": 1835,
+    "headings": [
+     "Chapter 30 – area 30",
+     "Section 30.7 – topic 3007"
+    ],
+    "clause": "355"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-background355",
+   "doc": "syn-headings-md",
+   "line": 1836,
+   "anchor": "Background for topic 3007.",
+   "expect": {
+    "kind": "line",
+    "line": 1836,
+    "headings": [
+     "Chapter 30 – area 30",
+     "Section 30.7 – topic 3007"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-heading30.7",
+   "doc": "syn-headings-md",
+   "line": 1833,
+   "anchor": "## Section 30.7 – topic 3007",
+   "expect": {
+    "kind": "line",
+    "line": 1833,
+    "headings": [
+     "Chapter 30 – area 30",
+     "Section 30.7 – topic 3007"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-rule420",
+   "doc": "syn-headings-md",
+   "line": 2170,
+   "anchor": "420. Rule 420: the limit for topic 3512 is 1260 units.",
+   "expect": {
+    "kind": "line",
+    "line": 2170,
+    "headings": [
+     "Chapter 35 – area 35",
+     "Section 35.12 – topic 3512"
+    ],
+    "clause": "420"
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-background420",
+   "doc": "syn-headings-md",
+   "line": 2171,
+   "anchor": "Background for topic 3512.",
+   "expect": {
+    "kind": "line",
+    "line": 2171,
+    "headings": [
+     "Chapter 35 – area 35",
+     "Section 35.12 – topic 3512"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-heading35.12",
+   "doc": "syn-headings-md",
+   "line": 2168,
+   "anchor": "## Section 35.12 – topic 3512",
+   "expect": {
+    "kind": "line",
+    "line": 2168,
+    "headings": [
+     "Chapter 35 – area 35",
+     "Section 35.12 – topic 3512"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "markdown-title",
+   "doc": "syn-headings-md",
+   "line": 1,
+   "anchor": "# Operations handbook",
+   "expect": {
+    "kind": "line",
+    "line": 1,
+    "headings": [
+     "Operations handbook"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "deck-budget-120k-for",
+   "doc": "syn-deck",
+   "line": 3,
+   "anchor": "Budget 120k for the pilot",
+   "expect": {
+    "kind": "slide",
+    "slide": 1,
+    "notes": false
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "deck-mention-the-budget",
+   "doc": "syn-deck",
+   "line": 5,
+   "anchor": "Mention the budget risk first",
+   "expect": {
+    "kind": "slide",
+    "slide": 1,
+    "notes": true
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "deck-ask-the-board",
+   "doc": "syn-deck",
+   "line": 6,
+   "anchor": "Ask the board for approval",
+   "expect": {
+    "kind": "slide",
+    "slide": 1,
+    "notes": true
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "deck-phase-2-starts",
+   "doc": "syn-deck",
+   "line": 11,
+   "anchor": "Phase 2 starts in May",
+   "expect": {
+    "kind": "slide",
+    "slide": 2,
+    "notes": false
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "deck-vendor-list-in",
+   "doc": "syn-deck",
+   "line": 15,
+   "anchor": "Vendor list in the appendix",
+   "expect": {
+    "kind": "slide",
+    "slide": 3,
+    "notes": false
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "deck-only-if-asked",
+   "doc": "syn-deck",
+   "line": 17,
+   "anchor": "Only if asked about vendors",
+   "expect": {
+    "kind": "slide",
+    "slide": 3,
+    "notes": true
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "deck-approve-the-pilot",
+   "doc": "syn-deck",
+   "line": 21,
+   "anchor": "Approve the pilot",
+   "expect": {
+    "kind": "slide",
+    "slide": 4,
+    "notes": false
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "deck-marker-slide1",
+   "doc": "syn-deck",
+   "line": 4,
+   "anchor": "[Speaker notes]",
+   "expect": {
+    "kind": "slide",
+    "slide": 1,
+    "notes": true
+   },
+   "status": "coarser"
+  },
+  {
+   "id": "deck-marker-slide2",
+   "doc": "syn-deck",
+   "line": 10,
+   "anchor": "[Speaker notes]",
+   "expect": {
+    "kind": "slide",
+    "slide": 2,
+    "notes": false
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "deck-marker-slide3",
+   "doc": "syn-deck",
+   "line": 16,
+   "anchor": "[Speaker notes]",
+   "expect": {
+    "kind": "slide",
+    "slide": 3,
+    "notes": true
+   },
+   "status": "coarser"
+  },
+  {
+   "id": "pdf-page1",
+   "doc": "syn-pdf",
+   "line": 3,
+   "anchor": "Revenue on page 1: 1111 units",
+   "expect": {
+    "kind": "page",
+    "page": 1
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "pdf-page2",
+   "doc": "syn-pdf",
+   "line": 7,
+   "anchor": "Revenue on page 2: 2222 units",
+   "expect": {
+    "kind": "page",
+    "page": 2
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "pdf-page3",
+   "doc": "syn-pdf",
+   "line": 11,
+   "anchor": "Revenue on page 3: 3333 units",
+   "expect": {
+    "kind": "page",
+    "page": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "dup-a-revenue",
+   "doc": "dup-a",
+   "line": 3,
+   "anchor": "Revenue 100 thousand",
+   "expect": {
+    "kind": "line",
+    "line": 3,
+    "headings": [
+     "Report A"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "dup-b-revenue",
+   "doc": "dup-b",
+   "line": 3,
+   "anchor": "Revenue 250 thousand",
+   "expect": {
+    "kind": "line",
+    "line": 3,
+    "headings": [
+     "Report B"
+    ]
+   },
+   "status": "resolved"
+  }
+ ],
+ "manyTests": [
+  {
+   "id": "many-S001-row2",
+   "line": 4,
+   "anchor": "Row 2: | K1 | 7 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "S001",
+    "excelRow": 2
+   }
+  },
+  {
+   "id": "many-S099-row2",
+   "line": 494,
+   "anchor": "Row 2: | K99 | 693 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "S099",
+    "excelRow": 2
+   }
+  },
+  {
+   "id": "many-S100-row2",
+   "line": 499,
+   "anchor": "Row 2: | dup | 1 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "S100",
+    "excelRow": 2
+   }
+  },
+  {
+   "id": "many-S200-row2",
+   "line": 999,
+   "anchor": "Row 2: | dup | 1 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "S200",
+    "excelRow": 2
+   }
+  },
+  {
+   "id": "many-S377-row2",
+   "line": 1884,
+   "anchor": "Row 2: | K377 | 2639 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "S377",
+    "excelRow": 2
+   }
+  },
+  {
+   "id": "many-S450-row2",
+   "line": 2249,
+   "anchor": "Row 2: | K450 | 3150 |",
+   "expect": {
+    "kind": "row",
+    "sheet": "S450",
+    "excelRow": 2
+   }
+  }
+ ],
+ "citations": [
+  {
+   "id": "cite-book-row8-ambiguous",
+   "docs": [
+    "syn-book"
+   ],
+   "answer": "The workbook has a row for it (book.xlsx Row 8).",
+   "citation": "Row 8",
+   "expect": {
+    "kind": "document"
+   },
+   "status": "ambiguous",
+   "candidates": [
+    {
+     "kind": "row",
+     "sheet": "Summary",
+     "excelRow": 8
+    },
+    {
+     "kind": "row",
+     "sheet": "Data",
+     "excelRow": 8
+    }
+   ]
+  },
+  {
+   "id": "cite-book-row8-data",
+   "docs": [
+    "syn-book"
+   ],
+   "answer": "The largest early order is ORD-1008 for Customer 8, 888 (book.xlsx Row 8).",
+   "citation": "Row 8",
+   "expect": {
+    "kind": "row",
+    "sheet": "Data",
+    "excelRow": 8
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-book-row8-summary",
+   "docs": [
+    "syn-book"
+   ],
+   "answer": "Center had 1104 in Q1 (book.xlsx Row 8).",
+   "citation": "Row 8",
+   "expect": {
+    "kind": "row",
+    "sheet": "Summary",
+    "excelRow": 8
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-book-hebrew-row8",
+   "docs": [
+    "syn-book"
+   ],
+   "answer": "במרכז היו 1104 ברבעון 1 (שורה 8).",
+   "citation": "שורה 8",
+   "expect": {
+    "kind": "row",
+    "sheet": "Summary",
+    "excelRow": 8
+   },
+   "status": "resolved",
+   "candidates": [
+    {
+     "reading": "text line 8",
+     "kind": "row",
+     "sheet": "Summary",
+     "excelRow": 6
+    },
+    {
+     "reading": "Excel row 8",
+     "kind": "row",
+     "sheet": "Summary",
+     "excelRow": 8
+    },
+    {
+     "reading": "Excel row 8",
+     "kind": "row",
+     "sheet": "Data",
+     "excelRow": 8
+    }
+   ]
+  },
+  {
+   "id": "cite-book-L-summary-row8",
+   "docs": [
+    "syn-book"
+   ],
+   "answer": "Center had 1104 in Q1 (book.xlsx L10).",
+   "citation": "L10",
+   "expect": {
+    "kind": "row",
+    "sheet": "Summary",
+    "excelRow": 8
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-book-hidden-row",
+   "docs": [
+    "syn-book"
+   ],
+   "answer": "The hidden adjustment is 7777 (book.xlsx L69).",
+   "citation": "L69",
+   "expect": {
+    "kind": "row",
+    "sheet": "Notes",
+    "excelRow": 5
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-book-data-row31",
+   "docs": [
+    "syn-book"
+   ],
+   "answer": "ORD-1031 is listed (book.xlsx L47).",
+   "citation": "L47",
+   "expect": {
+    "kind": "row",
+    "sheet": "Data",
+    "excelRow": 31
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-book-range-total",
+   "docs": [
+    "syn-book"
+   ],
+   "answer": "Q1 over all regions is 9936 (book.xlsx L6-L14).",
+   "citation": "L6-L14",
+   "expect": {
+    "kind": "computed",
+    "sheet": "Summary",
+    "metric": "sum",
+    "column": "B",
+    "excelRowFrom": 4,
+    "excelRowTo": 12
+   },
+   "status": "coarser"
+  },
+  {
+   "id": "cite-book-two-sheets",
+   "docs": [
+    "syn-book"
+   ],
+   "answer": "Both sheets list it (book.xlsx L10-L25).",
+   "citation": "L10-L25",
+   "expect": {
+    "kind": "document"
+   },
+   "status": "coarser"
+  },
+  {
+   "id": "cite-dup-name-ambiguous",
+   "docs": [
+    "dup-a",
+    "dup-b"
+   ],
+   "answer": "The report gives the revenue (report.md L3).",
+   "citation": "L3",
+   "expect": null,
+   "status": "ambiguous",
+   "candidates": [
+    {
+     "documentId": "dup-a",
+     "kind": "line",
+     "line": 3
+    },
+    {
+     "documentId": "dup-b",
+     "kind": "line",
+     "line": 3
+    }
+   ]
+  },
+  {
+   "id": "cite-dup-name-claim",
+   "docs": [
+    "dup-a",
+    "dup-b"
+   ],
+   "answer": "Revenue was 250 thousand (report.md L3).",
+   "citation": "L3",
+   "expect": {
+    "documentId": "dup-b",
+    "kind": "line",
+    "line": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-dup-id",
+   "docs": [
+    "dup-a",
+    "dup-b"
+   ],
+   "answer": "Costs were 40 thousand (dup-a L4).",
+   "citation": "L4",
+   "expect": {
+    "documentId": "dup-a",
+    "kind": "line",
+    "line": 4
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-deck-marker",
+   "docs": [
+    "syn-deck"
+   ],
+   "answer": "Phase 2 starts in May (launch.pptx L11).",
+   "citation": "L11",
+   "expect": {
+    "kind": "slide",
+    "slide": 2,
+    "notes": false
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-deck-notes",
+   "docs": [
+    "syn-deck"
+   ],
+   "answer": "The presenter should mention the budget risk first (launch.pptx L5).",
+   "citation": "L5",
+   "expect": {
+    "kind": "slide",
+    "slide": 1,
+    "notes": true
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-csv-after-break",
+   "docs": [
+    "syn-records"
+   ],
+   "answer": "Eli's amount is 500 (records.csv L7).",
+   "citation": "L7",
+   "expect": {
+    "kind": "row",
+    "excelRow": 6
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-csv-row-word",
+   "docs": [
+    "syn-records"
+   ],
+   "answer": "Ido's amount is 900 (records.csv, Row 11).",
+   "citation": "Row 11",
+   "expect": {
+    "kind": "row",
+    "excelRow": 11
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-events-split",
+   "docs": [
+    "syn-events"
+   ],
+   "answer": "The error payload starts at events.log L5.",
+   "citation": "L5",
+   "expect": {
+    "kind": "line",
+    "line": 4,
+    "part": 2,
+    "parts": 3
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-docx-heading-path",
+   "docs": [
+    "syn-headings-docx"
+   ],
+   "answer": "The limit for topic 3007 is 1065 units (handbook.docx L1095).",
+   "citation": "L1095",
+   "expect": {
+    "kind": "clause",
+    "clause": "355",
+    "headings": [
+     "Chapter 30 – area 30",
+     "Section 30.7 – topic 3007"
+    ]
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-many-sheet-377",
+   "docs": [
+    "syn-many"
+   ],
+   "answer": "K377 is 2639 (many-sheets.xlsx L1884).",
+   "citation": "L1884",
+   "expect": {
+    "kind": "row",
+    "sheet": "S377",
+    "excelRow": 2
+   },
+   "status": "resolved"
+  },
+  {
+   "id": "cite-pdf-page3",
+   "docs": [
+    "syn-pdf"
+   ],
+   "answer": "Page 3 reports 3333 units (quarter.pdf L11).",
+   "citation": "L11",
+   "expect": {
+    "kind": "page",
+    "page": 3
+   },
+   "status": "resolved"
+  }
+ ]
+}
