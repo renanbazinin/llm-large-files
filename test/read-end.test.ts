@@ -73,6 +73,17 @@ describe("read_document past the end of the file", () => {
     expect(await tools.execute("read_document", { document_id: log.id, start_line: -5, end_line: 2 })).toMatchObject({ lines: "1-2" });
   });
 
+  it("refuses a start past the end after a read that showed the last line, with no pointer to that line", async () => {
+    const { files, log } = await library();
+    const read = (id: string, args: Record<string, unknown>) => ({ id, name: "read_document", args: { document_id: log.id, ...args } });
+    const model = fakeModel([calls([read("c1", { start_line: 1, end_line: 50 })]), calls([read("c2", { start_line: 400 }), read("c3", { start_line: 40 })]), says("Done.")]);
+    await askStream({ files, model, documentIds: [log.id], messages: [{ role: "user", text: "Line 400?" }] }).result;
+    const answers = model.requests.at(-1)!.messages.flatMap((message) => (message.role === "tools" ? message.answers.map((answer) => answer.result) : []));
+    expect(answers[1]).toEqual({ error: "start_line 400 is past the end of the file, which has 50 lines.", tool_turns_left: 9 });
+    // A start within the lines shown is still pointed to them.
+    expect(answers[2]).toMatchObject({ lines: "40-50", already_shown: true });
+  });
+
   it("keeps planted sheet names out of events and SSE with eventResults off; the model gets them", async () => {
     const SHEETS = ["QZSHEETA", "QZSHEETB"];
     const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { inlineTokens: 10 } });

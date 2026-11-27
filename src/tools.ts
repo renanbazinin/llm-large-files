@@ -752,6 +752,8 @@ export function alreadyShown(call: { name: string; args: Record<string, unknown>
     const [first, last] = [Number(shown[1]), Number(shown[2])];
     if (stored && first === last) return undefined;
     const [start, end] = requestedLines(call.args);
+    // A start past the end is refused when the call runs (since 0.99.13): never a pointer to the last line.
+    if (start > total) return undefined;
     const from = Math.min(start, total);
     const to = Math.min(end, total);
     if (from < first || to > last) return undefined;
