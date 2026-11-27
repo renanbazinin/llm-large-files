@@ -3,7 +3,7 @@
 This page is the whole integration for one kind of application, in one place: users sign in, each
 has chats, a chat has uploaded files and a history kept in a database, the answers come from Gemini
 on Vertex AI and stream to the browser, and the files of each chat live in a folder of their own.
-It is about 120 lines of code in three files. Each part links to the guide that explains it, so
+It is about 190 lines of code in four files. Each part links to the guide that explains it, so
 read this page first and open a guide when you need its detail.
 
 It is also the page to hand to a coding assistant, with your answers to the questions below. The
@@ -18,12 +18,12 @@ The library cannot know these. Each answer becomes a line of the code below.
 | Does the model also call tools of your application? | If it does, this page is not your path: `askGemini` offers the model only the library's tools. | [Tools of your own](#when-the-model-has-tools-of-your-own) |
 | Which Node runs the server? | 22.12 or later. On Node 22 install `unpdf@1`, on Node 24 and later `unpdf`. | [Getting started](../getting-started.md#install) |
 | What names a user, and a chat? | The user's ID is the `owner` of every call, and `[userId, chatId]` is its `scope`. Both name folders, so they must be lowercase letters, digits, `_` and `-`: MongoDB ObjectIds and lowercase UUIDs are. | [Owners and scopes](./storage.md#owners-and-scopes) |
-| Where do the files live, and how many servers read them? | One folder (`DOCUMENTS_DIR`), on a volume that every server mounts. One server sweeps it. | [A shared store](./deployment.md#a-shared-store) |
+| Where do the files live, and how many servers read them? | One folder (`DOCUMENTS_DIR`), on a volume that every server mounts. A scheduled job sweeps it, not the servers. | [A shared store](./deployment.md#a-shared-store) |
 | Which Vertex AI project, location and model, and how does the server get credentials? | The arguments of `vertexAi()`. A second, cheaper model can do the searching. | [Gemini and Vertex AI](./vertex-and-gemini.md#vertex-ai) |
-| Where is the history kept? | One record for each question, with its tool rounds, apart from the chat's record: the rounds of one question can be large. | [Conversations](./conversations.md#storing-a-conversation-and-asking-the-next-question) |
+| Where is the history kept? | One record for each question, with its tool rounds in full, apart from the chat's record: the rounds of one question can be large. | [Conversations](./conversations.md#storing-a-conversation-and-asking-the-next-question) |
 | Which files do users upload? | `jszip` for DOCX, PPTX and XLSX, `unpdf` for PDF, `@cantoo/pdf-lib` and `keepOriginals: ["pdf"]` to let the model look at the pages of a PDF. | [PDFs and other formats](./pdfs.md) |
 | Do you trust the uploads? | If not, read them in child processes: `createIsolatedExtractors`. | [Security](../security.md#uploads) |
-| How long is a file kept? | 72 hours from the upload by default (`ttlMs`). With `files.touch` after each question, from its last use. | [Retention](./storage.md#retention) |
+| How long is a file kept? | 72 hours by default (`ttlMs`). With `touchOnUse: true`, as below, from its last use; without it, from the upload. | [Expiry from the last use](./storage.md#expiry-from-the-last-use) |
 | What may one question cost? | The limits of a question, and its usage, which you count for each user. | [Costs and limits](./costs-and-limits.md) |
 | Do users see the line citations, "(report.docx L188-L200)"? | If not, `showCitations: false`: the model still cites, the page gets the answer without them, and `result.citations.cited` keeps them for a list of sources. | [Citations the user does not see](../reference/ask.md#citations-the-user-does-not-see) |
 
@@ -62,9 +62,6 @@ export const endpoint = vertexAi({
   explorerModel: process.env.GEMINI_EXPLORER_MODEL,      // optional: a cheaper model that searches and reads
   accessToken: async () => (await auth.getAccessToken())!, // asked for on each request
 });
-
-// On one server only: removes the expired documents of every chat.
-setInterval(() => files.sweep().catch((error) => console.error("sweep failed", error)), 60 * 60 * 1000).unref();
 ```
 
 - With `scopes`, a document of one chat is not found from another chat, even by its ID, and
@@ -74,26 +71,41 @@ setInterval(() => files.sweep().catch((error) => console.error("sweep failed", e
   `budget.contextTokens` ([Costs and limits](./costs-and-limits.md#the-budget)).
 - Tokens, a token the server refused, and quotas on Vertex AI:
   [Gemini and Vertex AI](./vertex-and-gemini.md#access-tokens-for-vertex-ai).
+- These servers do not sweep expired documents: a scheduled job does, in step 6.
 
 ## 3. Chats and their history
 
-Your database keeps the chats. The library needs two things from it: a check that a chat is the
-user's, and the earlier questions of the chat, each with its tool rounds.
+Your database keeps the chats. The library needs three things from it: a check that a chat is the
+user's, the files of the chat with their names, and the earlier questions of the chat, each with
+its tool rounds.
 
 ```ts
 // chats.ts
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { MongoClient } from "mongodb";
-import { isSafeScopeSegment, type ChatTurn, type DocumentScope, type ToolTurn, type UsageTotals } from "llm-large-files";
+import { compactToolTurns, isSafeScopeSegment, type AskResult, type ChatTurn, type DocumentScope, type ToolTurn, type UsageTotals } from "llm-large-files";
 import { DOCUMENTS_DIR } from "./large-files.js";
 
 type ChatRecord = { _id: string; userId: string };
+/** A file of a chat: its document ID and name, kept after the file expires or is deleted. */
+type FileRecord = { _id: string; chatId: string; name: string };
 /** One question of a chat. Kept apart from the chat: the tool rounds of one question can be megabytes. */
-type TurnRecord = { chatId: string; question: string; toolTurns: ToolTurn[]; answer?: string; usage: UsageTotals; createdAt: Date };
+type TurnRecord = {
+  chatId: string;
+  question: string;
+  toolTurns: ToolTurn[]; // in full: historyOf makes those of older questions small
+  text?: string; // the answer as the page showed it
+  modelText?: string; // the answer as the model wrote it: sent back as its turn
+  usedDocumentIds: string[]; // the files of the chat the question had
+  finish?: AskResult["finish"];
+  usage: UsageTotals;
+  createdAt: Date;
+};
 
 const db = new MongoClient(process.env.MONGODB_URI!).db("chat");
 const chats = db.collection<ChatRecord>("chats");
+const chatFiles = db.collection<FileRecord>("files");
 const turns = db.collection<TurnRecord>("turns");
 
 /** The scope of a chat. It is also its folder: <DOCUMENTS_DIR>/<userId>/<chatId>. */
@@ -114,17 +126,43 @@ export async function isChatOf(userId: string, chatId: string): Promise<boolean>
   return (await chats.countDocuments({ _id: chatId, userId })) === 1;
 }
 
-/** The messages of the next question: each earlier question, its tool rounds, then its answer. */
-export async function historyOf(chatId: string, question: string): Promise<Array<ChatTurn | ToolTurn>> {
+/** The files of a chat, ID to name: also those that expired or were deleted, until a question names them. */
+export async function filesOf(chatId: string): Promise<Map<string, string>> {
+  return new Map((await chatFiles.find({ chatId }).toArray()).map((file) => [file._id, file.name]));
+}
+
+export async function keepFile(chatId: string, id: string, name: string): Promise<void> {
+  await chatFiles.insertOne({ _id: id, chatId, name });
+}
+
+export async function forgetFiles(ids: string[]): Promise<void> {
+  await chatFiles.deleteMany({ _id: { $in: ids } });
+}
+
+/**
+ * The messages of the next question: each earlier question, its tool rounds, then its answer.
+ * `live` holds the IDs of the chat's files that are still there.
+ */
+export async function historyOf(chatId: string, question: string, live: ReadonlySet<string>): Promise<Array<ChatTurn | ToolTurn>> {
   const earlier = await turns.find({ chatId }).sort({ createdAt: 1 }).toArray();
   return [
-    ...earlier.flatMap((turn): Array<ChatTurn | ToolTurn> => [
-      { role: "user", text: turn.question },
-      ...turn.toolTurns,
-      ...(turn.answer !== undefined ? [{ role: "assistant" as const, text: turn.answer }] : []),
-    ]),
+    ...earlier.flatMap((turn, index): Array<ChatTurn | ToolTurn> => {
+      const rounds = withoutGoneFiles(turn.toolTurns, live);
+      return [
+        { role: "user", text: turn.question },
+        ...(earlier.length - index > 2 ? compactToolTurns(rounds) : rounds), // the last two questions keep theirs whole
+        ...(turn.modelText !== undefined ? [{ role: "assistant" as const, text: turn.modelText }] : []),
+      ];
+    }),
     { role: "user", text: question },
   ];
+}
+
+/** The rounds without their calls on files that expired or were deleted: what those read is not sent again. */
+function withoutGoneFiles(rounds: ToolTurn[], live: ReadonlySet<string>): ToolTurn[] {
+  return rounds
+    .map((round) => ({ ...round, calls: round.calls.filter((call) => typeof call.args.document_id !== "string" || live.has(call.args.document_id)) }))
+    .filter((round) => round.calls.length > 0);
 }
 
 export async function saveTurn(chatId: string, turn: Omit<TurnRecord, "chatId" | "createdAt">): Promise<void> {
@@ -135,19 +173,34 @@ export async function saveTurn(chatId: string, turn: Omit<TurnRecord, "chatId" |
 export async function deleteChat(userId: string, chatId: string): Promise<void> {
   if (!(await isChatOf(userId, chatId))) return;
   await turns.deleteMany({ chatId });
+  await chatFiles.deleteMany({ chatId });
   await chats.deleteOne({ _id: chatId, userId });
   await rm(path.join(DOCUMENTS_DIR, ...scopeOf(userId, chatId)), { recursive: true, force: true, maxRetries: 5 });
 }
 ```
 
-- Keep `toolTurns` with each question and send them back in their place. A follow-up question then
-  reads what was found before, and often needs no new search
+- Keep `toolTurns` in full with each question and send them back in their place. A follow-up
+  question then reads what was found before, and often needs no new search
   ([Conversations](./conversations.md)).
+- `historyOf` sends the rounds of the last two questions whole, and older ones through
+  `compactToolTurns`: each large result becomes a stand-in with the lines or pages it showed, a
+  search's query and count, and the first 6,000 characters of a whole-file read's answer or its
+  first 20 items. On a chat of 15 questions over one 8,000-line log, with a whole-file read every
+  third question, the first request of question 15 goes from 277K estimated tokens to 67K
+  (276,271 and 66,086 when run again with a fixed clock). `storeRounds: "compact"` would cut every
+  stored whole-file read's answer to 6,000 characters for good, the last two questions' too
+  ([Keeping the history inside the window](./conversations.md#what-your-application-does)).
+- Show `text`, and send `modelText` back as the assistant's turn (new in 0.99.13). With
+  `showCitations: false` they differ: the page gets the answer without its line citations, and the
+  model gets its own words with them, so a follow-up is asked as it would be with citations shown.
 - An answer that is not one (`answered: false`) is not kept as the assistant's turn: the model
   would read your error message as its own words.
-- The files of a chat are not listed here. The library lists them by owner and scope, in step 5.
-  To keep your own list as well, record each upload with the `onUploaded` hook
-  ([Web app](./web-app.md#record-each-upload-onuploaded-and-onremoved)).
+- The chat keeps the ID and name of each of its files (`keepFile` and `forgetFiles`, called by the
+  upload handlers in step 4). `files.list` no longer lists a file once it expires or is deleted,
+  and the page must still be able to name it.
+- Calls on a file that expired or was deleted are left out of the history (`withoutGoneFiles`), so
+  what they read is not sent again; a later version does this in the library. The model's earlier
+  answers can still quote such a file.
 
 ## 4. Uploads
 
@@ -158,7 +211,7 @@ it returns the user's ID, or `undefined`.
 // server.ts, first half
 import express from "express";
 import { createDocumentHandlers } from "llm-large-files/node";
-import { isChatOf, scopeOf } from "./chats.js";
+import { forgetFiles, isChatOf, keepFile, scopeOf } from "./chats.js";
 import { files } from "./large-files.js";
 
 export const app = express();
@@ -171,6 +224,9 @@ const documents = createDocumentHandlers(files, {
     if (!(await isChatOf(userId, chatId))) throw Object.assign(new Error("This chat no longer exists."), { status: 404 });
     return scopeOf(userId, chatId);
   },
+  refuseCrossSite: true, // a page of another site cannot upload into a chat, or delete from it
+  onUploaded: (document, { scope }) => keepFile(scope![1], document.id, document.name), // scope is [userId, chatId]
+  onRemoved: (id) => forgetFiles([id]), // the user removed it: no notice needed
 });
 
 app.post("/api/documents", documents.upload); // before any body parser: the body is the file
@@ -185,11 +241,18 @@ const response = await fetch("/api/documents", {
   headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name), "X-Chat-Id": chatId },
   body: file,
 });
-const uploaded = await response.json(); // 201: { id, name, format, lines, estimatedTokens, expiresAt, … }; otherwise { error }
+const uploaded = await response.json(); // 201: { id, name, format, lines, estimatedTokens, expiresAt, … }; otherwise { error, category, code? }
 ```
 
-Every status, multipart forms, progress of a long upload, and saving the uploaded file itself in
-the chat's folder: [Web app](./web-app.md#uploads-with-createdocumenthandlers).
+- `refuseCrossSite: true` (new in 0.99.13) answers 403 to an upload or a delete that a page of
+  another site made the user's browser send, before anything is read. A request with neither
+  `Sec-Fetch-Site` nor `Origin` (curl, a server) is let through. Behind a proxy that changes `Host`
+  without `X-Forwarded-Host`, list your site in `allowedOrigins`
+  ([Security](../security.md#uploads-from-another-sites-page)).
+- An error body has a `category` besides `error`, and a `code` when there is one (since 0.99.13):
+  a page in another language words the error from them.
+- Every status, multipart forms, progress of a long upload, and saving the uploaded file itself in
+  the chat's folder: [Web app](./web-app.md#uploads-with-createdocumenthandlers).
 
 ## 5. Questions
 
@@ -200,8 +263,8 @@ as it is written, then `run.finish` or `run.error`.
 // server.ts, second half
 import { eventStream, partialResultOf, type AskEvent, type AskResult } from "llm-large-files";
 import { askGemini } from "llm-large-files/gemini";
-import { writeSseEvents } from "llm-large-files/node";
-import { historyOf, saveTurn } from "./chats.js";
+import { sseMessageOf, writeSseEvents } from "llm-large-files/node";
+import { filesOf, forgetFiles, historyOf, saveTurn } from "./chats.js";
 import { endpoint } from "./large-files.js";
 
 /** POST /api/chat with { chatId, question }. */
@@ -216,7 +279,10 @@ app.post("/api/chat", express.json(), async (req, res) => {
   if (!(await isChatOf(userId, chatId))) return void res.status(404).json({ error: "No such chat." });
 
   const scope = scopeOf(userId, chatId);
-  const [documentsOfChat, messages] = await Promise.all([files.list({ owner: userId, scope }), historyOf(chatId, question)]);
+  // The chat's own list still names the files that are gone; files.list has only those still there.
+  const [kept, live] = await Promise.all([filesOf(chatId), files.list({ owner: userId, scope })]);
+  const messages = await historyOf(chatId, question, new Set(live.map((document) => document.id)));
+  const documentIds = [...kept.keys()]; // every file of the chat, on every question
 
   const stream = eventStream<AskEvent, AskResult>(
     (onEvent, signal) => askGemini({
@@ -224,7 +290,9 @@ app.post("/api/chat", express.json(), async (req, res) => {
       endpoint,
       owner: userId,
       scope,
-      documentIds: documentsOfChat.map((document) => document.id), // every file of the chat, on every question
+      documentIds,
+      onMissingDocuments: "drop", // a file that expired or was deleted is left out, with a notice
+      touchOnUse: true, // a file the chat still uses is kept: see step 6
       messages,
       streamText: true,
       onEvent,
@@ -232,7 +300,12 @@ app.post("/api/chat", express.json(), async (req, res) => {
     }),
     { signal: AbortSignal.timeout(15 * 60 * 1000) },
   );
-  await writeSseEvents(res, stream, { end: false }); // the response stays open until the question is kept
+  // The notice of files that are gone has their IDs: the page gets their names too.
+  const map = (event: AskEvent) =>
+    event.type === "notice" && event.code === "documents_missing"
+      ? { ...sseMessageOf(event), data: { ...event, names: (event.documentIds ?? []).map((id) => kept.get(id) ?? "a file") } }
+      : sseMessageOf(event);
+  await writeSseEvents(res, stream, { end: false, map }); // the response stays open until the question is kept
 
   // The tool rounds come from the result, never from the events. A question that failed or was
   // stopped keeps what it read too, so that asking again need not search again.
@@ -241,8 +314,16 @@ app.post("/api/chat", express.json(), async (req, res) => {
     return partialResultOf(error);
   });
   if (result) {
-    await saveTurn(chatId, { question, toolTurns: result.toolTurns, ...(result.answered ? { answer: result.text } : {}), usage: result.usage })
-      .catch((error: unknown) => console.error("could not keep the question", error));
+    await saveTurn(chatId, {
+      question,
+      toolTurns: result.toolTurns,
+      ...(result.answered ? { text: result.text, modelText: result.modelText } : {}),
+      usedDocumentIds: documentIds.filter((id) => !result.missing?.includes(id)),
+      ...(result.finish !== undefined ? { finish: result.finish } : {}),
+      usage: result.usage,
+    }).catch((error: unknown) => console.error("could not keep the question", error));
+    // The page has named them: they are not named again.
+    if (result.missing) await forgetFiles(result.missing).catch((error: unknown) => console.error("could not forget the files that are gone", error));
   }
   if (!res.writableEnded) res.end();
 });
@@ -254,6 +335,7 @@ The page reads the events and shows them:
 |---|---|
 | `tool.start`, `tool.end` | What the model is doing: `label`, then `step` ("Search app.log (exact) for “timeout” — 12 matching lines"). |
 | `text` | The answer, growing: add each `delta`. |
+| `notice` | Most codes need nothing. `documents_missing`: files of the chat that expired or were deleted, which the question was answered without: show `names` ("contract.txt is no longer available"). `read_incomplete` (new in 0.99.13): a whole-file read could not read some of its parts, and the model was told to say its answer is incomplete. |
 | `run.finish` | The end. `result.answered` is `false` when no answer came: show your own message. |
 | `run.error` | `error.message`, which is safe to show, or your own words for `error.kind`. |
 
@@ -261,6 +343,9 @@ The page reads the events and shows them:
   broken connection: [Web app](./web-app.md#reading-the-events-in-the-browser).
 - Show labels and steps as plain text, never as markdown or HTML: they quote the model's words,
   which a file can steer.
+- With `showCitations: false`, an answer made only of line citations comes as the lines in words
+  ("line 8", "שורה 8") in the `text` events, with a `citations_only` notice (new in 0.99.13): the
+  page needs nothing more.
 - The model answers in the language of the question. The labels, the steps and the error messages
   are English: for a page in another language, show your own words for each event and each kind of
   error. The messages of a chatbot for Hebrew speakers are in
@@ -270,10 +355,25 @@ The page reads the events and shows them:
 
 - **A chat.** `deleteChat` above removes the records, then the folder. An upload that arrives after
   that is answered `404`, and writes nothing.
-- **A file.** The `DELETE` route of step 4.
-- **Expiry.** A document is ignored once it expires, and the sweep of step 2 frees its space. A
-  chat then simply has one file fewer: tell the user when a file they ask about is gone
+- **A file.** The `DELETE` route of step 4. `onRemoved` takes it off the chat's list.
+- **Expiry.** With `touchOnUse` (new in 0.99.13), a question touches its files (here, every file of the chat) once
+  less than half of their 72 hours is left, so a file is kept 36 to 72 hours past the chat's last
+  question. A file that expired, or was deleted other than by the route, is left out of the next
+  question with a `documents_missing` notice, which the page shows by name. The chat then forgets
+  it, and its calls stay out of the history
   ([Documents that are gone](./conversations.md#documents-that-are-gone)).
+- **The sweep.** An expired document is never read, but its files stay on the volume until a sweep
+  removes them. Run the sweep from a scheduled job (a Kubernetes CronJob, cron), not from the servers
+  that answer users: on every server, each would list every chat's folder
+  ([Sweeping expired documents](./deployment.md#sweeping-expired-documents)).
+
+```ts
+// sweep.ts: run every hour by a scheduled job.
+import { files } from "./large-files.js";
+
+const removed = await files.sweep();
+console.log(`Removed ${removed} expired documents.`);
+```
 
 ## When the model has tools of your own
 

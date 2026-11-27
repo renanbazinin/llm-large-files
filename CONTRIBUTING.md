@@ -233,12 +233,33 @@ same pull request:
   is a finding of the change: say so in the pull request.
 - Run `npm run eval:live -- --k 3` before a release, and on a change that may make models use tools
   differently: a recording is one run, and a live run varies. Record and live fail a case when a
-  question ends with an error, when a case not marked `failsOn090` misses pass^k, or when a fact
-  that held in every run of `evals/baseline/0.9.0.json` fails now. The report figures the release
-  gates and lists the facts lost.
+  question ends with an error, when a case not marked `failsOn090` (nor `failsOn` for that model)
+  misses pass^k, or when a fact that held in every run of `evals/baseline/0.9.0.json` fails now.
+  The report figures the release gates and lists the facts lost.
 - A change to a fact, with no request changed, needs no recording: `npm run eval:recheck` checks
   the facts again on the recorded answers and writes them to each `case.json`. Until it is run, a
-  replay fails with "facts changed". Review the diff the same way.
+  replay fails with "facts changed". Review the diff the same way. It rewrites every `case.json`
+  it replays: keep only those of the cases you changed (`--cases id,id`), and revert the rest.
+
+**Known failures by model: `failsOn`.** A case of `evals/cases.ts` can list the models whose
+recorded answer is known to fail one of its facts, each with why:
+`failsOn: { "gemini-3.8-flash": "…" }` (`Record<model, why>`, new in 0.99.13). It is a finding of
+the eval, kept until a fix makes the answer pass, and the report lists it under "Known to fail on a
+model". Record and live do not fail such a case on that model for a missed pass^k; a fact lost
+against the baseline still fails it. Replay and recheck fail the other way: when a listed model's
+recorded answer passes every fact, the entry is stale ("known to fail, and passes"), and is taken
+out. `failsOn090` stays as it was: why a case fails on 0.9.0, for every model.
+
+**The `rows` fact.** `{ rows: { document, valid } }` checks that every sheet row an answer names
+("Row 32", "שורה 55, 108, 161", "שורות 5, 7 ו-9", a range by its two ends) is one of `valid`, the
+Excel rows of the answer in that workbook, so a right number told with a wrong row fails. Line
+citations (L55) are not rows, and an answer that names no row passes. When a wrong row is the text
+line of a right one, the detail says so ("row 55 is text line 55, Excel row 53"): the model counted
+lines, not Excel rows. Five cases have it (`sales-east`, `sales-east-searched`, `sales-hebrew`,
+`budget-units`, `budget-which-row`), and it fails exactly 2 recorded answers, both in `failsOn`:
+Flash on `sales-hebrew` and Flash-Lite on `budget-units`. `test/evals-rows-fact.test.ts` checks that
+the recorded failures and the `failsOn` entries are the same list. `npm run eval:recheck` needs no
+key.
 
 The cassettes stay small (the folder is well under 5 MB, which a test checks): they keep hashes and
 outlines of the requests, not their text. The files of the evals are synthetic, built by code: add

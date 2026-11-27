@@ -121,6 +121,17 @@ defaults and what each changes are there. For an adapter of your own:
   billing it.
 - The loop always passes `hooks`, but the type says it may be left out: write
   `send(request, hooks = {})`.
+- `hooks.onRefresh(refused)` (new in 0.99.13) is given only while someone listens to the
+  question's events. If your adapter sends a request again at once with a new token after HTTP
+  401, call it just before it asks for the token: the loop tells it as a `retry` event with
+  `reason: "auth_refresh"`, as for `vertexAi()`.
+- When your key or token function throws, throw a `ModelRequestError` of status 0 with its error
+  as `cause`, as the built-in adapters do since 0.99.13: kind `"unreachable"` when a connection
+  failed on the way (it is sent again), kind `"auth"` otherwise (it is not), and words of your own,
+  not the token client's. An error that comes out of `send` without a kind or status, but with
+  the code of a connection that failed (`ECONNRESET`), is told in events as "The model could not
+  be reached.", kind `"unreachable"`, never as storage; `errorInfoOf` of the thrown error still
+  gives category `"unknown"` for it.
 
 ### What `send` returns
 

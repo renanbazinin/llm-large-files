@@ -645,6 +645,20 @@ const result = await askGemini({ files, endpoint, documentIds, owner: userId, sc
 await Promise.all(documentIds.map((id) => files.touch(id, { owner: userId, scope: [userId, chatId] })));
 ```
 
+Since 0.99.13 the question can do it: with `touchOnUse: true`, `askWithFiles` and `askGemini` touch
+the documents they plan, before the first request, once less than half of their `ttlMs` is left.
+With the default 72 hours, a file used 47 hours after its upload is kept 72 hours from then, and one
+used at 10 hours is not touched: no store call. It is off by default, since how long files are kept
+is your application's to say, and it changes nothing that is sent. A store write that fails while
+it touches fails the question, as other store failures do. A `LargeFiles` of your own (not made by
+`createLargeFiles`) is touched by the default 72 hours, whatever its own `ttlMs`; one without
+`touch`, or a store without `patchMeta`, is a `TypeError`.
+
+```ts
+// The same, done by the question itself (0.99.13).
+const answer = await askGemini({ files, endpoint, documentIds, owner: userId, scope: [userId, chatId], messages, touchOnUse: true });
+```
+
 ### A chat's files, its own data and the same file twice
 
 New in 0.10.2. Three calls for a chat that keeps its files in the library, with no second list of

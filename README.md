@@ -140,6 +140,7 @@ const app = express();
 // auth middleware): each upload is then theirs alone.
 const documents = createDocumentHandlers(files, {
   getOwner: (req) => (req as typeof req & { user?: { id: string } }).user?.id,
+  refuseCrossSite: true, // another site's page cannot upload or delete in the user's name (new in 0.99.13)
 });
 app.post("/api/documents", documents.upload); // mount before express.json(): the body is the raw file
 app.get("/api/documents", documents.list); // the user's documents, the oldest first (new in 0.99.9)
@@ -155,7 +156,9 @@ const response = await fetch("/api/documents", {
   headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) },
   body: file,
 });
-const summary = await response.json(); // 201: { id, name, format, lines, estimatedTokens, expiresAt, … }; otherwise { error }
+const summary = await response.json(); // 201: { id, name, format, lines, estimatedTokens, expiresAt, … }
+// Otherwise { error, code?, category, retryAfterMs? } (code and category since 0.99.13): error is in English,
+// and code ("legacy_office", "empty", "too_large"…) lets the page answer in the user's language.
 ```
 
 When the user asks, stream the question to the page with `askStream` (new in 0.7.0): typed events
@@ -283,8 +286,9 @@ What each model gets, and what it costs: [An explorer model](docs/guides/explore
 
 ## Live results
 
-With `gemini-3.8-flash` on the Gemini API, a 5 MB log of about 1.27M tokens, over the 1M window,
-got the right root cause of an outage, citing the right lines, in about 60 s over 11 tool calls.
+With `gemini-3.8-flash` on the Gemini API, a 5 MB log of 60,000 lines, well over the 1M window
+(a generated log of that size is about 3.3M tokens by today's estimate), got the right root cause
+of an outage, citing the right lines, in about 60 s over 11 tool calls.
 For 0.10.0, an eval of Hebrew and English questions ran three times each on `gemini-3.5-flash-lite`
 and `gemini-3.8-flash`: counts over tables sent whole were right in 24 of 24 on both. Every live
 result with its date, model and setup, and what has not been run live, such as the
@@ -297,7 +301,7 @@ Claude adapter: [Measurements](docs/measurements.md).
 
 Guides, one task each:
 
-- [A chatbot in one page](docs/guides/chatbot.md): the whole integration in about 120 lines: Vertex AI, a folder per user and chat, the history in a database.
+- [A chatbot in one page](docs/guides/chatbot.md): the whole integration in about 190 lines: Vertex AI, a folder per user and chat, the history in a database.
 - [Gemini and Vertex AI](docs/guides/vertex-and-gemini.md): endpoints, access tokens, thinking, whole-file reads, pages, gateways, Vertex quotas and errors.
 - [OpenAI-compatible endpoints](docs/guides/openai-compatible.md): OpenAI, Azure OpenAI, DeepSeek, OpenRouter, vLLM, Ollama, LiteLLM, llama.cpp.
 - [Claude](docs/guides/anthropic.md): setup, thinking, streaming, conversations that may only grow, gateways.

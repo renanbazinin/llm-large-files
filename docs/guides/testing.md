@@ -297,6 +297,7 @@ Assert what your application does with the result. These are the fields of
 | Field | What it holds in a test |
 | --- | --- |
 | `text` | What the script wrote: the answer, after any remark made before a tool call. |
+| `modelText` | The same as `text`, unless `showCitations: false` hid citations from `text`: then the script's text as it wrote it. Test that your application stores it as the assistant turn. Required since 0.99.13: an `AskResult` your tests build by hand needs it. |
 | `answered` | `false` when the last turn had no text: a blocked prompt (`blockReason`), a reply cut off before any text, an answer with no text after its second try. Test that your application then shows its own message. |
 | `steps` | The steps `onStep` received, in order. They are sentences for people, written by the library, one line of plain text each. |
 | `evidence` | One entry per tool call that showed something: `tool`, `documentId`, `document`, `lines`, `pages`, `query`, `mode`, `totalMatchingLines`, `whole`. |
@@ -1057,7 +1058,8 @@ describe("the upload routes", () => {
 
     const asBob = await fetch(`${base}/${id}`, { headers: { "X-User": "bob" } });
     expect(asBob.status).toBe(404);
-    expect(await asBob.json()).toEqual({ error: "This file is no longer available." });
+    // Since 0.99.13 an error body also has code and category (ErrorBody).
+    expect(await asBob.json()).toEqual({ error: "This file is no longer available.", code: "documents_missing", category: "missing" });
     expect((await fetch(`${base}/${id}`, { headers: { "X-User": "alice" } })).status).toBe(200);
     const deleted = await fetch(`${base}/${id}`, { method: "DELETE", headers: { "X-User": "bob" } });
     expect(await deleted.json()).toEqual({ deleted: false });
@@ -1166,7 +1168,8 @@ GEMINI_API_KEY=… npm run eval:live -- --k 3
   final requests are in its cassette and a change to those prompts fails too.
 - **Recheck** is a replay that writes each case's facts, checked on its recorded answer, to the
   cassette. Run it after you change a fact and no request: a replay whose facts changed since the
-  recording fails with "facts changed" until you do.
+  recording fails with "facts changed" until you do. Since 0.99.13 a replay or a recheck also
+  fails when a model listed in a case's `failsOn` now passes every fact: the entry is stale.
 - **Record** runs each case once on each model (Gemini 3.5 Flash-Lite and 3.8 Flash by default), and
   writes its cassette: each request as a hash with an outline of its fields, and the response. A
   cassette holds no request text and no project ID. Request headers are written from a short list
@@ -1177,8 +1180,8 @@ GEMINI_API_KEY=… npm run eval:live -- --k 3
   demand, once the repository has the `GEMINI_API_KEY` secret; until then it skips with a notice.
 
 Record and live fail a case when a question ends with an error (a refused key, a quota), when a case
-not known to fail on 0.9.0 misses pass^k, or when a fact that held in every run of the baseline
-fails now. Each writes a report, `evals/results/<mode>.md`, with the runs as JSON beside it
+not known to fail on 0.9.0 (`failsOn090`), nor on that model (`failsOn`, 0.99.13), misses pass^k,
+or when a fact that held in every run of the baseline fails now. Each writes a report, `evals/results/<mode>.md`, with the runs as JSON beside it
 (`<mode>.json`, answers included). A replay or a recheck writes one only when given `--results`.
 The report gives, for each case and model, whether it passed, the requests (mean and median), the
 share of questions answered in one request, reads and whole reads per question, input tokens, the

@@ -577,6 +577,10 @@ handler's `get` answers `404` with `This file is no longer available.` for the s
   with a plain `Error`;
 - is not a document ID at all (`isDocumentId` is false for it).
 
+A chat that is still in use loses its files at `ttlMs` too: the expiry counts from the upload, not
+from the last question. Since 0.99.13 `touchOnUse: true` keeps the files a question uses
+([Documents that are gone](./guides/conversations.md#documents-that-are-gone)).
+
 **Fix.** Pass the same `owner` to the question as to the upload: the value `getOwner` returned for
 the same user. Use a store that every server shares and that outlives a restart. Show the user which
 files to attach again: `error.ids` names the IDs, and your chat knows their file names. A
@@ -658,6 +662,18 @@ tiny text, and hidden shapes are read as ordinary text, without it.
 hidden, say so in your `system` instruction.
 
 See [PDFs and other formats](./guides/pdfs.md#docx-and-pptx).
+
+### With `showCitations: false`, the answer reads only "lines 2 and 3" or "שורה 8"
+
+**Cause.** The model answered with citations and nothing else, such as `(app.log L2, L3)`. Hidden,
+they would leave the answer shown empty while `answered` is true. Since 0.99.13 the lines they cite
+are shown in words instead, in Hebrew when the answer or the question is Hebrew, and a
+`citations_only` notice (`display` `"none"`) says so. `result.citations` and `modelText` keep the
+citations as the model wrote them. Until 0.99.12 such an answer was shown empty.
+
+**Fix.** Nothing breaks. Show the notice as a hint that the model pointed at lines without saying
+more, or ask again. The history keeps `modelText`
+([Conversations](./guides/conversations.md#storing-a-conversation-and-asking-the-next-question)).
 
 ### `answered` is `false`
 
@@ -799,7 +815,9 @@ See [Tools](./reference/tools.md) and [Costs and limits](./guides/costs-and-limi
 `steps` holds, for example,
 `Read all of app.log for “Summarize.” — failed: Could not read any part of app.log: The model refused the key or token it was sent (HTTP 401).`
 A part that failed among parts that were read is counted in the result's `parts_that_failed`, and
-its notes say `[This part could not be read: The model was busy (HTTP 429).]`.
+its notes say `[This part could not be read: The model was busy (HTTP 429).]`. Since 0.99.13 such a
+read's step ends in ", incomplete", its result has a `note` that tells the model to say the answer
+is incomplete, and a `read_incomplete` notice gives the parts that failed (`counts`).
 
 **Cause.** The model requests of the parts failed, after their retries. Since 0.6.0 the model, the
 step and `toolTurns` are told why by the error's kind, its HTTP status or its connection code, never
@@ -813,7 +831,7 @@ by its message, which can name a project, a host, a key or a URL:
 | `The model took too long to answer.` | Kind `timeout`, a part read that ran past its 180 s, an `AbortSignal.timeout` of your own, or an undici headers or body timeout. |
 | `The model could not be reached.` | Kind `unreachable`, or a connection code on the error or its cause (`ECONNREFUSED`, `ENOTFOUND`, `UND_ERR_SOCKET`…). |
 | `The model failed on its side (HTTP 503).` | Kind `server`. |
-| `The model refused the key or token it was sent (HTTP 401).` | Kind `auth`. |
+| `The model refused the key or token it was sent (HTTP 401).` | Kind `auth`. Without a status since 0.99.13: your key or token function threw (it was `The model request failed.` with Gemini, `The model could not be reached.` with OpenAI and Claude). |
 | `The model refused the request (HTTP 400).` | Kind `invalid`. |
 | `The model's reply could not be read (HTTP 200).` | A reply that was not JSON, such as a gateway's page. |
 | `The model returned no text (SAFETY).` | A reply with no text to the package's part reader. The provider's reason is given only when it is a plain word. |
@@ -955,7 +973,9 @@ See [Errors and reliability](./guides/errors-and-reliability.md) for every kind 
 ### `timeout`: "Gemini sent nothing for 600 s."
 
 Or `Gemini sent nothing for 300 s.`, `The model sent nothing for 600 s.` (OpenAI-compatible),
-`Claude sent nothing for 600 s.`. Status 0, kind `timeout`.
+`Claude sent nothing for 600 s.`. Status 0, kind `timeout`. Since 0.99.13 also
+`Gemini took too long to answer (…).`, `The model took too long to answer (…).` and
+`Claude took too long to answer (…).`: Node's own `fetch` gave up.
 
 **Cause.** Each adapter aborts a chat request that gets nothing for `firstByteTimeoutMs` (600 s)
 before its reply starts, or for `idleTimeoutMs` (300 s) between two pieces of it. The loop sends it
@@ -968,10 +988,15 @@ twice that long. What makes a model silent that long:
   of `openAiCompatible({ stream: false })`, and every request to a Gemini endpoint without
   `streamUrl`. `anthropic()` streams every request unless you pass `stream: false`;
 - a gateway between your server and the provider holds the stream back;
-- the provider hangs.
+- the provider hangs;
+- Node's `fetch` (undici) waits 300 s for the headers and 300 s between pieces of the body, and
+  cuts the request then, before `firstByteTimeoutMs`. Until 0.99.12 that cut was kind
+  `unreachable`, "could not be reached (fetch failed)", sent again 3 times.
 
 **Fix.** For a model that thinks long, raise `firstByteTimeoutMs` (an option of `askGemini`,
-`gemini()`, `openAiCompatible()` and `anthropic()`; 0 waits without end), or lower its thinking. To
+`gemini()`, `openAiCompatible()` and `anthropic()`; 0 waits without end), or lower its thinking.
+Above 300 s, also pass the adapter a `fetch` whose undici `Agent` waits longer
+([Node's own time limits](./reference/errors-and-retries.md#nodes-own-time-limits)). To
 fail sooner, lower both waits. Bound the whole question with a `signal` that aborts at your
 deadline. Part reads of a whole-file read have a limit of their own, 180 s each: a part that runs
 out is tried once more, then counted in the read's `parts_that_failed`.
@@ -981,7 +1006,9 @@ See [Errors and reliability](./guides/errors-and-reliability.md).
 ### `unreachable`: "Gemini could not be reached (fetch failed)."
 
 Or `The model could not be reached (…).` and `Claude could not be reached (…).`. Status 0, kind
-`unreachable`.
+`unreachable`. Since 0.99.13 also `Gemini could not be reached: its key or token could not be
+fetched (ECONNRESET).`: your token function failed on a connection, such as the metadata server
+on GKE (see [the next entry](#auth-vertex-ai-refuses-the-token)).
 
 **Cause.** No HTTP answer came: a name that does not resolve, a refused connection, a proxy that
 your server must go through, a certificate that Node does not trust (a corporate proxy that
@@ -1043,10 +1070,19 @@ export const endpoint = vertexAi({
 For a 403, check which identity the server runs as, give it the role, and enable the API in the
 project.
 
-An error thrown by your `accessToken` function (such as google-auth-library's "Could not load the
-default credentials…") is not a `ModelRequestError`: it has no status and no kind. In a chat
-request it ends the question, without a retry. The application default credentials are missing
-where the server runs.
+An error thrown by your `accessToken` function is a `GeminiRequestError` of status 0 since 0.99.13,
+with what the function threw as its `cause`: log the `cause`. google-auth-library's "Could not load
+the default credentials…" is kind `auth`, `Gemini was sent no key or token: the function that gives
+it failed.`, and is not sent again: the application default credentials are missing where the
+server runs. A connection that failed while the token was fetched (the metadata server reset,
+"fetch failed") is kind `unreachable`, and is sent again. Events tell either one by its kind only
+("The model refused the key or token it was sent.", "The model could not be reached."), never in
+the token client's words. Until 0.99.12 such an error had no status and no kind, ended the
+question without a retry, and with a `syscall` was told "The file could not be read from
+storage".
+
+After a 401, a token function is asked for a fresh token once (`{ refresh: true }`), and a `retry`
+event with `reason: "auth_refresh"` says so ([Gemini API and Vertex AI](./guides/vertex-and-gemini.md#access-tokens-for-vertex-ai)).
 
 See [Gemini API and Vertex AI](./guides/vertex-and-gemini.md).
 

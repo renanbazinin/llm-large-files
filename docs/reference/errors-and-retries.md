@@ -27,14 +27,16 @@ Contents:
 - Errors: [`ModelRequestError`](#modelrequesterror), [`ModelErrorKind`](#modelerrorkind),
   [`ModelErrorClass`](#modelerrorclass),
   [`classifyModelError`](#classifymodelerrorstatus-message-signals),
-  [`errorKindOf`](#errorkindoferror), [other error classes](#other-error-classes),
+  [`errorKindOf`](#errorkindoferror), [key and token functions](#key-and-token-functions),
+  [other error classes](#other-error-classes),
   [`errorInfoOf`](#errorinfooferror) and [`ErrorInfo`](#errorinfo),
   [errors in events: `EventError`](#errors-in-events-eventerror)
 - Retries: [`withRetry`](#withretryrun-options), [`RetryOptions`](#retryoptions),
   [`RetryNotice`](#retrynotice), [retries in events](#retries-in-events),
   [`isRetryableStatus`](#isretryablestatusstatus), [`retryAfterMs`](#retryaftermsheaders-body-now)
 - Waits on a reply: [`DEFAULT_FIRST_BYTE_TIMEOUT_MS`](#default_first_byte_timeout_ms),
-  [`DEFAULT_IDLE_TIMEOUT_MS`](#default_idle_timeout_ms), [`IdleWaits`](#idlewaits)
+  [`DEFAULT_IDLE_TIMEOUT_MS`](#default_idle_timeout_ms), [`IdleWaits`](#idlewaits),
+  [Node's own time limits](#nodes-own-time-limits)
 - Streams: [`parseSseJson`](#parsessejsonstream-hooks), [`SseHooks`](#ssehooks)
 
 ## Errors
@@ -152,13 +154,13 @@ table, and the first that matches gives the kind:
 
 | Kind | What went wrong | How `classifyModelError` tells it | `withRetry` |
 |---|---|---|---|
-| `"unreachable"` | No answer at all: the connection failed, a stream ended before it was complete, or a reply of HTTP 200 came with an empty body. | Status 0. | Sends it again, up to `retries` times. |
+| `"unreachable"` | No answer at all: the connection failed, a stream ended before it was complete, or a reply of HTTP 200 came with an empty body. Since 0.99.13 also a key or token that could not be fetched because a connection failed ([key and token functions](#key-and-token-functions)). | Status 0. | Sends it again, up to `retries` times. |
 | `"quota"` | A quota that does not come back soon: a daily cap, no credit left, a spending limit reached. | The code `insufficient_quota` (OpenAI), at any status but 0. Status 402. Status 429 with a Gemini `details` entry whose `violations` name a quota per day (a `quotaId` or `quotaMetric` that matches "per day": "PerDay", "per_day"), or with [quota-per-day wording](#classifymodelerrorstatus-message-signals) in the message. A status below 500 with [no-credit wording](#classifymodelerrorstatus-message-signals). | Never. |
 | `"context_overflow"` | The request was larger than the model takes: its context window, the size of the body, or the tokens a minute (or a day) that the provider allows. | Status 429 or 413 with [allowance wording](#classifymodelerrorstatus-message-signals) (OpenAI's and Groq's "Request too large … on tokens per min (TPM)"). Otherwise a status below 500 and not 429, and one of: status 413; the code `context_length_exceeded` or `request_too_large`; [overflow wording](#classifymodelerrorstatus-message-signals) in a message without [throttling wording](#classifymodelerrorstatus-message-signals). (Until 0.99.10, throttling wording undid the status and the codes too: a 413 that said "please try again later" was `"invalid"`.) | Never, whatever its status: only a smaller request can pass. `askWithFiles` makes room instead: see [`askWithFiles`](./ask.md#askwithfilesoptions). |
 | `"rate_limit"` | Too many requests or tokens for now, a Gemini quota per minute among them. | Any other status 429. | Sends it again, up to `retries` times, after the wait the provider asked for or a wait that doubles. Not when the provider asks for more than `maxDelayMs`. |
-| `"timeout"` | Nothing came from the model for the adapter's wait, or the provider or a gateway said the request timed out. | Status 408. The classifier never gives it for status 0: the adapters pass `kind: "timeout"` when their own wait runs out. | Status 0: once. Status 408: up to `retries` times. |
+| `"timeout"` | Nothing came from the model for the adapter's wait, or the provider or a gateway said the request timed out. Since 0.99.13 also Node's own headers or body time limit (undici's `UND_ERR_HEADERS_TIMEOUT`, `UND_ERR_BODY_TIMEOUT`), which the adapters told as `"unreachable"` and sent again 3 times ([Node's own time limits](#nodes-own-time-limits)). | Status 408. The classifier never gives it for status 0: the adapters pass `kind: "timeout"` when their own wait runs out, or Node's does. | Status 0: once. Status 408: up to `retries` times. |
 | `"server"` | The provider failed on its side. | Status 500 or more. | Sends it again, up to `retries` times. |
-| `"auth"` | The key or token was refused. | Status 401 or 403, or a Gemini `details` entry with `reason: "API_KEY_INVALID"` (Gemini sends it as HTTP 400). | Never. |
+| `"auth"` | The key or token was refused. Since 0.99.13 also, with status 0, a key, token or headers function that failed for another reason than a connection: a revoked grant, a bug in the function. | Status 401 or 403, or a Gemini `details` entry with `reason: "API_KEY_INVALID"` (Gemini sends it as HTTP 400). | Never. |
 | `"invalid"` | The provider refused the request as it was. The adapters also give it to a reply of HTTP 200 they could not read: a body that is not JSON (a gateway's page), or a streamed event too long. | Any other status: 400, 404, 409, 422… | Never, except status 409, which [`isRetryableStatus`](#isretryablestatusstatus) accepts. |
 
 Nothing is sent again after the caller's signal aborted, once `canRetry` says no, or when the
@@ -312,6 +314,50 @@ errorKindOf(new ModelRequestError("Too many requests.", 429)); // "rate_limit"
 errorKindOf(new Error("socket hang up"));                       // undefined
 errorKindOf({ kind: "quota" });                                 // "quota": any value with a string kind
 ```
+
+### Key and token functions
+
+New in 0.99.13. Each adapter can take its key, token or headers as a function, called for each
+request: `vertexAi({ accessToken })` and the `headers` of a
+[`GeminiEndpoint`](./gemini.md#geminiendpoint), the `apiKey` and `headers` of `openAiCompatible()`
+and `openAiResponses()`, and the `apiKey`, `authToken` and `headers` of `anthropic()`. When the
+function throws, the request fails before anything is sent, with an error of the adapter's class
+(`GeminiRequestError`, `OpenAiRequestError`, `AnthropicRequestError`) of status 0:
+
+| The function failed | Kind | Message of the thrown error | Sent again |
+|---|---|---|---|
+| On a connection: the code of a connection that failed (`ECONNRESET`, `ETIMEDOUT`, `UND_ERR_SOCKET`…) on its error or a cause, such as a metadata server that reset, or undici's "fetch failed" | `"unreachable"` (`"timeout"` for undici's headers or body time limit) | "Gemini could not be reached: its key or token could not be fetched (ECONNRESET)." | Yes, as any request that got no answer |
+| For any other reason: a revoked grant, a bug in the function | `"auth"` | "Gemini was sent no key or token: the function that gives it failed." | Never: another try would fail the same way |
+
+"Claude" or "The model" (OpenAI-compatible, Responses) starts the message in place of "Gemini". An
+abort is passed on as it is. The function's own error is only the `cause`, for your log: its
+words may name the grant or the metadata server (`http://169.254.169.254/…`). The message names
+the connection's code at most, and events say "The model could not be reached." or "The model
+refused the key or token it was sent." ([`EventError`](#errors-in-events-eventerror)). A
+whole-file read whose token function fails this way tells the model "Could not read any part of
+NAME: The model refused the key or token it was sent." `errorInfoOf` reads the `"auth"` error as
+category `"model"`, code `"auth"`, status 500, not retryable. There is no new `ModelErrorKind`: a
+token that could not be fetched stays `"unreachable"`.
+
+Before 0.99.13 a token function that threw was never sent again: one blip of a GKE metadata server
+ended the question as a status 500 that could not be retried, and an error with a `syscall` was
+told "The file could not be read from storage". Measured with fake fetches over the 9 adapters and
+their paths: a token function that fails once is now answered in 90 of 90 questions, and part reads
+read every part in 45 of 45.
+
+**A token refreshed after a 401.** `vertexAi({ accessToken })` with a function (an endpoint with
+`refreshable`) sends a request refused with HTTP 401 once more, with a token asked for with
+`{ refresh: true }`. Since 0.99.13:
+
+- the refresh is told as a `retry` event with `reason: "auth_refresh"`, `attempt: 1` and
+  `delayMs: 0` ([retries in events](#retries-in-events));
+- a refresh that fails on a connection drops the 401, and the request is sent again from the
+  start, as one that got no answer;
+- a refresh that fails for any other reason leaves the 401 as the error (kind `"auth"`), with why
+  as its `cause`, as before;
+- a second 401 is the error, as before.
+
+The OpenAI and Azure adapters do not refresh after a 401.
 
 ### Other error classes
 
@@ -514,7 +560,7 @@ included: log that one.
 
 | Field | Type | What it holds |
 |---|---|---|
-| `message` | `string` | Words your users may see. A model error is told by its kind and status, never in the provider's words, which can name projects, hosts or keys: "The model was busy (HTTP 429).", "The model's quota has run out (HTTP 429).", "The model could not be reached.", "The model refused the key or token it was sent (HTTP 401)." A Node system error is told by its code ("The file could not be read from storage (ENOENT)."), when the code reads as one (capitals, digits and `_`; since 0.9.0: a driver may put a host in `code`), a `DocumentStoreError` by its own message, which names only its code, and a store that failed to write in `ingest.error` as "The document could not be stored. Try again later." (with `name` `"DocumentStoreError"` and `status` 503 since 0.9.0). The library's own errors (a refused file, `DocumentsNotFoundError`, an abort, the error a listener threw) keep their message, and so does any other `Error` without a `kind` or a numeric `status`, such as one an adapter or a token function of your own throws: give such errors a status, or words of your own. A status that is not a model's (not 0 or 400 to 599), and plain data thrown with a status (`{ status: 429, message }`), are "Something went wrong.", as `errorInfoOf` reads them (since 0.9.0; before, a model's words). A value that is not an `Error` is "Something went wrong.". |
+| `message` | `string` | Words your users may see. A model error is told by its kind and status, never in the provider's words, which can name projects, hosts or keys: "The model was busy (HTTP 429).", "The model's quota has run out (HTTP 429).", "The model could not be reached.", "The model refused the key or token it was sent (HTTP 401)." A Node system error is told by its code ("The file could not be read from storage (ENOENT)."), when the code reads as one (capitals, digits and `_`; since 0.9.0: a driver may put a host in `code`), a `DocumentStoreError` by its own message, which names only its code, and a store that failed to write in `ingest.error` as "The document could not be stored. Try again later." (with `name` `"DocumentStoreError"` and `status` 503 since 0.9.0). The library's own errors (a refused file, `DocumentsNotFoundError`, an abort, the error a listener threw) keep their message, and so does any other `Error` without a `kind` or a numeric `status`, such as one an adapter of your own throws: give such errors a status, or words of your own. Since 0.99.13 a key or token function that throws is told by the kind the adapter gives it: "The model could not be reached." or "The model refused the key or token it was sent." ([key and token functions](#key-and-token-functions)), and a socket error with no `kind` that a model request of your own adapter failed with is told "The model could not be reached.", never as storage. Neither carries the token client's words. A status that is not a model's (not 0 or 400 to 599), and plain data thrown with a status (`{ status: 429, message }`), are "Something went wrong.", as `errorInfoOf` reads them (since 0.9.0; before, a model's words). A value that is not an `Error` is "Something went wrong.". |
 | `kind` | [`ModelErrorKind`](#modelerrorkind), optional | For a model error: its kind, as [`errorKindOf`](#errorkindoferror) reads it. Since 0.9.0 also for an `Error` with a `status` of 0 or 400 to 599 and no `kind` of its own (an adapter of yours, `httpError` of the testing helpers): the kind its status, message and `code` give ([`classifyModelError`](#classifymodelerrorstatus-message-signals)), as its message is told and as `errorInfoOf` reads the error. Not for plain data thrown (an object of no class), and never for the library's own errors (`DocumentStoreError`, `DocumentsNotFoundError`, `IngestError`, `DocumentScopeError`). |
 | `status` | `number`, optional | For an HTTP error: its status. 0 when no answer came. Since 0.9.0 also the status of the library's own errors: 503 for `DocumentStoreError`, 404 for `DocumentsNotFoundError`, and for an `IngestError` the status of every code but those of 422 (413, 409, 503). |
 | `name` | `string`, optional | The error's class name: `"ModelRequestError"`, `"GeminiRequestError"`, `"AbortError"`, `"DocumentsNotFoundError"`, `"DocumentStoreError"`, `"DocumentScopeError"`, `"IngestError"`, `"TypeError"`… Since 0.9.0 a store's own subclass of `DocumentStoreError` (one named `"BucketStoreError"`) is named `"DocumentStoreError"` here, and an extractor's own subclass of `IngestError` (one named `"OcrRefusal"`) `"IngestError"`, so that `errorInfoOf` reads them as a store's failure and a refused file. |
@@ -655,6 +701,7 @@ type RetryNotice = {
   error: unknown;
   attempt: number;
   delayMs: number;
+  reason?: "auth_refresh"; // new in 0.99.13
 };
 ```
 
@@ -667,6 +714,7 @@ the handler apart from the call.
 | `error` | `unknown` | The error of the attempt that failed, as `run` threw it. |
 | `attempt` | `number` | The number of the retry to come, 1 for the first. It counts every retry made so far, the one of `unknownErrors: "once"` included, which has no notice. |
 | `delayMs` | `number` | How long it waits, in milliseconds, before it sends the request again: the error's `retryAfterMs`, or the computed wait (see [`withRetry`](#withretryrun-options)). |
+| `reason` | `"auth_refresh"`, optional | A request refused with HTTP 401 that the adapter sends again at once with a new token ([`SendHooks.onRefresh`](./ask.md#sendhooks)). `withRetry` never sets it: its retries have none. New in 0.99.13. |
 
 ```ts
 import { withRetry, type RetryNotice } from "llm-large-files";
@@ -709,6 +757,10 @@ const event: AskEvent = { type: "retry", requestId: "req_3", attempt: 1, delayMs
   fails on its way is sent again by the rule above, at the cost of a longer wait for the first
   word; the whole reply must then arrive within the adapter's `firstByteTimeoutMs`. A listener of
   the events alone does not ask for streaming.
+- **A token refreshed after a 401 is a retry too** (new in 0.99.13): `reason: "auth_refresh"`,
+  `attempt: 1`, `delayMs: 0`, the message "The model refused the token (HTTP 401). Trying again
+  with a new one…", and not to `onActivity`. Other retries carry no `reason`, and are byte for
+  byte as before ([key and token functions](#key-and-token-functions)).
 - **The end tells the outcome.** `request.end` comes once for each request, after its retries,
   with `ms` from its start, waits included. An overflow made smaller is a new request: the first
   ends with an `EventError` of kind `"context_overflow"`.
@@ -842,6 +894,45 @@ const claude = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claud
 Choosing the waits, and proxies that cut a quiet stream sooner:
 [Errors and reliability](../guides/errors-and-reliability.md) and
 [Deployment](../guides/deployment.md).
+
+### Node's own time limits
+
+Node's `fetch` (undici) has time limits of its own: 300 s for the headers of a response, and 300 s
+between two pieces of its body. They cut a chat request whose model thinks longer than 300 s
+before it answers, while `firstByteTimeoutMs` would wait 600 s: a request that is not streamed
+sends its headers only with its reply, and a streamed one may send nothing for as long. Whole-file
+part reads are not affected: they have their own limit of 180 s (`timeoutMs`).
+
+Since 0.99.13 the adapters tell such a cut (`UND_ERR_HEADERS_TIMEOUT`, `UND_ERR_BODY_TIMEOUT`) as
+kind `"timeout"`, "Gemini took too long to answer (fetch failed).", and it is sent again once: 2
+attempts in all. Before, it was `"unreachable"`, and sent again 3 times, so a question could wait
+20 minutes for nothing. A connection that could not open (`UND_ERR_CONNECT_TIMEOUT`) is still
+`"unreachable"`, with 4 attempts.
+
+To let the adapters' own waits decide, give Node's `fetch` longer limits than
+`firstByteTimeoutMs` and `idleTimeoutMs`, with an undici `Agent` (`npm install undici`):
+
+```ts
+import { Agent, setGlobalDispatcher } from "undici";
+
+// Every fetch of the process: longer than firstByteTimeoutMs (600 s), so that the adapter's wait
+// ends a silent request, not Node's.
+setGlobalDispatcher(new Agent({ headersTimeout: 610_000, bodyTimeout: 610_000 }));
+```
+
+For the model's requests alone, give the adapter a `fetch` that uses its own `Agent`: every adapter
+takes a `fetch` option.
+
+```ts
+import { Agent } from "undici";
+import { gemini, geminiApi } from "llm-large-files/gemini";
+
+const slowModels = new Agent({ headersTimeout: 610_000, bodyTimeout: 610_000 });
+const model = gemini(geminiApi({ apiKey: process.env.GEMINI_API_KEY!, model: "gemini-3.8-flash" }), {
+  // Node's fetch takes an undici dispatcher, an option the type RequestInit does not name.
+  fetch: (input, init) => fetch(input, { ...init, dispatcher: slowModels } as RequestInit),
+});
+```
 
 ## Streams
 

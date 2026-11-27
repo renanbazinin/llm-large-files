@@ -20,7 +20,8 @@ const files = createLargeFiles({ store: new MemoryDocumentStore(), requireOwner:
 const model = openAiCompatible({
   apiKey: process.env.OPENAI_API_KEY!, // sent as Authorization: Bearer …
   model: "gpt-5.5",                    // baseUrl defaults to https://api.openai.com/v1
-  contextTokens: 400_000,              // your model's window: the budget of a question stays inside it
+  contextTokens: 1_050_000,            // gpt-5.5's window: the budget of a question stays inside it
+  body: { reasoning_effort: "none" },  // tool calls through Chat Completions need it: see OpenAI below
 });
 
 const log = await files.ingest({ name: "app.log", bytes: await readFile("app.log") });
@@ -48,7 +49,7 @@ What it needs to reach the model:
 | `model` | required | The model name the server knows, sent in every request: `"gpt-5.5"`, an Azure deployment name. It also names the model in usage totals, unless you set `id`. |
 | `baseUrl` | `https://api.openai.com/v1` | The base of the API. `/chat/completions` is added to it; slashes at its end are dropped. |
 | `url` | `baseUrl` + `/chat/completions` | The whole URL, when it is not built that way: an Azure deployment with `?api-version=`, a gateway. It wins over `baseUrl`. |
-| `apiKey` | none | Sent as `Authorization: Bearer …`. A function is called before each request, so a token can be renewed. Without it, no `Authorization` header is sent. |
+| `apiKey` | none | Sent as `Authorization: Bearer …`. A function is called before each request, so a token can be renewed. Without it, no `Authorization` header is sent. Since 0.99.13 a function that throws fails the request with status 0: kind `"unreachable"` (sent again) when a connection failed on the way, kind `"auth"` (not sent again) otherwise ([Errors and reliability](./errors-and-reliability.md#a-key-or-token-function-that-fails)). |
 | `headers` | none | More headers, as an object or a function called before each request. They are added last, so a header spelled the same way (`Content-Type`, `Authorization`) replaces the adapter's own. |
 | `contextTokens` | none | The model's context window in tokens. The budget of a question uses the smaller of it and the library's `budget.contextTokens` (1,000,000 unless you set it in `createLargeFiles`). A larger value raises nothing. |
 
@@ -114,7 +115,7 @@ import { openAiCompatible } from "llm-large-files/openai";
 const openai = openAiCompatible({
   apiKey: process.env.OPENAI_API_KEY!,
   model: "gpt-5.5",
-  contextTokens: 400_000,
+  contextTokens: 1_050_000,                          // gpt-5.5's window, by OpenAI's model page
   body: { reasoning_effort: "none" },                // every chat request: tool calls need it (below)
   analysisBody: () => ({ reasoning_effort: "low" }), // the part reads of a whole-file read, which offer no tools
 });
@@ -673,7 +674,9 @@ const result = await askWithFiles({ files, model, documentIds, system, messages 
 
 // What this question read goes between the question and its answer, in the same form.
 history.push(...openAiToolTurns(result.toolTurns));
-if (result.answered) history.push({ role: "assistant", content: result.text });
+// modelText (0.99.13): the answer as the model wrote it, citations included, even when
+// showCitations: false hid them from result.text, which is what you show.
+if (result.answered) history.push({ role: "assistant", content: result.modelText });
 await saveHistory(chatId, history);
 ```
 

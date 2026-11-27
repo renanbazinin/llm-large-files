@@ -100,10 +100,10 @@ error (Gemini's `error.status` and `details`, OpenAI's `error.code`, Claude's `e
 | `context_overflow` | The request was larger than the model takes: its context window, or the size of the body (HTTP 413). Or larger than the tokens the provider lets through in a minute, which only a smaller request can pass: OpenAI's "Request too large for gpt-4o … on tokens per min (TPM): Limit 30000, Requested 45237" (HTTP 429), and Groq's "… on tokens per minute (TPM): Limit 6000, Requested 6438" (HTTP 413 or 429). `limitTokens` and `requestedTokens` are the provider's numbers, when its message gives them. | Never by the retry rule, whatever its status. The loop makes the request smaller, at most twice, or plans the documents again, once. It throws when neither helps. | "This chat is too long for the model. Start a new chat, or ask about fewer files." |
 | `quota` | A quota that does not come back soon: OpenAI's `insufficient_quota`; HTTP 402 (DeepSeek's "Insufficient Balance", OpenRouter's "Insufficient credits"); Claude's "Your credit balance is too low" and its spending limits ("You have reached your API usage limits", or HTTP 429 with `enforced_spend_limit_reached`); a Gemini quota per day (HTTP 429 with a `QuotaFailure` whose quota is per day, or a Vertex AI quota per day that only the message names). | Never. | "The assistant is not available right now." Alert whoever runs the account. |
 | `rate_limit` | Too many requests or tokens for now: any other HTTP 429, a Gemini quota per minute among them. | Up to `retries` times, after the wait the provider asked for, or a wait that doubles. Not when the provider asks for more than `maxDelayMs`. | "The assistant is busy. Try again in a minute." Use `retryAfterMs` when it is set. |
-| `timeout` | Status 0: nothing came from the model for the adapter's wait (`firstByteTimeoutMs`, `idleTimeoutMs`). Or HTTP 408 from the provider or a gateway. | The adapter's wait: once. HTTP 408: up to `retries` times. | "The model took too long to answer. Try again." |
-| `unreachable` | Status 0: the connection failed, before or during the reply, a stream ended before its end, or a reply of HTTP 200 came empty. | Up to `retries` times. | "The model could not be reached. Try again." |
+| `timeout` | Status 0: nothing came from the model for the adapter's wait (`firstByteTimeoutMs`, `idleTimeoutMs`), or, since 0.99.13, for the headers or body timeout of Node's `fetch` (300 s each: [below](#waits-on-a-silent-model)). Or HTTP 408 from the provider or a gateway. | A wait that ran out: once. HTTP 408: up to `retries` times. | "The model took too long to answer. Try again." |
+| `unreachable` | Status 0: the connection failed, before or during the reply, a stream ended before its end, or a reply of HTTP 200 came empty. Since 0.99.13 also a key or token that could not be fetched because a connection failed ([below](#a-key-or-token-function-that-fails)). | Up to `retries` times. | "The model could not be reached. Try again." |
 | `server` | HTTP 5xx: the provider failed on its side. Claude's 529 (overloaded) and DeepSeek's `insufficient_system_resource` (taken as 503) are among them. | Up to `retries` times. | "The model could not answer just now. Try again." |
-| `auth` | HTTP 401 or 403, or a Gemini API key that is not valid (`API_KEY_INVALID`, which comes as HTTP 400). | Never. | A general error. It is your configuration: an expired token, a wrong key, a missing role. Log it. |
+| `auth` | HTTP 401 or 403, or a Gemini API key that is not valid (`API_KEY_INVALID`, which comes as HTTP 400). Since 0.99.13 also status 0: a key, token or headers function that threw for another reason than a connection that failed ([below](#a-key-or-token-function-that-fails)). | Never. | A general error. It is your configuration: an expired token, a wrong key, a missing role, a revoked grant. Log it. |
 | `invalid` | Any other HTTP 4xx, or an error a Gemini reply reported after HTTP 200 without a status of its own (see [A stream cut off](#a-stream-cut-off)): the provider refused the request as it was. Also a reply of HTTP 200 that is not JSON (a gateway's page), and a streamed event longer than 64,000,000 characters, both with status 200. | Never, except HTTP 409, which is sent again like a 5xx. | A general error. Log it, with the model and its options. |
 
 Nothing is sent again once text of the reply was shown to the user, or after your `signal`
@@ -229,6 +229,39 @@ Two more options: `canRetry`, a function that returns false once the attempt did
 must not happen twice (the loop uses it for text that was shown), and `unknownErrors: "once"`,
 which tries an error without a status once more, at once (the part reads use it).
 
+### A key or token function that fails
+
+New in 0.99.13. A key, token or headers function (`vertexAi({ accessToken })`, the `headers` of a
+`GeminiEndpoint`, `apiKey` or `headers` of `openAiCompatible()` and `openAiResponses()`, `apiKey`,
+`authToken` or `headers` of `anthropic()`) runs before each request. When it throws, nothing is
+sent, and the request fails with the adapter's error (`GeminiRequestError`, `OpenAiRequestError`,
+`AnthropicRequestError`) of status 0, with what the function threw as its `cause`:
+
+- **A connection that failed on the way**, such as a metadata server that reset on GKE (a code such
+  as `ECONNRESET` or undici's `UND_ERR_SOCKET` anywhere in its causes, or "fetch failed" with one):
+  kind `"unreachable"` (`"timeout"` for undici's headers or body timeout). It is sent again, as any
+  request that got no answer, so one blip no longer ends the question.
+- **Anything else**, such as a revoked grant or a bug in the function: kind `"auth"`. It is not sent
+  again: another try would fail the same way.
+
+The error's message names at most the code of the connection: "Gemini could not be reached: its key
+or token could not be fetched (ECONNRESET)." or "Gemini was sent no key or token: the function that
+gives it failed." The function's own words, which can name the metadata server
+(`169.254.169.254`) or the grant, stay in `cause`, for your log. Events, `run.error`, SSE and the
+model are told by the kind only: "The model could not be reached." or "The model refused the key or
+token it was sent." Until 0.99.12 such an error had no status and no kind: it ended the question,
+was not sent again, and an error with a `syscall` was told "The file could not be read from
+storage".
+
+After HTTP 401, a `vertexAi()` endpoint with a token function (or an endpoint of your own with
+`refreshable: true`) asks for a new token and sends the request once more. Since 0.99.13 that
+refresh is told as a `retry` event with `reason: "auth_refresh"`, `attempt: 1` and `delayMs: 0`;
+other retries carry no `reason`. A refresh that fails on a connection is sent again from the start;
+one that fails otherwise leaves the 401 as the error (kind `"auth"`), with why as its `cause`. A
+second 401 is the error. OpenAI, Azure and Claude headers get no refresh after a 401
+([Vertex AI](./vertex-and-gemini.md#access-tokens-for-vertex-ai)). Every case is in
+[key and token functions](../reference/errors-and-retries.md#key-and-token-functions).
+
 ## Waits on a silent model
 
 Each adapter watches a chat request for silence. `firstByteTimeoutMs` (600 s) bounds the wait for
@@ -263,6 +296,15 @@ const claude = anthropic({ model: "claude-opus-5-5", apiKey: process.env.ANTHROP
 
 These waits are for one request. A proxy between your server and your user may cut a stream that
 is quiet for less: see [Deployment](./deployment.md).
+
+**Node's own `fetch` waits 300 s.** The adapters use the global `fetch` unless you pass one, and
+Node's (undici) cuts a request that gets no headers for 300 s (`headersTimeout`), or no piece of the
+body for 300 s (`bodyTimeout`). So a model that thinks for longer is cut at 300 s, before the
+600 s of `firstByteTimeoutMs`. Since 0.99.13 that cut is of kind `timeout`, sent again once (2
+tries, not 4 as before, when it was `unreachable`). To let a model think up to
+`firstByteTimeoutMs`, give the adapter a `fetch` whose undici `Agent` waits longer: the sample is in
+[Node's own time limits](../reference/errors-and-retries.md#nodes-own-time-limits). The connect timeout is
+unchanged, and stays `unreachable`.
 
 ### Part reads have a time limit of their own
 
@@ -531,10 +573,15 @@ HTTP `status`.
 
 A whole-file read that worked in part says so in its result (`parts_that_failed`, `notes_only`,
 `notes_cut_short`, `answer_cut_short`). Its step ends in ", notes only" when the answer is only the
-notes of the parts, and otherwise in ", incomplete" when notes or the answer were cut short. A read
-that only lost parts has no such mark: its step ends in " — 12 parts, 3 relevant" as a complete
-read's does, the failed parts among the 12. Look for `parts_that_failed` in its result in
-`toolTurns`.
+notes of the parts, and otherwise in ", incomplete" when notes or the answer were cut short, or,
+since 0.99.13, when parts could not be read after their retries. Such a read also tells the model
+so: the prompt that writes its answer asks to say the answer is incomplete, and its result gets a
+`note` ("Incomplete: 2 of the 29 parts could not be read, so this answer misses what they hold.
+Tell the user it is incomplete."). A `read_incomplete` notice (`display` `"none"`) gives the
+document in `documentIds` and the parts in `counts` (`{ failed, parts }`), for a mark of your own
+under the answer. Until 0.99.12 a read that only lost parts had no mark: its step ended
+" — 12 parts, 3 relevant" as a complete read's does. A read whose parts all came back is sent as
+it was, byte for byte.
 
 Most failed calls are the model's own mistakes, which it mends in its next turn. To see trouble on
 your side, such as a store that fails often, log them:
@@ -892,9 +939,36 @@ export async function streamInHebrew(res: ServerResponse, options: AskOptions): 
 }
 ```
 
-The upload handlers of `llm-large-files/node` answer in English. To answer in Hebrew there, ingest
-in a route of your own and answer with `hebrewAnswer(error)`, or word the `error` of the JSON answer
-and of `ingest.error` in the browser, by its status and `code`. The `ingest.error` of the handlers
+The upload handlers of `llm-large-files/node` answer in English. Since 0.99.13 every JSON error
+body they send also has the `code` and `category` that `errorInfoOf` gives the same error, and
+`retryAfterMs` when the answer sets `Retry-After` (`ErrorBody`, from `llm-large-files/node`). So a
+page in Hebrew can tell a legacy .doc from an empty file by `code`, with the cases of
+`hebrewMessage`. Before, the body held only the English `error`:
+
+```ts
+// upload-errors.ts: runs in the browser. The import is erased when the page is built.
+import type { ErrorBody } from "llm-large-files/node";
+
+/** The words of an upload the server refused, in Hebrew, from the handlers' JSON body. */
+export async function uploadErrorInHebrew(response: Response): Promise<string> {
+  const body = (await response.json().catch(() => undefined)) as Partial<ErrorBody> | undefined;
+  if (body?.category === "ingest") {
+    switch (body.code) {
+      case "empty": return "הקובץ ריק.";
+      case "legacy_office": return "זהו קובץ Office ישן או מוגן בסיסמה. שמרו אותו מחדש וצרפו שוב.";
+      case "too_large": return "הקובץ גדול מדי.";
+      default: return "לא ניתן לקרוא את הקובץ.";
+    }
+  }
+  if (body?.retryAfterMs !== undefined) return `השרת עמוס כרגע. נסו שוב בעוד ${Math.ceil(body.retryAfterMs / 1000)} שניות.`;
+  return "ההעלאה נכשלה. נסו שוב.";
+}
+```
+
+The handlers' own refusals ("Sign in first.", a file with no name, an upload that stopped
+arriving) and an error with a status that a hook of yours threw have `category` `"unknown"` and no
+`code`: tell them by the status. Or ingest in a route of your own and answer with
+`hebrewAnswer(error)`. The `ingest.error` of the handlers
 also has the `name` of a store that failed (`"DocumentStoreError"`) and of a scope error
 (`"DocumentScopeError"`, with `code` `"scope_missing"` for a deleted chat), and the `kind` of a
 model's error (a `ModelRequestError` that an ingest or a hook of yours threw). So `errorInfoOf`

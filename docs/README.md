@@ -160,8 +160,11 @@ Each term links to the page that explains it. The defaults and limits are on tho
   default (`documentPlacement: "first"`) it goes at the start of the first user turn, where a
   provider's prompt cache can reuse it on follow-up questions. See [how it works](./how-it-works.md).
 - **Limits**: `AskLimits`, how much work one question may do: chat requests (`toolTurns`), tool
-  calls in one turn (`callsPerTurn`), whole-file reads of each document (`wholeDocumentReads`),
-  and optional ceilings on input tokens (`inputTokens`) and requests (`requests`). The budget is
+  calls in one turn (`callsPerTurn`), whole-file reads of each document (`wholeDocumentReads`) and
+  of the whole question (`wholeReadsPerQuestion`), a ceiling on input tokens (`inputTokens`) and an
+  optional ceiling on requests (`requests`). The input ceiling always applies since 0.10.0: left
+  unset, it is the larger of 1,000,000 tokens and `toolTurns` times the first request, plus room
+  for the whole-file reads the question may make; only `Infinity` turns it off. The budget is
   about size; the limits are about work, and so about cost. See
   [`AskLimits`](./reference/ask.md#asklimits) and [costs and limits](./guides/costs-and-limits.md).
 - **Owner**: a string you set at ingest, usually the ID of the user or tenant. It must not be
@@ -191,7 +194,9 @@ Each term links to the page that explains it. The defaults and limits are on tho
   model can read them again. When a model of the question may only grow its conversation
   (`appendOnly`, as Claude's), no older result is replaced to make room: when the room runs out,
   the question is answered with what it has. A look at pages kept in `toolTurns`, and a pointer
-  whose result is gone, are still stand-ins. See
+  whose result is gone, are still stand-ins. The stand-in of a whole-file read keeps up to 6,000
+  characters of its answer or 20 of its items and, since 0.99.13, the fields that say the read
+  was incomplete. See
   [conversations](./guides/conversations.md) and [how it works](./how-it-works.md).
 - **Steps**: one short line for each tool call, in order, such as
   `Search app.log (exact) for “timeout” — 12 matching lines`, and lines for what the loop itself
@@ -212,8 +217,10 @@ Each term links to the page that explains it. The defaults and limits are on tho
   `tool_turns_left` field of each result, which count the chat requests of a question (see
   **Limits**).
 - **Tools**: what the model calls to reach the documents: `search_document`, `read_document`,
-  `get_document_overview`, `analyze_whole_document` (a whole-file read) and `view_pages` (the pages
-  of a PDF whose original is kept). A tool set reaches only the documents it was made for. See
+  `get_document_overview`, `aggregate_table` (exact counts, sums and averages over the rows of a
+  CSV, a sheet or a table of a document), `analyze_whole_document` (a whole-file read) and
+  `view_pages` (the pages of a PDF whose original is kept). A tool set reaches only the documents
+  it was made for. See
   [tools](./reference/tools.md).
 - **Usage**: `AskResult.usage` (`UsageTotals`), the requests and tokens of a whole question (input,
   cached input, output, thinking), whole-file part reads included, in total and for each model
@@ -244,7 +251,7 @@ One task each, with samples:
   documents while another answers: who does what, what changes for your app, cost, any pair of
   providers.
 - [A chatbot in one page](./guides/chatbot.md): the whole integration for a chatbot on Vertex AI,
-  in about 120 lines: what to decide first, the library and the model, chats and their history in
+  in about 190 lines: what to decide first, the library and the model, chats and their history in
   MongoDB, uploads into a folder per user and chat, questions streamed, deleting a chat.
 - [Web app](./guides/web-app.md): uploads (`createDocumentHandlers`, its hooks, saving each upload
   in the chat's folder, spooling to disk, direct `ingest`, the browser), answers and progress

@@ -725,7 +725,8 @@ that one server holds at a time). A job of its own runs as the user of the serve
 group with the modes above.
 
 **On a network volume**, run it from one pod only, a Kubernetes CronJob for example, not from the
-pods that answer users. `sweepConcurrency` file calls run at once (16 by default), and on a volume
+pods that answer users ([A chatbot in one page](./chatbot.md#6-deleting-and-expiry) does so since
+0.99.13; before, its servers each started an hourly sweep). `sweepConcurrency` file calls run at once (16 by default), and on a volume
 that hangs each holds a thread of the pool ([A store that stops answering](#a-store-that-stops-answering)):
 set it to at most a quarter of the pool, 8 with `UV_THREADPOOL_SIZE=32`. A sweep has no time limit
 by default, since a sweep of a large volume may take long, and it never counts as a stuck call:

@@ -354,8 +354,10 @@ library's budget fitted to any window and request size, as in the sample below.
 For each question (in your own loop, each request you plan), `prepare(ids, base)` takes the size of
 everything else in the request (`base.tokens`, `base.bytes`). `askWithFiles` passes the system
 instruction, the conversation as it was asked, and the tool rounds of earlier questions in it, with
-a margin of 2,000 tokens and 8,000 bytes. The plan needs only the metadata. It fills the room left,
-smallest documents first, by estimated tokens:
+a margin of 2,000 tokens and 8,000 bytes. The plan needs only the metadata, which is read 8
+documents at a time since 0.99.13 (one at a time before), and kept in the order of the IDs, so the
+request is the same, byte for byte. It fills the room left, smallest documents first, by estimated
+tokens:
 
 - token room = `min(inlineTokens, contextTokens − reservedTokens − base.tokens)`
 - byte room = `maxRequestBytes − 256 KB − base.bytes`
@@ -678,7 +680,11 @@ the part reader (`generateText`) of the model that explores.
    0.10.0 the merges went past the limit: a read of 27 parts given 32 requests made 40 (N12).
 4. **Answer.** Write one answer from the notes, flagging contradictions, gaps and parts that could
    not be read. When this last step fails, or no request is left for it, the notes are the answer,
-   with `notes_only: true`: they were paid for.
+   with `notes_only: true`: they were paid for. Since 0.99.13, when parts failed after their
+   retries, this prompt no longer says the notes cover "all" the parts: it says how many of them
+   they cover and asks to say that the answer is incomplete. The tool result then gets a `note`
+   that says so, its step ends in ", incomplete", and a `read_incomplete` notice names the file.
+   When every part was read, the prompt and the result are as before, byte for byte.
 
 The result holds `parts_read`, `parts_with_relevant_content`, `parts_that_failed`,
 `notes_cut_short`, `notes_left_out`, `answer_cut_short`, `notes_only` and the `answer`. While it
@@ -1087,11 +1093,19 @@ Where the events of a question come from:
 | `retry` | the retry rule ([Retries and waits](#retries-and-waits)) | Before each wait, between the request's start and end. |
 | `text` | the answering model's replies | As the text arrives with `streamText`; otherwise once each reply is in. The same text as `onText`. |
 | `tool.start`, `tool.progress`, `tool.end` | the calls of a turn ([The calls of a turn](#the-calls-of-a-turn)) | A call starts when it runs, so starts and ends of one turn interleave; ends come in call order. `tool.progress` is the progress of a whole-file read. |
-| `notice` | the loop | What it did that is not a request or a call: `searching_instead`, `writing_answer`, `replanned`, `room_made`, `nudged`, `results_shortened`, `answer_again`, `calls_not_run`, and those that the callbacks never got: `budget_reached`, `no_room`, `blocked`, and, new in 0.9.0, `documents_missing`, `document_gone` and `page_looks_busy`. |
+| `notice` | the loop | What it did that is not a request or a call: `searching_instead`, `writing_answer`, `replanned`, `room_made`, `nudged`, `results_shortened`, `answer_again`, `calls_not_run`, and those that the callbacks never got: `budget_reached`, `no_room`, `blocked`, and, new in 0.9.0, `documents_missing`, `document_gone` and `page_looks_busy`; new in 0.10.0, `answer_filtered` and `answer_cut`; new in 0.99.13, `read_incomplete` and `citations_only`. |
 | `run.finish`, `run.error` | `askWithFiles` | Last, once. Nothing comes after them, not even a part read still running. |
 
 The events tell a model error by its kind and status, never in the provider's words, and carry no
-text of the documents unless the question is asked with `eventResults: true`. An ingest has its own events, from `ingest.start` to
+text of the documents unless the question is asked with `eventResults: true`. Since 0.99.13 two gaps
+in this are closed: no event carries the words of a key or token function, nor
+the metadata server's address (`retry`, `request.end`, `run.error` and their SSE forms: 0 of 54
+streamed failure cases, 36 and 9 of them in 0.99.12); and the errors of tool calls that quote the
+document are told in the library's words in `tool.end` and the steps: "No such column in this
+table, which has 6 columns." for `aggregate_table`, without the table's headers (they reached
+events in 33 of 42 synthetic runs in 0.99.12, 0 now), and "start_line 400 is past the end of the
+file, which has 13 lines." for `read_document` in a workbook, without its sheet names. The model
+gets the full message. An ingest has its own events, from `ingest.start` to
 `ingest.finish` or `ingest.error` ([`files.ingest`](./reference/library.md#filesingestinput)).
 
 Activity lines and steps are each one line of plain text, cleaned of what file text drops, and a
