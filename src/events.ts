@@ -129,7 +129,14 @@ export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_ru
  * - "answer_filtered": a filter of the provider stopped the answer, with or without text
  *   (`AskResult.finish` "filtered"). New in 0.10.0;
  * - "answer_cut": the answer stopped at the output limit (`AskResult.finish` "cut"). New in
- *   0.10.0.
+ *   0.10.0;
+ * - "read_incomplete": a whole-file read could not read some of its parts, even after their
+ *   retries, so its answer misses what they hold. The model was told so in the call's result, and
+ *   the call's step ends with ", incomplete". `counts` gives the parts that failed and all the
+ *   parts. New in 0.99.13;
+ * - "citations_only": with `AskOptions.showCitations: false`, the answer was nothing but line
+ *   citations, which would have left it shown empty: the lines it cited are shown in words
+ *   instead ("line 8", "שורה 8"). New in 0.99.13.
  *
  * A switch over every code must handle the codes added in a later version.
  */
@@ -149,7 +156,9 @@ export type NoticeCode =
   | "document_gone"
   | "page_looks_busy"
   | "answer_filtered"
-  | "answer_cut";
+  | "answer_cut"
+  | "read_incomplete"
+  | "citations_only";
 
 /**
  * Where a notice went in the callbacks of earlier versions: "activity" to `onActivity`, "step" to
@@ -324,9 +333,15 @@ export type AskEvent =
       display: NoticeDisplay;
       /**
        * The documents the notice is about: those left out ("documents_missing"), the one found gone
-       * ("document_gone"), the one whose pages were not looked at ("page_looks_busy"). New in 0.9.0.
+       * ("document_gone"), the one whose pages were not looked at ("page_looks_busy"), the one a
+       * whole-file read could not read all of ("read_incomplete", since 0.99.13). New in 0.9.0.
        */
       documentIds?: string[];
+      /**
+       * With "read_incomplete": the parts of the whole-file read that could not be read, and all of
+       * its parts, those included. New in 0.99.13.
+       */
+      counts?: { failed: number; parts: number };
       /**
        * With "answer_filtered", under `AskOptions.filteredAnswer: "drop"`: text of the answer was
        * already sent (`text` events, `onText`), and the page should take it away. New in 0.10.0.

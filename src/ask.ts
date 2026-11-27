@@ -2,10 +2,11 @@
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
 import { eventErrorOf, EventEmitter, eventStream, newRunId, noteModelFailure, type AskEvent, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
 import { CitationHider, checkCitations, type CitationCheck } from "./citations.js";
+import { hebrewWords, linesInWords, showsNothing } from "./citations-only.js";
 import { documentRef, eventResultOf } from "./event-visibility.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
-import type { LargeFiles } from "./library.js";
+import { TOUCH_ON_USE, type AccessOptions, type LargeFiles, type TouchOnUse } from "./library.js";
 import { Limiter } from "./limiter.js";
 import {
   checkToolTurnVersion,
@@ -18,6 +19,7 @@ import {
   TOOL_TURN_VERSION,
   UsageMeter,
   type ChatMessage,
+  type ChatTurn,
   type ModelAdapter,
   type ModelMessage,
   type ModelReply,
@@ -295,6 +297,18 @@ export type AskOptions = {
    * needs, at the price of a tool call. New in 0.10.2.
    */
   storeRounds?: "full" | "compact";
+  /**
+   * Touch the documents the question plans (`files.touch`) once less than half of their time to
+   * live is left, so that a chat that still uses its files keeps them: with the default `ttlMs` of
+   * 72 hours, a file used 47 hours after its upload (25 hours left) is kept for 72 hours from then,
+   * and one used at 10 hours is not touched, with no store call. It is done before the first model
+   * request and changes nothing that is sent. Off by default: how long files are kept is the
+   * application's to say. A library of your own that is not one `createLargeFiles` made has its
+   * `touch` called by the 72 hours of the default; one without `touch` is a `TypeError`, and so is a
+   * store without `patchMeta`, as for `files.touch`. A value that is not true or false is a
+   * `TypeError` before any request. New in 0.99.13.
+   */
+  touchOnUse?: boolean;
   signal?: AbortSignal;
 };
 
@@ -454,6 +468,28 @@ function quotesIn(value: unknown, found: string[] = []): string[] {
 function checkShowCitations(given: unknown): void {
   if (given === undefined || typeof given === "boolean") return;
   throw new TypeError(`showCitations must be true or false, and is ${shownValue(given)}.`);
+}
+
+/** `touchOnUse` checked: true, false or nothing (0.99.13). */
+function checkTouchOnUse(given: unknown): void {
+  if (given === undefined || typeof given === "boolean") return;
+  throw new TypeError(`touchOnUse must be true or false, and is ${shownValue(given)}.`);
+}
+
+/** The time to live a library of your own is taken to have for `touchOnUse`: the default `ttlMs`. */
+const DEFAULT_TTL_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * `touchOnUse`: the documents planned that have less than half of their time to live left are
+ * touched. A library made by `createLargeFiles` says which by its own `ttlMs` and clock
+ * (`TOUCH_ON_USE`); one of your own is taken to have the default `ttlMs`, by the clock of this process.
+ */
+async function touchPlanned(files: LargeFiles, documents: readonly DocumentMeta[], access: AccessOptions): Promise<void> {
+  const own = (files as { [TOUCH_ON_USE]?: TouchOnUse })[TOUCH_ON_USE];
+  if (typeof own === "function") return own.call(files, documents, access);
+  if (typeof files.touch !== "function") throw new TypeError("touchOnUse needs a library with touch(): createLargeFiles gives one.");
+  const at = Date.now();
+  for (const meta of documents) if (Date.parse(meta.expiresAt) - at < DEFAULT_TTL_MS / 2) await files.touch(meta.id, access);
 }
 
 /** `nativeDocuments` checked: true, false or nothing (0.99.9). */
@@ -1113,6 +1149,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   checkRemovedOptions(options);
   checkNativeDocuments(options.nativeDocuments);
   checkShowCitations(options.showCitations);
+  checkTouchOnUse(options.touchOnUse);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -1177,6 +1214,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...(sharedNative ? { nativeDocuments: { ...sharedNative, pageTokens } } : {}),
   }), signal));
   const { prepared, documentIds } = planned;
+  // The documents the question uses are kept, when they near their end (since 0.99.13).
+  if (options.touchOnUse === true) await until(touchPlanned(files, [...prepared.plan.inline, ...prepared.plan.searchable], access), signal);
   /** The documents left out of the question ("drop"), by this try and by the first. */
   const missing = [...carried?.missing ?? [], ...planned.dropped];
   // Tools are needed for a file that is too large to send whole, for a PDF whose pages can be
@@ -1326,6 +1365,27 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   };
   /** A notice that earlier versions did not show. */
   const notice = (code: NoticeCode, message: string, documentIds?: string[]) => events.emit({ type: "notice", code, message, display: "none", ...(documentIds ? { documentIds } : {}) });
+  /** The question's last turn of the user, for the language of the words below. */
+  const question = [...options.messages].reverse().find((message): message is ChatTurn => message.role === "user" && typeof (message as Partial<ChatTurn>).text === "string")?.text;
+  /** "citations_only" is told once a question. */
+  let citationsOnlySaid = false;
+  /**
+   * An answer of a request made only of citations, which the hider took out (LOOP-10, since
+   * 0.99.13): what was shown of it (`shownFrom` on) has no letter, digit or symbol. The lines it
+   * cited are shown in words after it ("line 8", "שורה 8"), and a "citations_only" notice says so.
+   * `written` is what the model wrote in the request: its citations are read from it, as
+   * `AskResult.citations` reads them from the whole text, which is unchanged.
+   */
+  const citationsOnly = (written: string, shownFrom: number, requestId: string) => {
+    if (!hider || signal?.aborted || !showsNothing(shownText.slice(shownFrom))) return;
+    const names = Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name]));
+    const words = linesInWords(checkCitations(written, [], names).cited ?? [], hebrewWords(written, question, citedFiles.map((meta) => meta.name)));
+    if (!words) return;
+    show(words, requestId);
+    if (citationsOnlySaid) return;
+    citationsOnlySaid = true;
+    notice("citations_only", "The answer was only line citations, which are not shown: the lines it cited are shown in words.");
+  };
   const budgetReached = () => {
     if (state.budgetSaid) return;
     state.budgetSaid = true;
@@ -1381,6 +1441,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const began = Date.now();
     let separated = text.length === 0;
     let got = "";
+    /** Where the text this request shows starts, in `shownText`. */
+    const shownFrom = shownText.length;
     const write = (delta: string) => {
       // Nothing more is shown once the question was stopped, by an adapter that goes on regardless.
       if (!delta || signal?.aborted) return;
@@ -1434,6 +1496,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     // the text of a reply a filter stopped, when such an answer is dropped: it was not shown yet.
     if (shown && reply.text.length > got.length && reply.text.startsWith(got) && !(dropFiltered && reply.finish === "filtered")) write(reply.text.slice(got.length));
     if (got) release(requestId);
+    // What the request showed was nothing but citations: they are shown in words.
+    if (got) citationsOnly(got, shownFrom, requestId);
     answeredRequests++;
     lastReply = reply;
     // A reply without its input tokens is counted by the estimate, in the model's own tokens.
@@ -2488,6 +2552,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           if (!refusal && !pointer && sentParts(call, raw.result)) {
             const id = String(call.args.document_id);
             readsSent.set(id, (readsSent.get(id) ?? 0) + 1);
+            // A read that could not read some of its parts, after their retries, tells the page so
+            // (since 0.99.13): read from what the tool returned, whatever the hook made of it.
+            const failed = raw.result.parts_that_failed ?? raw.result.parts_failed;
+            const parts = raw.result.parts_read;
+            if (!copied && typeof failed === "number" && failed > 0 && typeof parts === "number") {
+              const name = nameOf(id) ?? "a file";
+              events.emit({ type: "notice", code: "read_incomplete", message: `${failed} of the ${parts} parts of ${name} could not be read, so the answer may miss what they hold.`, display: "none", documentIds: [id], counts: { failed, parts } });
+            }
           }
           let output = judgedOutput;
           if (late) {

@@ -194,6 +194,13 @@ const INCOMPLETE_ANALYSIS = "Incomplete: the model's output limit was reached, s
 const notesLeftOutNote = (leftOut: number, relevant: number): string =>
   `Incomplete: this read reached the question's limit on model requests before it could combine the notes of every part, so the notes of ${leftOut} of the ${relevant} relevant parts are not in this answer. Tell the user it is incomplete. For a complete list or an exact count, use search_document in exact or regex mode (it returns total_matching_lines), or ask about a narrower part of the file.`;
 
+/**
+ * The note of a read whose parts could not all be read, even after their retries: its answer misses
+ * what they hold. Joined to any other note of the read. New in 0.99.13 (LOOP-5).
+ */
+const failedPartsNote = (failed: number, parts: number): string =>
+  `Incomplete: ${failed} of the ${parts} parts could not be read, so this answer misses what they hold. Tell the user it is incomplete.`;
+
 /** The items a read that lists them shows in its result; `total_items` counts them all. */
 const MAX_SHOWN_ITEMS = 50;
 
@@ -217,7 +224,8 @@ const quotedTask = (task: string): string => {
 /** The sentence of a note on the items a result shows, when not all of them: as `itemsResult` and `fitItems` write it. */
 const itemsShown = (shown: number, cut: boolean): string =>
   `The first ${shown} ${plural(shown, "item")} ${shown === 1 ? "is" : "are"} shown${cut ? ", to stay within the size limit" : ""}; total_items counts them all.`;
-const ITEMS_SHOWN = /The first \d+ items? (?:is|are) shown(?:, to stay within the size limit)?; total_items counts them all\.\s*/;
+/** That sentence in a note, as `fitItems` and a stand-in (`stubResult`) find it to write it again or leave it out. */
+export const ITEMS_SHOWN = /The first \d+ items? (?:is|are) shown(?:, to stay within the size limit)?; total_items counts them all\.\s*/;
 
 /**
  * The result of a read that lists items (`output: "items"`): the totals, counted by code from the
@@ -831,7 +839,8 @@ export function toolResultSummary(label: string, result: ToolResult): string {
     return ` — ${result.total_items.toLocaleString("en-US")} ${plural(result.total_items, "item")} in ${result.parts_read} ${plural(result.parts_read, "part")}${unverified}${incomplete}`;
   }
   if (typeof result.parts_read === "number") {
-    const incomplete = result.notes_only ? ", notes only" : result.notes_cut_short || result.notes_left_out || result.answer_cut_short ? ", incomplete" : "";
+    // A read that lost parts is incomplete too, since 0.99.13 (LOOP-5).
+    const incomplete = result.notes_only ? ", notes only" : result.parts_that_failed || result.notes_cut_short || result.notes_left_out || result.answer_cut_short ? ", incomplete" : "";
     return ` — ${result.parts_read} ${plural(result.parts_read, "part")}, ${String(result.parts_with_relevant_content ?? 0)} relevant${incomplete}`;
   }
   // A read reports its range only when it was cut short of what was asked.
@@ -1406,6 +1415,16 @@ export function createDocumentTools(options: {
       if ("items" in result) return fitAnswer(itemsResult(document.meta.name, task, result), room);
       const notesCutShort = result.truncatedParts + result.truncatedMerges;
       const cutNote = notesCutShort ? " Some of them were cut off at the output limit, so they are incomplete: tell the user." : "";
+      // Since 0.99.13 a read that lost parts says so in its note too, after any other (LOOP-5).
+      const failedNote = result.failedParts ? failedPartsNote(result.failedParts, result.parts) : "";
+      const otherNote = result.answerFailed !== undefined
+        ? `The last step of this read, which writes one answer from the notes of the parts, failed (${result.answerFailed}). The answer is those notes: answer from them.${cutNote}`
+        : result.answerSkipped
+          ? `This read reached the question's limit on model requests before its last step, which writes one answer from the notes of the parts. The answer is those notes: answer from them.${cutNote}`
+          : result.notesLeftOut
+            ? notesLeftOutNote(result.notesLeftOut, result.relevantParts)
+            : notesCutShort || result.answerTruncated ? INCOMPLETE_ANALYSIS : "";
+      const note = [otherNote, failedNote].filter(Boolean).join(" ");
       return fitAnswer({
         document: document.meta.name,
         parts_read: result.parts,
@@ -1415,13 +1434,7 @@ export function createDocumentTools(options: {
         ...(result.notesLeftOut ? { notes_left_out: result.notesLeftOut } : {}),
         ...(result.answerTruncated ? { answer_cut_short: true } : {}),
         ...(result.answerFailed !== undefined || result.answerSkipped ? { notes_only: true } : {}),
-        ...(result.answerFailed !== undefined
-          ? { note: `The last step of this read, which writes one answer from the notes of the parts, failed (${result.answerFailed}). The answer is those notes: answer from them.${cutNote}` }
-          : result.answerSkipped
-            ? { note: `This read reached the question's limit on model requests before its last step, which writes one answer from the notes of the parts. The answer is those notes: answer from them.${cutNote}` }
-            : result.notesLeftOut
-              ? { note: notesLeftOutNote(result.notesLeftOut, result.relevantParts) }
-              : notesCutShort || result.answerTruncated ? { note: INCOMPLETE_ANALYSIS } : {}),
+        ...(note ? { note } : {}),
         answer: result.answer,
       }, room);
     },
