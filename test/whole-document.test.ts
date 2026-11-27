@@ -436,3 +436,48 @@ describe("the bookkeeping of whole-document reads, since the review of 0.5.0", (
     }
   });
 });
+
+describe("the progress of a whole-document read (LP-7, since 0.99.13)", () => {
+  it("says \"part\" for one relevant part, and \"parts\" for more", async () => {
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 1_500 } });
+    const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(8)) });
+    const writing = async (relevant: (from: number) => boolean) => {
+      const messages: string[] = [];
+      const generate: GenerateText = async ({ prompt }) => {
+        if (!prompt.includes("<part>")) return "FINAL";
+        const from = Number(/lines (\d+)-/.exec(prompt)![1]);
+        return relevant(from) ? `The ledger moved (L${from}).` : "NOTHING RELEVANT";
+      };
+      const result = await files.tools([meta], { generate, onProgress: (event) => messages.push(event.message) }).execute("analyze_whole_document", { document_id: meta.id, task: "Where did the ledger go?" });
+      return { result, writing: messages.filter((message) => message.startsWith("Writing the answer")) };
+    };
+    const one = await writing((from) => from === 1);
+    expect(one.result.parts_with_relevant_content).toBe(1);
+    expect(one.writing).toEqual(["Writing the answer from 1 relevant part of novel.txt"]);
+    const all = await writing(() => true);
+    expect(all.result.parts_read).toBeGreaterThan(1);
+    expect(all.writing).toEqual([`Writing the answer from ${String(all.result.parts_read)} relevant parts of novel.txt`]);
+  });
+});
+
+describe("a whole-document read that lost parts (LOOP-5, since 0.99.13)", () => {
+  it("says so in its note, after the note of a last step that failed, and in its step", async () => {
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore(), budget: { mapChunkTokens: 1_500 } });
+    const meta = await files.ingest({ name: "novel.txt", bytes: bytes(book(8)) });
+    const generate: GenerateText = async ({ system, prompt }) => {
+      if (system.startsWith("You write a complete answer")) throw Object.assign(new Error("The request is too large."), { status: 400 });
+      const from = Number(/lines (\d+)-/.exec(prompt)![1]);
+      if (from === 1) throw Object.assign(new Error("busy"), { status: 503 });
+      return `The ledger moved (L${from}).`;
+    };
+    const tools = files.tools([meta], { generate, retry: { retries: 0 } });
+    const result = await tools.execute("analyze_whole_document", { document_id: meta.id, task: "Where did the ledger go?" });
+    const parts = result.parts_read as number;
+    expect(parts).toBeGreaterThan(1);
+    expect(result).toMatchObject({ parts_that_failed: 1, notes_only: true });
+    expect(result.note).toBe(`The last step of this read, which writes one answer from the notes of the parts, failed (The model refused the request (HTTP 400).). The answer is those notes: answer from them. Incomplete: 1 of the ${parts} parts could not be read, so this answer misses what they hold. Tell the user it is incomplete.`);
+    const { toolResultSummary } = await import("llm-large-files");
+    expect(toolResultSummary("Read all of novel.txt", result)).toBe(` — ${parts} parts, ${parts - 1} relevant, notes only`);
+    expect(toolResultSummary("Read all of novel.txt", { ...result, notes_only: undefined, note: undefined })).toBe(` — ${parts} parts, ${parts - 1} relevant, incomplete`);
+  });
+});

@@ -185,7 +185,7 @@ export function noticeOf09(code: NoticeCode): string {
   }
 }
 
-/** The same switch with the codes of 0.10.0. */
+/** The same switch with the codes of 0.10.0: the two codes of 0.99.13 are not handled. */
 export function noticeOf010(code: NoticeCode): string {
   switch (code) {
     case "searching_instead":
@@ -204,6 +204,36 @@ export function noticeOf010(code: NoticeCode): string {
     case "page_looks_busy":
     case "answer_filtered":
     case "answer_cut":
+      return code;
+    default: {
+      // @ts-expect-error -- "read_incomplete" | "citations_only" is not assignable to 'never' (TS2322).
+      const unhandled: never = code;
+      return unhandled;
+    }
+  }
+}
+
+/** The same switch with the codes of 0.99.13. */
+export function noticeOf09913(code: NoticeCode): string {
+  switch (code) {
+    case "searching_instead":
+    case "writing_answer":
+    case "replanned":
+    case "room_made":
+    case "nudged":
+    case "results_shortened":
+    case "answer_again":
+    case "calls_not_run":
+    case "budget_reached":
+    case "no_room":
+    case "blocked":
+    case "documents_missing":
+    case "document_gone":
+    case "page_looks_busy":
+    case "answer_filtered":
+    case "answer_cut":
+    case "read_incomplete":
+    case "citations_only":
       return code;
     default: {
       const unhandled: never = code;

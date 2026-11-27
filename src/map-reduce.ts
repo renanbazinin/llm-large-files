@@ -758,7 +758,7 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
     layer = layer.slice(0, kept);
   }
 
-  onProgress?.({ kind: "reduce", message: `Writing the answer from ${relevantParts} relevant parts of ${name}`, done: 0, total: 1 });
+  onProgress?.({ kind: "reduce", message: `Writing the answer from ${relevantParts} relevant ${plural(relevantParts, "part")} of ${name}`, done: 0, total: 1 });
   let final: { text: string; truncated: boolean };
   try {
     final = await request({
@@ -767,7 +767,13 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
         "<notes>",
         layer.join("\n\n"),
         "</notes>",
-        `These notes cover all ${notes.length} parts of ${name}${failed ? ` (${failed} part(s) could not be read)` : ""}. Parts with nothing relevant are omitted.`,
+        // Since 0.99.13 a read that lost parts after their retries does not say it covers "all"
+        // of them, and asks for the answer to say it is incomplete (LOOP-5). Without a failure the
+        // line is the one of 0.99.12, byte for byte.
+        failed
+          ? `These notes cover ${notes.length - failed} of the ${notes.length} parts of ${name} (${failed} part(s) could not be read). Parts with nothing relevant are omitted.`
+          : `These notes cover all ${notes.length} parts of ${name}. Parts with nothing relevant are omitted.`,
+        ...(failed ? ["Some parts could not be read, so the notes are incomplete. Say in the answer that it is incomplete."] : []),
         ...(cutShort ? ["Some notes were cut off at the output limit (they say so), so the notes are incomplete. Say in the answer that it is incomplete."] : []),
         ...(notesLeftOut ? [`The notes of ${notesLeftOut} of the ${relevantParts} relevant parts are left out: the read reached its limit on model requests before it could merge them. Say in the answer that it is incomplete.`] : []),
         `Task: ${task}`,

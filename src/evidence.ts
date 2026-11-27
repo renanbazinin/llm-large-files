@@ -2,7 +2,7 @@
 // the short stand-in a tool result leaves behind when the request runs out of room.
 import type { ToolCall } from "./model.js";
 import { sliceWhole } from "./text.js";
-import { TOOL_NAMES } from "./tools.js";
+import { ITEMS_SHOWN, TOOL_NAMES } from "./tools.js";
 import type { ToolResult } from "./types.js";
 
 /** A range of lines or pages, 1-based, both ends included. */
@@ -124,6 +124,19 @@ const MOST_RANGES = 60;
 const KEPT_GROUPS = 30;
 /** The items kept of a whole-file read that lists them: their counts are kept whole. */
 const KEPT_ITEMS = 20;
+/**
+ * The fields that say a whole-file read is incomplete, kept by its stand-in with the read's note
+ * (since 0.99.13, LOOP-5): of a read that writes an answer, and of one that lists items.
+ */
+const INCOMPLETE_ANSWER_FIELDS = ["parts_that_failed", "notes_cut_short", "notes_left_out", "notes_only", "answer_cut_short"] as const;
+const INCOMPLETE_ITEMS_FIELDS = ["parts_failed", "parts_cut_short"] as const;
+
+/** The fields of `names` that `result` has, as they are. */
+const fieldsOf = (result: ToolResult, names: readonly string[]): ToolResult => Object.fromEntries(names.filter((name) => result[name] !== undefined).map((name) => [name, result[name]]));
+
+/** A stand-in's note, followed by the note of the read it stands in for, when that read is incomplete. */
+const withReadNote = (note: string, readNote: unknown, incomplete: boolean): string =>
+  incomplete && typeof readNote === "string" && readNote.trim() ? `${note} ${readNote.trim()}` : note;
 
 const rangeText = ([from, to]: NumberRange) => (to > from ? `${from}-${to}` : String(from));
 
@@ -134,7 +147,9 @@ const rangeText = ([from, to]: NumberRange) => (to > from ? `${from}-${to}` : St
  * error, is small already, is such a stand-in, or is no larger than its stand-in would be (a search
  * counted by group, or an `aggregate_table` result, of a few short groups: the stand-in keeps the
  * groups and adds a note; since 0.9.0). `hadFiles` is true for a result whose files (pages) are
- * dropped with it, however small its JSON is: its stand-in is always given.
+ * dropped with it, however small its JSON is: its stand-in is always given. The stand-in of a
+ * whole-file read keeps the start of its answer (6,000 characters) or its first 20 items, and,
+ * since 0.99.13, every field that says the read is incomplete, with the read's note after its own.
  */
 export function stubResult(call: ToolCall, result: ToolResult, hadFiles = false): ToolResult | undefined {
   if (typeof result.error === "string" || result.dropped === true) return undefined;
@@ -183,24 +198,37 @@ function standIn(call: ToolCall, result: ToolResult): ToolResult {
         note: "This result was shown to you earlier and was shortened to make room: the largest groups are kept. Run aggregate_table again for the others.",
       };
     case TOOL_NAMES.analyze: {
-      // A read that lists items (since 0.10.0): its counts stay, and its first items.
+      // A read that lists items (since 0.10.0): its counts stay, and its first items. Since 0.99.13
+      // (LOOP-5) an incomplete one keeps what says so: the parts that failed or were cut short, the
+      // items it does not show (`more_items`, counted again against the items kept) and its note,
+      // without the sentence on how many items its result showed.
       if (typeof result.total_items === "number") {
+        const items = Array.isArray(result.items) ? result.items.slice(0, KEPT_ITEMS) : undefined;
+        const more = typeof result.more_items === "number" ? result.total_items - (items?.length ?? 0) : 0;
+        const incomplete = fieldsOf(result, INCOMPLETE_ITEMS_FIELDS);
+        const readNote = typeof result.note === "string" ? result.note.replace(ITEMS_SHOWN, "") : undefined;
         return {
           ...base,
           ...(typeof result.parts_read === "number" ? { parts_read: result.parts_read } : {}),
           total_items: result.total_items,
           ...(result.counts_by_label && typeof result.counts_by_label === "object" ? { counts_by_label: result.counts_by_label } : {}),
           ...(typeof result.unverified_items === "number" ? { unverified_items: result.unverified_items } : {}),
-          ...(Array.isArray(result.items) ? { items: result.items.slice(0, KEPT_ITEMS) } : {}),
-          note: "This is the start of the list of the whole-file read, with its counts. The rest of the list was dropped from the conversation to make room.",
+          ...(items ? { items } : {}),
+          ...(more > 0 ? { more_items: more } : {}),
+          ...incomplete,
+          note: withReadNote("This is the start of the list of the whole-file read, with its counts. The rest of the list was dropped from the conversation to make room.", readNote, Object.keys(incomplete).length > 0),
         };
       }
+      // A read that writes an answer: since 0.99.13 (LOOP-5) an incomplete one keeps every field
+      // that says so, and its note.
       const answer = typeof result.answer === "string" ? result.answer : "";
+      const incomplete = fieldsOf(result, INCOMPLETE_ANSWER_FIELDS);
       return {
         ...base,
         ...(typeof result.parts_read === "number" ? { parts_read: result.parts_read } : {}),
+        ...incomplete,
         answer: answer.length > KEPT_ANSWER_CHARACTERS ? `${sliceWhole(answer, KEPT_ANSWER_CHARACTERS)}…` : answer,
-        note: "This is the start of the answer of the whole-file read. The rest was dropped from the conversation to make room.",
+        note: withReadNote("This is the start of the answer of the whole-file read. The rest was dropped from the conversation to make room.", result.note, Object.keys(incomplete).length > 0),
       };
     }
     case TOOL_NAMES.view:

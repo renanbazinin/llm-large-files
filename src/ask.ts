@@ -2479,6 +2479,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           if (!refusal && !pointer && sentParts(call, raw.result)) {
             const id = String(call.args.document_id);
             readsSent.set(id, (readsSent.get(id) ?? 0) + 1);
+            // A read that could not read some of its parts, after their retries, tells the page so
+            // (since 0.99.13): read from what the tool returned, whatever the hook made of it.
+            const failed = raw.result.parts_that_failed ?? raw.result.parts_failed;
+            const parts = raw.result.parts_read;
+            if (!copied && typeof failed === "number" && failed > 0 && typeof parts === "number") {
+              const name = nameOf(id) ?? "a file";
+              events.emit({ type: "notice", code: "read_incomplete", message: `${failed} of the ${parts} parts of ${name} could not be read, so the answer may miss what they hold.`, display: "none", documentIds: [id], counts: { failed, parts } });
+            }
           }
           let output = judgedOutput;
           if (late) {
