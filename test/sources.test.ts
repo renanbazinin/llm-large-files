@@ -175,7 +175,8 @@ describe("sources off (CIT-17)", () => {
     for (const event of off.events) {
       const sent = JSON.stringify(sseMessageOf(event).data);
       expect(sent).not.toMatch(/"locators"|"quote"|"version"/);
-      if (event.type !== "plan" && event.type !== "run.start") expect(sent.includes("notes.md") && event.type !== "tool.start" && event.type !== "tool.end" ? event.type : "").toBe("");
+      // The file is named only where 0.99.13 named it: the plan, and run.finish's citations.
+      if (event.type !== "plan" && event.type !== "run.finish") expect(sent, event.type).not.toContain("notes.md");
     }
     expect(JSON.stringify(off.model.requests)).toBe(JSON.stringify(removed.model.requests));
   });

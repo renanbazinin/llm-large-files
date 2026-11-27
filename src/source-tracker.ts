@@ -5,7 +5,7 @@ import { attributedCitations, type HiderEntry } from "./citations.js";
 import { locatorInWords } from "./describe-locator.js";
 import type { Evidence } from "./evidence.js";
 import { lineTalkOf, type LineTalkFile } from "./line-talk.js";
-import { aggregateSideOf, claimAround, deriveLocatorTables, resolveCitation, type AggregateSide, type LocatorTables } from "./locators.js";
+import { aggregateSideOf, claimAround, deriveLocatorTables, resolveCitation, type AggregateSide, type LocatorTables, type ResolvedLocation } from "./locators.js";
 import type { ModelToolRound } from "./model.js";
 import type { CitationAnchor, CitedSource, LineTalk, SourceSeen } from "./sources.js";
 import { TOOL_NAMES } from "./tools.js";
@@ -222,7 +222,7 @@ export class SourceTracker {
       if (!final && (!this.raw.includes("\n", next.entry.span[1]) || next.at > this.options.shownLength())) return;
       if (!final && !this.ready(next)) return;
       this.waiting.shift();
-      this.resolve(next, silent);
+      this.resolve(next, silent, final);
     }
   }
 
@@ -253,15 +253,22 @@ export class SourceTracker {
     return [...ids];
   }
 
-  private resolve({ entry, requestId, at, label }: Waiting, silent: boolean): void {
+  private resolve({ entry, requestId, at, label }: Waiting, silent: boolean, final: boolean): void {
     const ids = this.idsOf(entry);
-    const claim = claimAround(this.raw, entry.span[0], entry.span[1], this.removedSpans);
-    const group = entry.numbers.map((number) => ({ documentId: ids.length === 1 ? ids[0] : undefined, ids, ...number }));
+    const claim = claimAround(this.raw, entry.span[0], entry.span[1], this.removedSpans.map(([rawStart, rawEnd]) => ({ rawStart, rawEnd })));
+    // How each number was written ("Row 7": Excel's row 7), from the citations read in the span.
+    const inSpan = this.attributed().filter((one) => one.start >= entry.span[0] && one.end <= entry.span[1]);
+    const group = entry.numbers.map((number) => {
+      const read = inSpan.find((one) => one.from === number.from && one.to === number.to);
+      return { ...(ids.length === 1 ? { documentId: ids[0]! } : {}), ids, ...number, ...(read ? { written: this.raw.slice(read.start, read.end) } : {}) };
+    });
+    // At the end, a document whose text was not read in time is known by its metadata alone.
+    const tablesOf = (id: string) => this.tables.get(id) ?? (final && this.metas.has(id) ? deriveLocatorTables({ meta: this.metas.get(id)! }) : undefined);
     const keys: string[] = [];
     let status: CitationAnchor["status"] = "resolved";
     for (const citation of group) {
-      const found = resolveCitation({ citation, claim, group, tablesOf: (id) => this.tables.get(id), aggregates: this.aggregates, evidence: [...this.options.evidence] });
-      const resolved = found === "pending" ? { documentId: citation.documentId, locators: [{ kind: "document" as const }], status: "unresolved" as const, reason: "document_not_in_hand", basis: "none" as const } : found;
+      const found = resolveCitation({ citation, claim, group, tablesOf, documents: [...this.metas.keys()], aggregates: this.aggregates, evidence: [...this.options.evidence] });
+      const resolved: ResolvedLocation = found === "pending" ? { ...(citation.documentId ? { documentId: citation.documentId } : {}), locators: [{ kind: "document" }], status: "unresolved", reason: "document_not_in_hand", basis: "none", shown: false } : found;
       const documentId = resolved.documentId;
       const key = `${documentId ?? "?"}:${citation.from}-${citation.to}`;
       keys.push(key);

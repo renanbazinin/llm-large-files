@@ -712,19 +712,20 @@ A `LineCitation` (new in 0.99.12):
 
 #### Citations the user does not see
 
-With `showCitations: false` the model cites as it always does, and the library takes the
-citations out of what it shows. `result.citations.cited` keeps them, for a list of sources beside
-the answer or for checking it:
+With `showCitations: false` (since 0.99.14 `citationMarkers: "remove"`) the model cites as it
+always does, and the library takes the citations out of what it shows. `result.sources` says
+where each one points to in the file, as a person finds it there, for a list of sources beside the
+answer ([Sources and chips](#sources-and-chips)); `result.citations.cited` keeps the citations as
+written, for checking them:
 
 ```ts
-import { askWithFiles } from "llm-large-files";
+import { askWithFiles, describeLocator } from "llm-large-files";
 
 // files, model, documentIds and messages as in any question.
-const result = await askWithFiles({ files, model, documentIds, messages, showCitations: false });
+const result = await askWithFiles({ files, model, documentIds, messages, citationMarkers: "remove" });
 // "Payment is due in 30 days (contract.docx L188-L200)." was shown as "Payment is due in 30 days."
-const sources = (result.citations?.cited ?? [])
-  .filter((cited) => cited.status === "supported" && cited.document)
-  .map((cited) => (cited.from === cited.to ? `${cited.document}, line ${cited.from}` : `${cited.document}, lines ${cited.from}-${cited.to}`));
+const sources = (result.sources ?? []).map((source) => [source.name ?? "a file", ...source.locators.map((locator) => describeLocator(locator, "en"))].filter(Boolean).join(", "));
+// ["contract.docx, clause 12.1"]: the place, never the library's line numbers.
 ```
 
 Keep `result.modelText` for the history (since 0.99.13): it has the citations the user did not

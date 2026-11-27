@@ -4,7 +4,7 @@
 // anchors and sources, without quotes, in SSE run.finish, each anchor inside the text; every quote
 // is cut from what the model was sent; at least 215 sources have a quote; and with sources "off"
 // nothing of a source reaches an event or SSE. Follow-ups send modelText back, as the guide does.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";

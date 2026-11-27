@@ -38,12 +38,43 @@ matter.
 
 ## 0.99.14 — not released yet
 
-So far, a fix to the docs: every sample that gets a Vertex AI token from `google-auth-library` now
-fetches a new one after a 401.
+Sources the user can click (citations, phase 1). With `citationMarkers: "remove"`, every line
+citation the model writes leaves the text and becomes a chip: where it goes in the answer
+(`AskResult.anchors`), and what it opens (`AskResult.sources`): the file, and the place in it as a
+person finds it there, a workbook's sheet and Excel row, a CSV row, a PDF page, a slide, a clause,
+or a log line. Hover cards read the cited lines through a new preview route that goes through your
+own mask, a page in the browser gets what it needs from `llm-large-files/client`, and a chat that
+must show no sources asks with `sources: "off"`. Nothing sent to the model changes: the eval
+replay passes 96 of 96, byte for byte, in every mode.
 
 ### Upgrading: what you need to change
 
-Code written for 0.99.13 compiles as it is: nothing in the library changed.
+Code written for 0.99.13 may not compile in one case:
+
+- **`AskResult` has three more optional keys, `anchors`, `sources` and `lineTalk`.** A
+  `Record<keyof AskResult, …>` fails with TS2739. **What to do:** add the three keys.
+- **`AskEvent` has one more member, `citation`.** A switch over every event type that ends in a
+  `never` check fails with TS2322. It is sent only with `citationMarkers` `"remove"` or `"token"`.
+  **What to do:** add the case.
+
+These changes in behavior may need a line in an application:
+
+- **`showCitations: false` hides more, and keeps what the answer needs.** It is now
+  `citationMarkers: "remove"`: lead-ins ("(מקור: report.docx L4)"), square and full-width
+  brackets, lists ("שורות 12, 15 ו-18"), and a citation run at the end of a parenthesis go too, and
+  a citation the answer needs (the whole answer to "באיזו שורה?", one right after ":" or a location
+  word) is put into words where it stood, naming the place in the file ("שורה 8 בגיליון לקוחות")
+  instead of being deleted. The library's own "Row N:" prefix no longer keeps a "(Row N)" citation
+  shown. Each one it takes out also leaves a chip, and a `citation` event, which the default SSE
+  map sends on to the browser with the source's file name and locator (never its text). **What to
+  do:** nothing for most apps; a page that ignores unknown events is not affected. To keep file
+  names and locators out of the browser, ask with `sources: "off"`.
+- **The `evidence` of a whole-file read now has `lines: [[1, N]]`**, every line of the file, so the
+  exported `checkCitations` given `result.evidence` marks a line past the end unsupported, as
+  `result.citations` already did.
+- **`DocumentMeta` has `textVersion`** (1 on every new upload) and, where they apply, `lineSplits`
+  and `notesLines`, which the locators use. A store that keeps the metadata as JSON keeps them with
+  nothing to change.
 
 - **The guides' token function did not refresh.** The chatbot guide, the README, Getting started
   and 12 other pages gave `vertexAi()` a token function that ignored `refresh`. Usually it was
@@ -81,8 +112,59 @@ Code written for 0.99.13 compiles as it is: nothing in the library changed.
   });
   ```
 
+### New: what you can add
+
+- **`citationMarkers`** (`"keep"`, the default, `"remove"`, `"token"`): how citations are shown.
+  `"token"` puts `⟦n⟧` at each chip's place, for a page that renders Markdown
+  ([Sources and chips](docs/reference/ask.md#sources-and-chips)).
+- **`AskResult.anchors` and `AskResult.sources`**, and the **`citation` event**: each chip, and
+  where it points to, from the citations the model already writes. A locator says only what is
+  certain: a total computed over a sheet, or a Hebrew "שורה N" that may be read two ways, names the
+  sheet; a document line with no clause number of its own names the file. It never names a guessed
+  row. `result.citations` keeps its meaning: text lines.
+
+  ```ts
+  import { askWithFiles, describeLocator } from "llm-large-files";
+
+  // files, model, documentIds and messages as in any question.
+  const result = await askWithFiles({ files, model, documentIds, messages, citationMarkers: "remove" });
+  for (const source of result.sources ?? []) console.log(source.name, source.locators.map((locator) => describeLocator(locator, "he")).join(" + "));
+  // תקציב מחלקות 2026.xlsx גיליון תקציב · שורה 12
+  ```
+
+- **`sources: "off"`**, for a chat that shows no chips and no previews, such as a group chat with
+  files as knowledge: the text of `"remove"`, no `citation` event, and empty `anchors` and
+  `sources`, so no event or SSE message carries a file name, locator or quote of a source
+  ([A chat with files as knowledge](docs/guides/chatbot.md#a-chat-with-files-as-knowledge-and-no-chips)).
+- **`files.readLines`** and the **preview route** of `createDocumentHandlers`
+  (`preview: { onPreview }`): the cited lines for a hover card, at most 50 lines and 8 KB, through
+  your mask; `404` alike for what a user may not read, `409` with no text for a replaced file. An
+  explicit `onPreview` is required (a function, or `null`): `preview: true` alone is a `TypeError`
+  ([`files.readLines`](docs/reference/library.md#filesreadlinesid-range-access-options),
+  [the route](docs/reference/node.md#previewrequest-response-id)). `LargeFilesOptions.onPreview`
+  sets a default.
+- **`llm-large-files/client`**, an entry point for the browser with no Node import: `readEvents`,
+  `insertCitationTokens`, `describeLocator`, `answerInfoOf`, `errorInfoOf` and the source types.
+- **`AskResult.lineTalk`**: what talk of lines is left in the shown text, as counts and hashes, for
+  your logs. Never sent to a browser.
+- **`describeLocator(locator, "he" | "en")`** ("גיליון לקוחות · שורה 8") and
+  **`insertCitationTokens(text, anchors)`**, in the main entry point and in `/client`.
+
+### Changed: what works differently
+
+- Quotes follow one rule: a source's `quote` is cut only from what the model was sent (after
+  `onToolResult` and fitting, or a file sent whole), and reaches events only with
+  `eventResults: true`; what `sseMessageOf` sends never has one
+  ([Quotes and previews](docs/security.md#quotes-and-previews)).
+- `sseMessageOf`'s `run.finish` has `anchors` and `sources` after `questionId`; the partial of
+  `run.error` has neither. Without `citationMarkers` the bytes are those of 0.99.13.
+
 ### Fixed
 
+- **Whole-file reads:** the lines a read's notes cite are checked against the part that cites
+  them, and the parts that could not be read are kept: a source says whether the model saw its
+  lines through the notes (`seen: "noted"`), or not (`"part_failed"`, `"not_noted"`).
+- **Isolated ingest** passes a deck's speaker-notes markers back from the child process.
 - **Docs:** the 23 samples that called `auth.getAccessToken()` for `vertexAi()` now refresh after
   a 401. They are in the README, Getting started, troubleshooting, two reference pages and ten
   guides. The troubleshooting entry for a 401 says why the refresh matters.

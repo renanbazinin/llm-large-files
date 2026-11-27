@@ -1416,11 +1416,16 @@ export async function askQuestion(sessionId: string, question: string, show: (te
 reader splits the stream into messages, joins the `data:` lines of each, and parses them as JSON:
 
 ```ts
-// chat-client.ts: runs in the browser.
-import type { AskEvent, EventResult } from "llm-large-files";
+// chat-client.ts: runs in the browser. Since 0.99.14 `readEvents` is also in llm-large-files/client.
+import type { AskEvent, CitedSource, EventResult } from "llm-large-files";
 
-/** The result in run.finish, as sseMessageOf sends it. */
-export type FinishResult = Pick<EventResult, "answered" | "text" | "finishReason" | "blockReason" | "steps" | "evidence" | "turns" | "usage">;
+/**
+ * The result in run.finish, as sseMessageOf sends it. `anchors` and `sources` (0.99.14) come with
+ * citationMarkers "remove" or "token": the sources without their quotes.
+ */
+export type FinishResult = Pick<EventResult, "answered" | "text" | "finish" | "finishReason" | "blockReason" | "citations" | "steps" | "evidence" | "turns" | "usage" | "missing" | "questionId" | "anchors"> & {
+  sources?: Array<Omit<CitedSource, "quote">>;
+};
 /** What run.error keeps of what the question found. */
 export type PartialResult = Pick<EventResult, "steps" | "evidence" | "usage">;
 /** The data of each message: the event itself, with run.finish and run.error made smaller. */
@@ -1471,6 +1476,7 @@ as it streams, and a summary when the question ends. It has a Stop button too:
 ```ts
 // chat-page.ts: runs in the browser. readEvents and ChatEvent are above.
 import type { Evidence, ToolOutcome } from "llm-large-files";
+import { describeLocator } from "llm-large-files/client";
 import { readEvents, type ChatEvent, type FinishResult } from "./chat-client.js";
 
 const statusView = document.querySelector<HTMLElement>("#status")!;
@@ -1489,12 +1495,17 @@ const sourceOf = (evidence: Evidence) => {
   return `${evidence.document ?? evidence.documentId}${where ? ` ${evidence.lines ? "lines" : "pages"} ${where}` : ""}`;
 };
 
-/** One line under the answer: what was read, and what it took. */
+/**
+ * One line under the answer: what it cites, as a person finds it in each file ("report.xlsx,
+ * Sheet Customers · row 8"), when the question asked with citationMarkers "remove" (0.99.14); else
+ * what was read. Then what it took.
+ */
 function summaryOf(result: FinishResult): string {
   if (!result.answered) {
     return result.blockReason ? "This question was blocked by the model's safety filters." : "No answer this time. Ask again, or ask more precisely.";
   }
-  const sources = [...new Set(result.evidence.map(sourceOf))];
+  const cited = (result.sources ?? []).map((source) => [source.name ?? "a file", ...source.locators.map((locator) => describeLocator(locator, "en"))].filter(Boolean).join(", "));
+  const sources = cited.length ? [...new Set(cited)] : [...new Set(result.evidence.map(sourceOf))];
   return `${sources.length ? `Sources: ${sources.join("; ")}. ` : ""}${result.usage.requests} model requests.`;
 }
 
