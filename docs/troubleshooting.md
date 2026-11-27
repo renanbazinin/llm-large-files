@@ -1034,20 +1034,24 @@ See [Errors and reliability](./guides/errors-and-reliability.md).
 
 ### `auth`: Vertex AI refuses the token
 
-HTTP 401 or 403, kind `auth`, with Google's message. It is not sent again.
+HTTP 401 or 403, kind `auth`, with Google's message. It is not sent again. A 401 with a token
+function has already been sent once more, with the token the function gave when asked to refresh.
 
 **Cause.**
 
 - **401**: the access token expired or is not one. A string given as `accessToken` is sent as it is
   for as long as the endpoint lives, and an access token expires after an hour by default: the
-  first questions work, the later ones fail.
+  first questions work, the later ones fail. A function is called again with `{ refresh: true }`
+  after a 401. One that returns its client's cached token then sends the refused token again,
+  and the second 401 is the error.
 - **403**: the identity has no role that may call the model (Vertex AI User,
   `roles/aiplatform.user`), the Vertex AI API is not enabled in the project, or the project is not
   the one you meant.
 - On the Gemini API, a key that is not valid comes as HTTP 400 and is kind `auth` too.
 
 **Fix.** Give `vertexAi()` a function as `accessToken`. It is called before every request, part
-reads included:
+reads included. When it is called with `refresh: true`, mark the cached token expired so that a
+new one is fetched:
 
 ```ts
 import { GoogleAuth } from "google-auth-library";
@@ -1060,8 +1064,10 @@ export const endpoint = vertexAi({
   location: "global",
   model: "gemini-3.8-flash",
   // GoogleAuth keeps the token and renews it before it expires.
-  accessToken: async () => {
-    const token = await auth.getAccessToken();
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    const { token } = await client.getAccessToken();
     if (!token) throw new Error("No access token from the application default credentials.");
     return token;
   },

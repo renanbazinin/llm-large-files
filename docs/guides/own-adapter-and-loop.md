@@ -610,8 +610,10 @@ const vertex = gemini(vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   location: "global",
   model: "gemini-3.8-flash",
-  accessToken: async () => {
-    const token = await auth.getAccessToken();
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    const { token } = await client.getAccessToken();
     if (!token) throw new Error("No access token from the application default credentials.");
     return token;
   },
@@ -863,8 +865,10 @@ const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   location: "global",
   model: MODEL,
-  accessToken: async () => {
-    const token = await auth.getAccessToken();
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    const { token } = await client.getAccessToken();
     if (!token) throw new Error("No access token from the application default credentials.");
     return token;
   },

@@ -79,7 +79,8 @@ ways in; the third stops where your own loop takes over:
 import { askWithFiles, createLargeFiles, FileDocumentStore } from "llm-large-files";
 import { askGemini, gemini, vertexAi } from "llm-large-files/gemini";
 
-// Assumed: getAccessToken() returns an OAuth access token for Vertex AI (see the Vertex guide),
+// Assumed: accessToken is the function of "Access tokens for Vertex AI" in the Vertex guide (an
+// OAuth access token, and a new one when it is called with { refresh: true }),
 // documentId is the `id` that files.ingest() returned for an upload, and userId is the signed-in
 // user, its owner: every call names it (owner checks are on by default).
 const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
@@ -87,7 +88,7 @@ const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   location: "global",
   model: "gemini-3.8-flash",
-  accessToken: getAccessToken,
+  accessToken,
 });
 const documentIds = [documentId];
 const messages = [{ role: "user" as const, text: "What caused the outage, and when? Cite lines." }];

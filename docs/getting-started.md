@@ -74,7 +74,11 @@ const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   location: "global", // the default; or "us", "eu", or a region such as "europe-west4"
   model: "gemini-3.8-flash",
-  accessToken: async () => (await auth.getAccessToken())!,
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 });
 
 const result = await askGemini({
@@ -231,7 +235,11 @@ const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-pla
 export const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   model: "gemini-3.8-flash",
-  accessToken: async () => (await auth.getAccessToken())!,
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 });
 
 // An expired document is ignored at once. This frees the space it took. With several servers,

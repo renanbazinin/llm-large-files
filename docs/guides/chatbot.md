@@ -60,7 +60,11 @@ export const endpoint = vertexAi({
   location: process.env.VERTEX_LOCATION ?? "global",
   model: process.env.GEMINI_MODEL ?? "gemini-3.8-flash", // writes the answer
   explorerModel: process.env.GEMINI_EXPLORER_MODEL,      // optional: a cheaper model that searches and reads
-  accessToken: async () => (await auth.getAccessToken())!, // asked for on each request
+  accessToken: async ({ refresh }) => { // asked for on each request
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 });
 ```
 

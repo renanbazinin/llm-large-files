@@ -51,7 +51,11 @@ const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-pla
 const model = gemini(vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   model: "gemini-3.8-flash",
-  accessToken: async () => (await auth.getAccessToken())!,
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 }));
 
 const question = "Where is the first error in app.log?";
@@ -210,7 +214,11 @@ const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-pla
 const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   model: "gemini-3.8-flash",
-  accessToken: async () => (await auth.getAccessToken())!,
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 });
 
 /** The messages of the next question: each earlier question, its tool rounds, its answer. */

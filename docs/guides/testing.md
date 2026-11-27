@@ -1115,8 +1115,10 @@ describe.skipIf(process.env.LIVE_TESTS !== "1")("live: Gemini on Vertex AI", () 
       project: process.env.GOOGLE_CLOUD_PROJECT!,
       location: "global",
       model: process.env.LIVE_MODEL ?? "gemini-3.5-flash-lite",
-      accessToken: async () => {
-        const token = await auth.getAccessToken();
+      accessToken: async ({ refresh }) => {
+        const client = await auth.getClient();
+        if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+        const { token } = await client.getAccessToken();
         if (!token) throw new Error("No access token from the application default credentials.");
         return token;
       },

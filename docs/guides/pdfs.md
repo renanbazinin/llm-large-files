@@ -696,7 +696,11 @@ const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   location: "global",
   model: "gemini-3.5-flash-lite",
-  accessToken: async () => (await auth.getAccessToken()) ?? "",
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token ?? "";
+  },
 });
 
 const result = await askGemini({
@@ -893,7 +897,11 @@ const gemini25 = gemini(
   vertexAi({
     project: process.env.GOOGLE_CLOUD_PROJECT!,
     model: "gemini-2.5-flash-lite",
-    accessToken: async () => (await auth.getAccessToken()) ?? "",
+    accessToken: async ({ refresh }) => {
+      const client = await auth.getClient();
+      if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+      return (await client.getAccessToken()).token ?? "";
+    },
   }),
   { toolFilePlacement: "beside" },
 );
@@ -953,7 +961,11 @@ const result25 = await askGemini({
   endpoint: vertexAi({
     project: process.env.GOOGLE_CLOUD_PROJECT!,
     model: "gemini-2.5-flash-lite",
-    accessToken: async () => (await auth.getAccessToken()) ?? "",
+    accessToken: async ({ refresh }) => {
+      const client = await auth.getClient();
+      if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+      return (await client.getAccessToken()).token ?? "";
+    },
   }),
   owner: userId,
   documentIds: [reportId],
