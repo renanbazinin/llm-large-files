@@ -5,7 +5,7 @@ import { CitationHider, checkCitations, type CitationCheck } from "./citations.j
 import { hebrewWords, linesInWords, showsNothing } from "./citations-only.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
-import type { LargeFiles } from "./library.js";
+import { TOUCH_ON_USE, type AccessOptions, type LargeFiles, type TouchOnUse } from "./library.js";
 import { Limiter } from "./limiter.js";
 import {
   checkToolTurnVersion,
@@ -292,6 +292,18 @@ export type AskOptions = {
    * needs, at the price of a tool call. New in 0.10.2.
    */
   storeRounds?: "full" | "compact";
+  /**
+   * Touch the documents the question plans (`files.touch`) once less than half of their time to
+   * live is left, so that a chat that still uses its files keeps them: with the default `ttlMs` of
+   * 72 hours, a file used 47 hours after its upload (25 hours left) is kept for 72 hours from then,
+   * and one used at 10 hours is not touched, with no store call. It is done before the first model
+   * request and changes nothing that is sent. Off by default: how long files are kept is the
+   * application's to say. A library of your own that is not one `createLargeFiles` made has its
+   * `touch` called by the 72 hours of the default; one without `touch` is a `TypeError`, and so is a
+   * store without `patchMeta`, as for `files.touch`. A value that is not true or false is a
+   * `TypeError` before any request. New in 0.99.13.
+   */
+  touchOnUse?: boolean;
   signal?: AbortSignal;
 };
 
@@ -442,6 +454,28 @@ function quotesIn(value: unknown, found: string[] = []): string[] {
 function checkShowCitations(given: unknown): void {
   if (given === undefined || typeof given === "boolean") return;
   throw new TypeError(`showCitations must be true or false, and is ${shownValue(given)}.`);
+}
+
+/** `touchOnUse` checked: true, false or nothing (0.99.13). */
+function checkTouchOnUse(given: unknown): void {
+  if (given === undefined || typeof given === "boolean") return;
+  throw new TypeError(`touchOnUse must be true or false, and is ${shownValue(given)}.`);
+}
+
+/** The time to live a library of your own is taken to have for `touchOnUse`: the default `ttlMs`. */
+const DEFAULT_TTL_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * `touchOnUse`: the documents planned that have less than half of their time to live left are
+ * touched. A library made by `createLargeFiles` says which by its own `ttlMs` and clock
+ * (`TOUCH_ON_USE`); one of your own is taken to have the default `ttlMs`, by the clock of this process.
+ */
+async function touchPlanned(files: LargeFiles, documents: readonly DocumentMeta[], access: AccessOptions): Promise<void> {
+  const own = (files as { [TOUCH_ON_USE]?: TouchOnUse })[TOUCH_ON_USE];
+  if (typeof own === "function") return own.call(files, documents, access);
+  if (typeof files.touch !== "function") throw new TypeError("touchOnUse needs a library with touch(): createLargeFiles gives one.");
+  const at = Date.now();
+  for (const meta of documents) if (Date.parse(meta.expiresAt) - at < DEFAULT_TTL_MS / 2) await files.touch(meta.id, access);
 }
 
 /** `nativeDocuments` checked: true, false or nothing (0.99.9). */
@@ -1125,6 +1159,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   checkRemovedOptions(options);
   checkNativeDocuments(options.nativeDocuments);
   checkShowCitations(options.showCitations);
+  checkTouchOnUse(options.touchOnUse);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -1189,6 +1224,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...(sharedNative ? { nativeDocuments: { ...sharedNative, pageTokens } } : {}),
   }), signal));
   const { prepared, documentIds } = planned;
+  // The documents the question uses are kept, when they near their end (since 0.99.13).
+  if (options.touchOnUse === true) await until(touchPlanned(files, [...prepared.plan.inline, ...prepared.plan.searchable], access), signal);
   /** The documents left out of the question ("drop"), by this try and by the first. */
   const missing = [...carried?.missing ?? [], ...planned.dropped];
   // Tools are needed for a file that is too large to send whole, for a PDF whose pages can be
