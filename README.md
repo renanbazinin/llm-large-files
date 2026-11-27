@@ -44,7 +44,11 @@ const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-pla
 const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   model: "gemini-3.8-flash",
-  accessToken: async () => (await auth.getAccessToken())!, // asked for on each request
+  accessToken: async ({ refresh }) => { // asked for on each request
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 });
 const result = await askGemini({
   files,
@@ -256,7 +260,11 @@ const endpoint = vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   model: "gemini-3.8-flash",                        // writes the answer
   explorerModel: process.env.GEMINI_EXPLORER_MODEL, // optional: searches and reads
-  accessToken: async () => (await auth.getAccessToken())!, // `auth` is the quickstart's
+  accessToken: async ({ refresh }) => { // `auth` is the quickstart's
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 });
 ```
 

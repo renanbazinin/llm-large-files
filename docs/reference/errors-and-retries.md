@@ -886,7 +886,11 @@ const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-pla
 const model = gemini(vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   model: "gemini-3.8-flash",
-  accessToken: async () => (await auth.getAccessToken())!,
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 }), waits);
 const claude = anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, model: "claude-opus-5-5", ...waits });
 ```

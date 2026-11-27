@@ -36,6 +36,57 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.99.14 — not released yet
+
+So far, a fix to the docs: every sample that gets a Vertex AI token from `google-auth-library` now
+fetches a new one after a 401.
+
+### Upgrading: what you need to change
+
+Code written for 0.99.13 compiles as it is: nothing in the library changed.
+
+- **The guides' token function did not refresh.** The chatbot guide, the README, Getting started
+  and 12 other pages gave `vertexAi()` a token function that ignored `refresh`. Usually it was
+  `async () => (await auth.getAccessToken())!`. The PDF guide used `?? ""`, and troubleshooting,
+  testing and the own-adapter guide threw when no token came back. After a 401, the adapter calls
+  the token function again with `{ refresh: true }` and sends the request once more. These
+  functions returned the token GoogleAuth had cached, the same token that was refused, so the
+  second 401 ended the question as an `auth` error.
+
+  **Who:** apps whose token function calls `auth.getAccessToken()` and ignores `refresh`. A token
+  that runs out at its stated expiry is not affected, because GoogleAuth renews it on its own a few
+  minutes before. Affected is a token refused before its expiry, such as a revoked one. On Cloud
+  Run, GKE and Compute Engine, the metadata server keeps its own copy of the token, so even the
+  refreshing function can get the refused token back until it nears its expiry. The refresh
+  reliably helps where GoogleAuth fetches the token itself: a key file, gcloud user credentials,
+  impersonation, and workload identity federation.
+
+  **What to do:** when `refresh` is true, mark the cached token expired, so that the client fetches
+  a new one. This is the recipe that
+  [Access tokens for Vertex AI](docs/guides/vertex-and-gemini.md#access-tokens-for-vertex-ai) had
+  already:
+
+  ```ts
+  import { vertexAi } from "llm-large-files/gemini";
+
+  // auth: your GoogleAuth, as before.
+  const endpoint = vertexAi({
+    project: process.env.GOOGLE_CLOUD_PROJECT!,
+    model: "gemini-3.8-flash",
+    accessToken: async ({ refresh }) => {
+      const client = await auth.getClient();
+      if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 });
+      return (await client.getAccessToken()).token!;
+    },
+  });
+  ```
+
+### Fixed
+
+- **Docs:** the 23 samples that called `auth.getAccessToken()` for `vertexAi()` now refresh after
+  a 401. They are in the README, Getting started, troubleshooting, two reference pages and ten
+  guides. The troubleshooting entry for a 401 says why the refresh matters.
+
 ## 0.99.13 — 2026-11-27
 
 Quick fixes. A chat that hides citations can send the model's own words back as history

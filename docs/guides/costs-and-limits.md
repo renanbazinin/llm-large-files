@@ -37,7 +37,11 @@ const endpoint = vertexAi({
   location: process.env.GOOGLE_CLOUD_LOCATION ?? "global",
   model: "gemini-3.8-flash",
   explorerModel: process.env.GEMINI_EXPLORER_MODEL, // optional: a cheaper model searches and reads
-  accessToken: async () => (await auth.getAccessToken())!,
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 });
 const files = createLargeFiles({ store: new FileDocumentStore("./data/large-files") });
 
@@ -329,7 +333,11 @@ const files = createLargeFiles({ store: new FileDocumentStore("./data/large-file
 const flash = gemini(vertexAi({
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   model: "gemini-3.8-flash",
-  accessToken: async () => (await auth.getAccessToken())!,
+  accessToken: async ({ refresh }) => {
+    const client = await auth.getClient();
+    if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+    return (await client.getAccessToken()).token!;
+  },
 }), { contextTokens: 1_048_576 });
 
 // Searches and reads. Its window: 131,072 tokens, and a tokenizer that counts a fifth more.

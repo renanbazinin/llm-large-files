@@ -132,7 +132,11 @@ const endpoint = vertexAi({
   its cache until it nears its expiry, so calling it the same way again would send the token that
   was refused: force a new one when `refresh` is true, as the sample does. That sample works for
   the clients that keep their token in `credentials`: a service account, the metadata server
-  (Cloud Run, GKE, Compute Engine) and user credentials. A second 401 is the error: there is no
+  (Cloud Run, GKE, Compute Engine) and user credentials. On the metadata server the client asks
+  again, but the server keeps its own copy of the token until a few minutes before it expires, so a
+  token revoked there can come back until then. With the credentials of workforce identity
+  federation (`external_account_authorized_user`, from `gcloud auth application-default login
+  --login-config`), the client ignores the expiry the sample sets. A second 401 is the error: there is no
   third try. If the function throws when it is asked to refresh, the first 401 is the error (a
   `GeminiRequestError` of kind `"auth"`), with what the function threw as its `cause`; since
   0.99.13, if it throws because a connection failed, the request is sent again from the start

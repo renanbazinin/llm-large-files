@@ -190,7 +190,11 @@ import { askWithFiles, DocumentsNotFoundError, partialResultOf, type AskResult, 
 import { gemini, vertexAi } from "llm-large-files/gemini";
 
 const auth = new GoogleAuth({ scopes: "https://www.googleapis.com/auth/cloud-platform" });
-const accessToken = async () => (await auth.getAccessToken())!;
+const accessToken = async ({ refresh }: { refresh: boolean }) => {
+  const client = await auth.getClient();
+  if (refresh) client.setCredentials({ ...client.credentials, expiry_date: 1 }); // after a 401: the cached token was refused
+  return (await client.getAccessToken()).token!;
+};
 const project = process.env.GOOGLE_CLOUD_PROJECT!;
 
 const model = gemini(vertexAi({ project, model: "gemini-3.8-flash", accessToken }));         // writes the answer
