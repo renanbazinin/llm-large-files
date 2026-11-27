@@ -12,7 +12,10 @@ export type GeminiEndpoint = {
   /**
    * Request headers, or a function returning them (for short-lived access tokens). Since 0.10.0 the
    * function is called with `{ refresh: true }` when a request is sent again after a 401 (see
-   * `refreshable`); one of no arguments still fits.
+   * `refreshable`); one of no arguments still fits. Since 0.99.13 a function that throws fails the
+   * request with a `GeminiRequestError` of status 0, its error as the cause: a connection that
+   * failed on the way (a metadata server that reset) is of kind "unreachable" and is sent again;
+   * anything else (a revoked grant) is of kind "auth" and is not.
    */
   headers: HeaderSource;
   /**
@@ -26,6 +29,9 @@ export type GeminiEndpoint = {
    * True when `headers` can give a token that is new, not the one it keeps in a cache: a request
    * refused with HTTP 401 is then sent once more, with the headers of `headers({ refresh: true })`.
    * A second 401 is the error. `vertexAi()` sets it when `accessToken` is a function. New in 0.10.0.
+   * Since 0.99.13 the refresh is told as a `retry` event of reason "auth_refresh"; a refresh that
+   * fails on a connection is sent again from the start, and one that fails otherwise leaves the
+   * 401 as the error, with why as its cause.
    */
   refreshable?: true | undefined;
 };
@@ -131,7 +137,10 @@ export type VertexAiOptions =
       /**
        * A token, or a function that returns one for each request. The function is called with
        * `{ refresh: true }` when the token it gave was refused (HTTP 401): return a new one then,
-       * not the one kept in a cache. A function of no arguments still fits.
+       * not the one kept in a cache. A function of no arguments still fits. Since 0.99.13 a
+       * function that throws on a connection that failed (a metadata server that reset) is called
+       * again, as a request that got no answer; one that throws otherwise (a revoked grant) ends
+       * the request as an "auth" error, told "The model refused the key or token it was sent.".
        */
       accessToken: string | ((context: { refresh: boolean }) => string | Promise<string>);
       apiKey?: never;

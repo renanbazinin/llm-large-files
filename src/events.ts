@@ -1,6 +1,7 @@
 // What a question or an ingest does while it runs, as typed data in order. The callbacks of
 // earlier versions (onText, onActivity, onStep) still get the same strings, at the same moments.
 import type { AskResult } from "./ask.js";
+import { connectionFailure, type ConnectionFailure } from "./connection-failure.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
@@ -243,6 +244,12 @@ export type AskEvent =
       /** 1 for the first retry. */
       attempt: number;
       delayMs: number;
+      /**
+       * "auth_refresh": the request was refused with HTTP 401 and is sent again at once with a new
+       * token (`vertexAi({ accessToken })` as a function): attempt 1, delayMs 0. Absent for the
+       * other retries. New in 0.99.13.
+       */
+      reason?: "auth_refresh";
       error: EventError;
       message: string;
     })
@@ -389,7 +396,9 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
     }
     const out: EventError = { message: message ?? userMessageOf(error) };
     const own = DocumentStoreError.is(error) ? "DocumentStoreError" : DocumentsNotFoundError.is(error) ? "DocumentsNotFoundError" : undefined;
+    const connection = failedModelConnection(error);
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
+    else if (connection) out.kind = connection.kind;
     else if (isModelStatus(record.status) && own === undefined && !isPlainData(record)) {
       // A model's error without a kind of its own (an adapter of yours, `httpError`): the kind its
       // status gives, as its message is told, so that a model's EventError always has its kind.
@@ -412,6 +421,32 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
 }
 
 const SOMETHING_WENT_WRONG = "Something went wrong.";
+
+/** The errors model requests failed with: see `noteModelFailure`. */
+const modelFailures = new WeakSet<object>();
+
+/**
+ * Takes note that a model request failed with this error (0.99.13). Its event then tells a
+ * connection that failed as the model's, by its kind ("The model could not be reached."), even
+ * when the error has none of its own: a socket error that an adapter of your own, or its key or
+ * token function, let through is never told as storage, nor in the HTTP client's words.
+ */
+export function noteModelFailure(error: unknown): void {
+  if (typeof error === "object" && error !== null) modelFailures.add(error);
+}
+
+/**
+ * The connection that failed, of an error a model request failed with (`noteModelFailure`) that
+ * has no kind or model status of its own to be told by. Undefined for any other error.
+ */
+function failedModelConnection(error: unknown): ConnectionFailure | undefined {
+  if (typeof error !== "object" || error === null || !modelFailures.has(error) || DocumentStoreError.is(error)) return undefined;
+  const { kind, status } = error as { kind?: unknown; status?: unknown };
+  if (typeof kind === "string" || isModelStatus(status)) return undefined;
+  // By a code only: a `TimeoutError` is the reason of a signal, the app's own, and told as it is.
+  const connection = connectionFailure(error);
+  return connection?.code !== undefined ? connection : undefined;
+}
 
 /** Data, not an error: an object of no class, as an `EventError` is, or one parsed from JSON. */
 export function isPlainData(value: object): boolean {
@@ -442,8 +477,9 @@ function userMessageOf(error: unknown): string {
   if (DocumentStoreError.is(error) || DocumentsNotFoundError.is(error)) return (error as Error).message;
   if (typeof error !== "object" || error === null) return SOMETHING_WENT_WRONG;
   const record = error as { kind?: unknown; status?: unknown; code?: unknown; syscall?: unknown; errno?: unknown; message?: unknown };
-  // A model error, as eventErrorOf gives it a kind: the provider's words stay on the error.
-  if (typeof record.kind === "string" || (isModelStatus(record.status) && !isPlainData(record))) return modelFailureReason(error);
+  // A model error, as eventErrorOf gives it a kind: the provider's words stay on the error. So is
+  // a connection that failed in a model request, with no kind of its own (0.99.13).
+  if (typeof record.kind === "string" || (isModelStatus(record.status) && !isPlainData(record)) || failedModelConnection(error)) return modelFailureReason(error);
   // Any other status (thrown plain data, a status no model answers with) is not a model's, and the
   // words that came with it may be anyone's: errorInfoOf tells it so too.
   if (typeof record.status === "number") return SOMETHING_WENT_WRONG;

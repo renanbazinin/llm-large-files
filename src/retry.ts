@@ -109,6 +109,12 @@ export type RetryNotice = {
   attempt: number;
   /** How long it waits, in milliseconds, before it sends the request again. */
   delayMs: number;
+  /**
+   * "auth_refresh": the request was refused with HTTP 401, and the adapter sends it again at once
+   * with a new token (`SendHooks.onRefresh`). `withRetry` never sets it: other retries have none.
+   * New in 0.99.13.
+   */
+  reason?: "auth_refresh";
 };
 
 /**

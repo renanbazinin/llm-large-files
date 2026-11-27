@@ -1,6 +1,7 @@
 // Claude (the Messages API) as a model of `askWithFiles`. No SDK, like the other adapters: the
 // caller gives a key or a token, and may give the URL of a gateway that speaks the same API.
 import { randomUUID } from "node:crypto";
+import { connectionFailure } from "../connection-failure.js";
 import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { checkToolTurnVersion, laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { documentsOption, messageFiles } from "../native.js";
@@ -8,6 +9,7 @@ import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import { estimateTokens, sliceWhole } from "../text.js";
+import { headerFailure } from "../token-failure.js";
 import type { DocumentsCapability, GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
 
 /** The API answered with an HTTP error, or could not be reached (`status` 0). `type` is the API's own word: "rate_limit_error". */
@@ -33,15 +35,19 @@ const DEFAULT_MAX_TOKENS = 64_000;
 export type AnthropicOptions = {
   /** The model ID: "claude-opus-5-5". */
   model: string;
-  /** Sent as `x-api-key`. A function is called for each request. */
+  /**
+   * Sent as `x-api-key`. A function is called for each request. Since 0.99.13, one that throws on a
+   * connection that failed is called again with the request; one that throws otherwise ends it as an
+   * "auth" error.
+   */
   apiKey?: SecretSource | undefined;
-  /** Sent as `Authorization: Bearer …`, for an OAuth token or a gateway. A function is called for each request. */
+  /** Sent as `Authorization: Bearer …`, for an OAuth token or a gateway. A function is called for each request, as `apiKey`'s is. */
   authToken?: SecretSource | undefined;
   /** The base of the API: `/v1/messages` is added to it. Defaults to https://api.anthropic.com. */
   baseUrl?: string | undefined;
   /** The whole Messages URL, when it is not `baseUrl` + `/v1/messages`. */
   url?: string | undefined;
-  /** More headers. A function is called for each request. */
+  /** More headers. A function is called for each request, as `apiKey`'s is. */
   headers?: HeaderSource | undefined;
   /** The `anthropic-version` header. Defaults to `ANTHROPIC_VERSION`. */
   version?: string | undefined;
@@ -364,16 +370,25 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
   const scale = options.tokenScale ?? 1.35;
   const betas = [...new Set([...(options.betas ?? []), ...(options.fallbacks ? [FALLBACK_BETA] : [])])];
 
+  /**
+   * The headers of a request. A key, token or headers function that throws fails the request
+   * before anything is sent (since 0.99.13): a connection that failed on the way is sent again,
+   * anything else is an "auth" error (`headerFailure`).
+   */
   const headersNow = async (): Promise<Record<string, string>> => {
-    const [key, token] = await Promise.all([resolveSecret(options.apiKey), resolveSecret(options.authToken)]);
-    return {
-      "Content-Type": "application/json",
-      "anthropic-version": options.version ?? ANTHROPIC_VERSION,
-      ...(betas.length > 0 ? { "anthropic-beta": betas.join(",") } : {}),
-      ...(key ? { "x-api-key": key } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...await resolveHeaderSource(options.headers),
-    };
+    try {
+      const [key, token] = await Promise.all([resolveSecret(options.apiKey), resolveSecret(options.authToken)]);
+      return {
+        "Content-Type": "application/json",
+        "anthropic-version": options.version ?? ANTHROPIC_VERSION,
+        ...(betas.length > 0 ? { "anthropic-beta": betas.join(",") } : {}),
+        ...(key ? { "x-api-key": key } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...await resolveHeaderSource(options.headers),
+      };
+    } catch (error) {
+      throw headerFailure(error, AnthropicRequestError, "Claude");
+    }
   };
 
   const built = new WeakMap<ModelToolRound, { key: string; messages: AnthropicMessage[] }>();
@@ -423,8 +438,10 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
    */
   const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => AnthropicRequestError = unreachable, headers?: Record<string, string>, bounded = false): Promise<Response> => {
     let response: Response;
+    // Outside the try: a key that could not be had is its own error, not a connection that failed.
+    const given = headers ?? await headersNow();
     try {
-      const sent = fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      const sent = fetchImpl(url, { method: "POST", headers: given, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
       response = await (bounded ? until(sent, signal) : sent);
     } catch (error) {
       if (stopped()) throw error;
@@ -674,8 +691,13 @@ function tooSlow(limitMs: number): AnthropicRequestError {
   return new AnthropicRequestError(`Claude took longer than ${waitText(limitMs)} to answer.`, 0, { kind: "timeout" });
 }
 
-/** A request that got no answer: the reason, without the stack of the HTTP client. */
+/**
+ * A request that got no answer: the reason, without the stack of the HTTP client. Since 0.99.13 an
+ * answer that did not come in time (undici's headers or body timeout) is of kind "timeout", and is
+ * sent again once, not three times (`connectionFailure`).
+ */
 function unreachable(error: unknown): AnthropicRequestError {
+  if (connectionFailure(error)?.kind === "timeout") return new AnthropicRequestError(`Claude took too long to answer${unreachableReason(error)}.`, 0, { kind: "timeout", cause: error });
   return new AnthropicRequestError(`Claude could not be reached${unreachableReason(error)}.`, 0, { cause: error });
 }
 

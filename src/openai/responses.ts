@@ -6,6 +6,7 @@ import type { ModelAdapter, ModelMessage, ModelReply, ModelRequest, ModelTextMes
 import { documentsOption, messageFiles } from "../native.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
+import { headerFailure } from "../token-failure.js";
 import type { DocumentsCapability, GenerateText, GenerateUsage, ToolFile } from "../types.js";
 import { failure, isRefusal, newCallId, OpenAiRequestError, silent, streamErrorStatus, streamFailure, textOf, tooSlow, unreachable } from "./adapter.js";
 
@@ -20,9 +21,13 @@ export type OpenAiResponsesOptions = {
   baseUrl?: string | undefined;
   /** The whole Responses URL, when it is not `baseUrl` + `/responses` (a gateway). Used as it is. */
   url?: string | undefined;
-  /** Sent as `Authorization: Bearer …`. A function is called for each request (an Entra ID token). */
+  /**
+   * Sent as `Authorization: Bearer …`. A function is called for each request (an Entra ID token).
+   * Since 0.99.13, one that throws on a connection that failed is called again with the request; one
+   * that throws otherwise ends it as an "auth" error.
+   */
   apiKey?: SecretSource | undefined;
-  /** More headers, merged last (Azure's `api-key`). A function is called for each request. */
+  /** More headers, merged last (Azure's `api-key`). A function is called for each request, as `apiKey`'s is. */
   headers?: HeaderSource | undefined;
   /**
    * More fields for the body of every chat request, spread last: `reasoning` ({ effort, summary }),
@@ -258,9 +263,18 @@ export function openAiResponses(options: OpenAiResponsesOptions): ModelAdapter {
   /** Whether chat requests ask for the encrypted content of reasoning: turned off once a server refuses it, unless the option was set. */
   let includeNow = options.encryptedReasoning !== false;
 
+  /**
+   * The headers of a request. A key or headers function that throws fails the request before
+   * anything is sent (since 0.99.13): a connection that failed on the way is sent again, anything
+   * else is an "auth" error (`headerFailure`).
+   */
   const headersNow = async (): Promise<Record<string, string>> => {
-    const key = await resolveSecret(options.apiKey);
-    return { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}), ...await resolveHeaderSource(options.headers) };
+    try {
+      const key = await resolveSecret(options.apiKey);
+      return { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}), ...await resolveHeaderSource(options.headers) };
+    } catch (error) {
+      throw headerFailure(error, OpenAiRequestError, "The model");
+    }
   };
 
   const built = new WeakMap<ModelToolRound, { number: number; items: Json[] }>();
@@ -307,8 +321,10 @@ export function openAiResponses(options: OpenAiResponsesOptions): ModelAdapter {
    */
   const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => OpenAiRequestError, headers?: Record<string, string>, bounded = false): Promise<Response> => {
     let response: Response;
+    // Outside the try: a key that could not be had is its own error, not a connection that failed.
+    const given = headers ?? await headersNow();
     try {
-      const sent = fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      const sent = fetchImpl(url, { method: "POST", headers: given, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
       response = await (bounded ? until(sent, signal) : sent);
     } catch (error) {
       if (stopped()) throw error;

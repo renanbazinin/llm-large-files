@@ -1,3 +1,4 @@
+import { connectionFailure } from "./connection-failure.js";
 import { DocumentStoreError, safeErrorMessage } from "./errors.js";
 import { until } from "./http.js";
 import { classifyModelError, errorKindOf, isModelStatus, modelErrorOf, type ModelErrorKind } from "./model.js";
@@ -153,45 +154,6 @@ function httpStatusOf(error: unknown): number | undefined {
   return undefined;
 }
 
-/**
- * The codes of a connection that failed, Node's and undici's, and their kind. An answer that did
- * not come in time is a timeout.
- */
-const CONNECTION_FAILURES: Record<string, ModelErrorKind> = {
-  ECONNREFUSED: "unreachable",
-  ECONNRESET: "unreachable",
-  ECONNABORTED: "unreachable",
-  ENOTFOUND: "unreachable",
-  EAI_AGAIN: "unreachable",
-  ETIMEDOUT: "unreachable",
-  EHOSTUNREACH: "unreachable",
-  ENETUNREACH: "unreachable",
-  ENETDOWN: "unreachable",
-  EPIPE: "unreachable",
-  UND_ERR_CONNECT_TIMEOUT: "unreachable",
-  UND_ERR_SOCKET: "unreachable",
-  UND_ERR_CLOSED: "unreachable",
-  UND_ERR_DESTROYED: "unreachable",
-  UND_ERR_HEADERS_TIMEOUT: "timeout",
-  UND_ERR_BODY_TIMEOUT: "timeout",
-};
-
-/**
- * The kind of a connection that failed, from the code of the error or of one that caused it (the
- * `fetch failed` of undici). An `AbortSignal.timeout` of the app's (a `TimeoutError`) is a timeout.
- * Undefined for any other error.
- */
-function connectionFailure(error: unknown): ModelErrorKind | undefined {
-  let at = error;
-  for (let depth = 0; depth < 4 && typeof at === "object" && at !== null; depth++) {
-    const { code, name, cause } = at as { code?: unknown; name?: unknown; cause?: unknown };
-    if (typeof code === "string" && Object.hasOwn(CONNECTION_FAILURES, code)) return CONNECTION_FAILURES[code];
-    if (name === "TimeoutError") return "timeout";
-    at = cause;
-  }
-  return undefined;
-}
-
 /** A reason a provider gives for a reply with no text that is a plain word ("SAFETY", "content_filter"). */
 const PLAIN_REASON = /^[A-Za-z_]{1,40}$/;
 
@@ -214,7 +176,7 @@ export function modelFailureReason(error: unknown): string {
       const code = (error as { code?: unknown } | null)?.code;
       kind = classifyModelError(status, error instanceof Error ? error.message : "", { code: typeof code === "string" ? code : undefined }).kind;
     }
-    if (!knownKind(kind)) kind = connectionFailure(error);
+    if (!knownKind(kind)) kind = connectionFailure(error)?.kind;
     if (!knownKind(kind)) return `The model request failed${status ? ` (HTTP ${status})` : ""}.`;
     // A reply that came with a status of success, and could not be read (a gateway's page).
     if (kind === "invalid" && status !== undefined && status >= 200 && status < 300) return `The model's reply could not be read (HTTP ${status}).`;
@@ -405,13 +367,15 @@ async function ask(
   const onUsage = handle && ((used: GenerateUsage) => {
     usage = addUsage(usage, used);
   });
+  // A 401 sent again with a new token is told as a retry of its own, with no wait (0.99.13).
+  const onRefresh = handle && ((refused: unknown) => handle.retry({ error: refused, attempt: 1, delayMs: 0, reason: "auth_refresh" }));
   let text: string;
   try {
     text = await withRetry(() => {
       truncated = false;
       // Nothing is sent once the read was stopped: the signal may abort while a part's lines are read.
       signal?.throwIfAborted();
-      return until(generate({ ...request, ...(signal ? { signal } : {}), onTruncated: () => { truncated = true; }, ...(onUsage ? { onUsage } : {}) }), signal);
+      return until(generate({ ...request, ...(signal ? { signal } : {}), onTruncated: () => { truncated = true; }, ...(onUsage ? { onUsage } : {}), ...(onRefresh ? { onRefresh } : {}) }), signal);
     }, { retry, signal, unknownErrors: "once", ...(handle ? { onRetry: (notice) => handle.retry(notice) } : {}) });
   } catch (error) {
     handle?.end({ outcome: "error", ...(usage ? { usage } : {}), error });
