@@ -1,3 +1,4 @@
+import { DocumentTextError } from "./errors.js";
 import { scanSource, type DocumentSource } from "./search.js";
 import { composed, foldCase, sliceWhole } from "./text.js";
 
@@ -252,6 +253,16 @@ function letterNumber(name: string): number | undefined {
 }
 
 /**
+ * What events, steps and SSE say of a column error, whose message for the model lists the table's
+ * column names (`DocumentTextError`): a count, and neither the names nor the name the model gave.
+ * `which`, when given, says why no one column was found ("the name given names 2"). New in 0.99.13.
+ */
+function noSuchColumn(columns: number, which?: string): string {
+  const count = `${columns.toLocaleString("en-US")} ${columns === 1 ? "column" : "columns"}`;
+  return which ? `No such column: ${which} of the ${count} of this table.` : `No such column in this table, which has ${count}.`;
+}
+
+/**
  * Finds a column by its header name (ignoring case and spaces), the lower name of a joined header
  * when only one column has it, its letter ("C"), or its number ("3"). A letter or a number names a
  * column only when no column has that name. Until 0.10.0 a letter named a column only in a sheet
@@ -272,7 +283,7 @@ function columnOf(header: string[], given: string): ColumnRef {
     const lower = header.flatMap((column, at) => (valueKey(column.split(" / ").at(-1) ?? "") === wanted ? [at] : []));
     if (lower.length === 1) index = lower[0]!;
     else if (lower.length > 1) {
-      throw new Error(`${JSON.stringify(sliceWhole(name, 80))} names ${lower.length} columns of this table: ${lower.map((at) => JSON.stringify(header[at])).join(", ")}. Name one of them in full.`);
+      throw new DocumentTextError(`${JSON.stringify(sliceWhole(name, 80))} names ${lower.length} columns of this table: ${lower.map((at) => JSON.stringify(header[at])).join(", ")}. Name one of them in full.`, noSuchColumn(header.length, `the name given names ${lower.length}`));
     }
   }
   let byLetter = false;
@@ -286,7 +297,7 @@ function columnOf(header: string[], given: string): ColumnRef {
   if (index === -1 && /^\d+$/.test(name) && Number(name) >= 1 && Number(name) <= header.length) index = Number(name) - 1;
   if (index === -1) {
     const listed = header.slice(0, 40).map((column) => JSON.stringify(column)).join(", ");
-    throw new Error(`No column ${JSON.stringify(sliceWhole(name, 80))} in this table. Its columns are: ${listed}${header.length > 40 ? ", …" : ""}.`);
+    throw new DocumentTextError(`No column ${JSON.stringify(sliceWhole(name, 80))} in this table. Its columns are: ${listed}${header.length > 40 ? ", …" : ""}.`, noSuchColumn(header.length));
   }
   return { index, name: header[index]!, ...(datePart ? { datePart } : {}), ...(byLetter ? { byLetter } : {}) };
 }
@@ -435,7 +446,7 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
       const named = columnsNamedBy(columns, resolved, resolved.column);
       if (named.length > 1) {
         const names = named.slice(0, 10).map((at) => JSON.stringify(columns[at])).join(", ");
-        throw new Error(`${JSON.stringify(sliceWhole(value.trim(), 80))} names ${named.length} columns of this table: ${names}${named.length > 10 ? ", …" : ""}. Name one of them in full, to compare ${JSON.stringify(resolved.column.name)} with it in each row.`);
+        throw new DocumentTextError(`${JSON.stringify(sliceWhole(value.trim(), 80))} names ${named.length} columns of this table: ${names}${named.length > 10 ? ", …" : ""}. Name one of them in full, to compare ${JSON.stringify(resolved.column.name)} with it in each row.`, noSuchColumn(columns.length, `the value of a filter names ${named.length}`));
       }
       if (named.length === 1) resolved.against = { index: named[0]!, name: columns[named[0]!]! };
       return resolved;

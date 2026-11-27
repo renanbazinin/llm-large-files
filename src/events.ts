@@ -161,7 +161,9 @@ export type NoticeDisplay = "activity" | "step" | "none";
  * `toolTurns`, which hold the text of the documents the tools returned, and with its plan naming
  * the documents only (`DocumentRef`). With
  * `AskOptions.eventResults: true` they are there too. The result `askWithFiles` returns (and
- * `askStream`'s `result`, and `partialResultOf`) always has them: keep them from there.
+ * `askStream`'s `result`, and `partialResultOf`) always has them: keep them from there. It has
+ * `modelText` (since 0.99.13), which `sseMessageOf` never sends to a browser. A key put on a result
+ * that `AskResult` does not declare is left out (since 0.99.13).
  */
 export type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
   toolTurns?: ToolTurn[];
@@ -298,6 +300,11 @@ export type AskEvent =
       /**
        * When the result the model was sent is an error (outcomes "error", "refused", "not_run"):
        * its message. For a call ended because its turn failed: why, as in `EventError.message`.
+       * Since 0.99.13 an error that quotes the document is told in the library's words, here and in
+       * `step`, while the model gets it whole (in `result` with `eventResults`): `aggregate_table`'s
+       * column errors, which list the table's columns, say "No such column" with a count, and
+       * `read_document`'s past the end of a workbook, which names its sheets, says only "start_line N
+       * is past the end of the file, which has M lines."
        */
       error?: string;
       /** The result itself. Only with `AskOptions.eventResults: true`: it holds document text. */

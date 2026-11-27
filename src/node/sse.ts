@@ -1,4 +1,5 @@
 import type { ServerResponse } from "node:http";
+import { SSE_PARTIAL_KEYS, SSE_RESULT_KEYS, sseResultOf } from "../event-visibility.js";
 import type { AskEvent } from "../events.js";
 
 /** One Server-Sent Events message: its `event:` name, its `data:` (sent as JSON), and its `id:`. */
@@ -67,7 +68,10 @@ const oneLine = (value: string | number) => String(value).replace(/[\r\n]+/g, " 
  * is. `missing`, the documents a question answered without, is new in 0.9.0; `finish` and
  * `citations`, how the answer ended and what its citations came to, in 0.10.0. `questionId`
  * (`AskOptions.questionId`) is kept in `run.finish` and `run.error`, and in the result of
- * `run.finish`, since 0.99.9.
+ * `run.finish`, since 0.99.9. Since 0.99.13 the keys of both results come from the library's table
+ * of where each key of `AskResult` goes (the same keys as before), so a key with no place in it is
+ * never sent; `modelText`, which holds the citations that `showCitations: false` hides, is not sent
+ * either.
  */
 export function sseMessageOf<E extends { type: string; seq: number }>(event: E): SseMessage {
   const ask = event as unknown as AskEvent;
@@ -75,12 +79,11 @@ export function sseMessageOf<E extends { type: string; seq: number }>(event: E):
   const question = ask.questionId !== undefined ? { questionId: ask.questionId } : {};
   if (ask.type === "run.finish") {
     const { type, seq, runId, time } = ask;
-    const { answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId } = ask.result;
-    return { event: type, id: seq, data: { type, seq, runId, ...question, time, result: { answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId } } };
+    return { event: type, id: seq, data: { type, seq, runId, ...question, time, result: sseResultOf(ask.result, SSE_RESULT_KEYS) } };
   }
   if (ask.type === "run.error") {
     const { type, seq, runId, time, error } = ask;
-    const partial = ask.partial && { steps: ask.partial.steps, evidence: ask.partial.evidence, usage: ask.partial.usage, missing: ask.partial.missing };
+    const partial = ask.partial && sseResultOf(ask.partial, SSE_PARTIAL_KEYS);
     return { event: type, id: seq, data: { type, seq, runId, ...question, time, error, partial } };
   }
   return { event: event.type, id: event.seq, data: event };

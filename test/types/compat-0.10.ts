@@ -129,9 +129,25 @@ export async function askedWithOwn(): Promise<AskResult> {
   return askWithFiles({ files: new FilesOf09(), model: adapterOf09, documentIds: [], messages: [turn, round, { role: "assistant", text: "3." }, turn] });
 }
 
-/** A result built by hand, as a test of 0.9 wrote it: `finish` and `citations` are optional. */
+/**
+ * A result built by hand, as a test of 0.9 wrote it: `finish` and `citations` are optional. Since
+ * 0.99.13 it needs `modelText`, which is required (decision D5): without it, it does not compile.
+ */
+// @ts-expect-error -- Property 'modelText' is missing (TS2741), since 0.99.13.
+export const resultOf09WithoutModelText: AskResult = {
+  text: "3.",
+  answered: true,
+  steps: [],
+  evidence: [],
+  toolTurns: [],
+  plan: { inline: [], searchable: [], inlineTokens: 0, inlineBytes: 0 },
+  budget: resolveBudget(),
+  turns: 1,
+  usage: { requests: 1, inputTokens: 10, cachedInputTokens: 0, outputTokens: 2, thoughtTokens: 0, byModel: {} },
+};
 export const resultOf09: AskResult = {
   text: "3.",
+  modelText: "3.",
   answered: true,
   steps: [],
   evidence: [],

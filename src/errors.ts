@@ -165,6 +165,25 @@ export class QuestionConflictError extends Error {
 brand(QuestionConflictError, QUESTION_CONFLICT_ERROR);
 
 /**
+ * An error of a tool whose message quotes the document: the column names of a table
+ * (`aggregate_table`), the sheet names of a workbook (`read_document` past the end). The model gets
+ * `message`, as the tool's error. Events, steps and SSE get `eventMessage`, the library's own words
+ * with a count and no text of the document, nor the name the model gave (principle 9: document text
+ * reaches events only with `eventResults: true`). Never leaves the tool set: the tool's result is
+ * `{ error: message }`, and `eventErrorTextOf` gives `eventMessage` for it. New in 0.99.13.
+ */
+export class DocumentTextError extends Error {
+  /** What events, steps and SSE say of the error, in place of `message`. */
+  readonly eventMessage: string;
+
+  constructor(message: string, eventMessage: string) {
+    super(message);
+    this.name = "DocumentTextError";
+    this.eventMessage = eventMessage;
+  }
+}
+
+/**
  * The errors a store threw while `ingest` wrote a document. `ingest` passes them on as they are,
  * and the upload handler tells them apart from a file that could not be read: their message is
  * the store's own (a database driver's names its host), not words for a user.
