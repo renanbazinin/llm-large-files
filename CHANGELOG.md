@@ -43,8 +43,9 @@ Quick fixes. A chat that hides citations can send the model's own words back as 
 events and error bodies say less of what they should not and more of what a page needs. Two
 opt-ins for a chatbot: files kept while a chat still uses them (`touchOnUse`), and uploads from
 another site's page refused (`refuseCrossSite`). What the library sends a model does not change,
-except when a whole-file read loses parts, when a token function fails during one, and for a
-`read_document` call that starts past the end of a file (no recorded read does: 0 of 20). The eval
+except when a whole-file read loses parts, when a token function fails during one, in the
+stand-in of a whole-file read that was incomplete, and for a `read_document` call that starts past
+the end of a file (no recorded read does: 0 of 20). The eval
 replay passes 96 of 96, byte for byte for Gemini.
 
 ### Upgrading: what you need to change
@@ -82,7 +83,7 @@ These changes in behavior may need a line in an application:
   `tool.end.error` and in the step (`onStep`, `result.steps`, the steps of `run.finish` and
   `run.error`, SSE):
   - a column error of `aggregate_table` now says "No such column in this table, which has 6
-    columns." or "No such column: the name given names 3 of the 6 columns of this table.";
+    columns." or "Ambiguous column: the name given matches 3 of the 6 columns of this table." (for a filter's value: "the value of a filter matches 2 of the 6 columns");
   - a `read_document` call past the end of a workbook says only "start_line 400 is past the end
     of the file, which has 13 lines.".
 
@@ -145,16 +146,20 @@ These changes in behavior may need a line in an application:
     misses what they hold. Tell the user it is incomplete.";
   - the step ends ", incomplete", and a `read_incomplete` notice (display `"none"`) carries
     `counts: { failed, parts }`;
-  - the read's stand-in (when room is made, or with `storeRounds: "compact"`) keeps
-    `parts_that_failed` and the other fields that say a read is incomplete.
+  - the stand-in of any incomplete whole-file read (when room is made, through
+    `compactToolTurns`, or with `storeRounds: "compact"`) keeps `parts_that_failed` and every
+    other field that says a read is incomplete (`notes_cut_short`, `notes_left_out`,
+    `notes_only`, `answer_cut_short`; `parts_failed`, `more_items` and `parts_cut_short` of an
+    items read), with the read's note. This also holds for a read cut short with no part failed,
+    so stored rounds of such a read are sent with these fields from 0.99.13 on.
 
-  When every part is read, nothing changes: 0 of 32 request bodies differ from 0.99.12's, and
-  exactly 2 of 38 differ when 2 of 29 parts fail. **What to do:** nothing; show the notice if you
+  When every part is read and the read is complete, nothing changes: 0 of 32 request bodies
+  differ from 0.99.12's, and exactly 2 of 38 differ when 2 of 29 parts fail. **What to do:** nothing; show the notice if you
   like ([A read that lost parts](docs/reference/tools.md#a-read-that-lost-parts)).
 - **With `showCitations: false`, an answer made only of citations is shown in words.** If nothing
   but citations is left in what a request shows (the model answered "(contract.txt L8)"), the
   cited lines are shown in words instead: "line 8", "lines 2 and 3", "שורה 8", in the chat's
-  language. They go to `onText`, the `text` events and `result.text`, and the question gets one
+  language (a workbook's line in Hebrew is "שורה 7 בטקסט", so it is not read as Row 7). They go to `onText`, the `text` events and `result.text`, and the question gets one
   `citations_only` notice. `modelText`, `citations` and `answered` do not change. This is checked
   per request, so the words can also come in the middle of an answer, after a request that called
   tools. 0.99.12 showed such an answer empty and reported it answered (4 of 4 in the test, 0 now).
@@ -173,8 +178,9 @@ These changes in behavior may need a line in an application:
   documents that have less than half of their time to live left, so a chat that still uses its
   files keeps them. With the default 72 hours, a file used at 47 hours is still there at 73
   hours, and one used at 10 hours is not touched, with no store call. Each touch costs 2 store
-  calls before the first request. A store that fails the touch fails the question. A store
-  without `patchMeta` is a `TypeError` on every question. A library you did not make with
+  calls before the first request, and is best effort: a touch the store fails leaves that
+  file's expiry as it was, and the question goes on. A store without `patchMeta` is a
+  `TypeError` on every question. A library you did not make with
   `createLargeFiles` is taken to have 72 hours, by `Date.now()`. Off by default
   ([Missing documents](docs/reference/ask.md#missing-documents)):
 

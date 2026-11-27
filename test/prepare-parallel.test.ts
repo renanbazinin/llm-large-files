@@ -112,4 +112,34 @@ describe("the documents of a question, read before its first request", { timeout
     expect(result.missing).toEqual(["gone-3", "gone-1", "gone-2"]);
     expect(result.plan.inline.map((meta) => meta.id)).toEqual(setup.ids.slice(0, 10));
   });
+
+  it("throw the error of the first document that fails, as reading them one after another did, when a later one fails first", async () => {
+    const inner = new MemoryDocumentStore({ now: CLOCK });
+    let failing = false;
+    const store = new Proxy(inner, {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key);
+        if (typeof value !== "function") return value;
+        return async (...args: unknown[]) => {
+          if (failing && key === "getMeta" && args[0] === "f2") {
+            await new Promise((resolve) => setTimeout(resolve, 40));
+            throw Object.assign(new Error("store failed on f2"), { code: "ECONNRESET" });
+          }
+          if (failing && key === "getMeta" && args[0] === "f5") throw Object.assign(new Error("store failed on f5"), { code: "ECONNRESET" });
+          return (value as (...given: unknown[]) => unknown).apply(target, args);
+        };
+      },
+    }) as DocumentStore;
+    const files = createLargeFiles({ requireOwner: false, store, now: CLOCK });
+    const ids: string[] = [];
+    for (let i = 0; i < 8; i++) ids.push((await files.ingest({ id: `f${i}`, name: `f${i}.log`, bytes: utf8(serviceLog(20)) })).id);
+    failing = true;
+    const model = fakeModel([says("ok")]);
+    const error = await askWithFiles({ files, model, documentIds: ids, messages: [{ role: "user", text: "hi" }] }).then(() => undefined, (thrown: unknown) => thrown);
+    const chain: string[] = [];
+    for (let at: unknown = error; at instanceof Error; at = at.cause) chain.push(at.message);
+    expect(chain.join(" | ")).toContain("f2");
+    expect(chain.join(" | ")).not.toContain("f5");
+    expect(model.requests).toHaveLength(0);
+  });
 });

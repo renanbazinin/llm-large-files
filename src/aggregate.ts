@@ -255,11 +255,12 @@ function letterNumber(name: string): number | undefined {
 /**
  * What events, steps and SSE say of a column error, whose message for the model lists the table's
  * column names (`DocumentTextError`): a count, and neither the names nor the name the model gave.
- * `which`, when given, says why no one column was found ("the name given names 2"). New in 0.99.13.
+ * `which`, when given, says that a name matches several columns ("the name given matches 2"), and
+ * the error is then an ambiguous column, not a missing one. New in 0.99.13.
  */
 function noSuchColumn(columns: number, which?: string): string {
   const count = `${columns.toLocaleString("en-US")} ${columns === 1 ? "column" : "columns"}`;
-  return which ? `No such column: ${which} of the ${count} of this table.` : `No such column in this table, which has ${count}.`;
+  return which ? `Ambiguous column: ${which} of the ${count} of this table.` : `No such column in this table, which has ${count}.`;
 }
 
 /**
@@ -283,7 +284,7 @@ function columnOf(header: string[], given: string): ColumnRef {
     const lower = header.flatMap((column, at) => (valueKey(column.split(" / ").at(-1) ?? "") === wanted ? [at] : []));
     if (lower.length === 1) index = lower[0]!;
     else if (lower.length > 1) {
-      throw new DocumentTextError(`${JSON.stringify(sliceWhole(name, 80))} names ${lower.length} columns of this table: ${lower.map((at) => JSON.stringify(header[at])).join(", ")}. Name one of them in full.`, noSuchColumn(header.length, `the name given names ${lower.length}`));
+      throw new DocumentTextError(`${JSON.stringify(sliceWhole(name, 80))} names ${lower.length} columns of this table: ${lower.map((at) => JSON.stringify(header[at])).join(", ")}. Name one of them in full.`, noSuchColumn(header.length, `the name given matches ${lower.length}`));
     }
   }
   let byLetter = false;
@@ -446,7 +447,7 @@ export async function aggregateTable(source: DocumentSource, request: AggregateR
       const named = columnsNamedBy(columns, resolved, resolved.column);
       if (named.length > 1) {
         const names = named.slice(0, 10).map((at) => JSON.stringify(columns[at])).join(", ");
-        throw new DocumentTextError(`${JSON.stringify(sliceWhole(value.trim(), 80))} names ${named.length} columns of this table: ${names}${named.length > 10 ? ", …" : ""}. Name one of them in full, to compare ${JSON.stringify(resolved.column.name)} with it in each row.`, noSuchColumn(columns.length, `the value of a filter names ${named.length}`));
+        throw new DocumentTextError(`${JSON.stringify(sliceWhole(value.trim(), 80))} names ${named.length} columns of this table: ${names}${named.length > 10 ? ", …" : ""}. Name one of them in full, to compare ${JSON.stringify(resolved.column.name)} with it in each row.`, noSuchColumn(columns.length, `the value of a filter matches ${named.length}`));
       }
       if (named.length === 1) resolved.against = { index: named[0]!, name: columns[named[0]!]! };
       return resolved;

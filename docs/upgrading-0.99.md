@@ -440,7 +440,7 @@ Everything else in the types is new and optional (below).
   const shown = body.code === "legacy_office" ? "קובץ Word ישן: שמרו אותו כ-docx ונסו שוב." : body.error;
   ```
 
-- **Tool errors in events.** `tool.end.error` and the steps say "No such column …" with a count
+- **Tool errors in events.** `tool.end.error` and the steps say "No such column …" or "Ambiguous column …" with a count
   for a column error of `aggregate_table`, and "start_line N is past the end of the file, which
   has M lines." for a read past the end of a workbook. The model still gets the whole message.
   **Who:** apps or tests that show or pin these texts
@@ -469,8 +469,10 @@ Everything else in the types is new and optional (below).
   **Who:** pages or metrics that count `retry` events as failures. **What to do:** skip those with
   a `reason`.
 - **Whole-file reads that lose parts** say so: in the read's last request, in a note of the tool
-  result, in a step that ends ", incomplete", and in a `read_incomplete` notice. When every part is
-  read, what is sent is byte for byte as before
+  result, in a step that ends ", incomplete", and in a `read_incomplete` notice. The stand-in of
+  any incomplete read (cut short, notes left out, notes only, or parts failed), sent when room is
+  made or through `compactToolTurns`, keeps the fields and the note that say so. When every part is
+  read and the read is complete, what is sent is byte for byte as before
   ([A read that lost parts](./reference/tools.md#a-read-that-lost-parts)).
 - **Answers made only of citations**, under `showCitations: false`, are shown with the cited lines
   in words ("line 8", "שורה 8"), with a `citations_only` notice. They were shown empty. **Who:**
@@ -486,7 +488,8 @@ Everything else in the types is new and optional (below).
   built with it, against 7 of 16 with `text`
   ([Conversations](./guides/conversations.md#storing-a-conversation-and-asking-the-next-question)).
 - **`touchOnUse: true`** keeps a chat's files while the chat still uses them: with the default 72
-  hours, a file used at 47 hours is still there at 73. A touch that fails fails the question
+  hours, a file used at 47 hours is still there at 73. A touch that fails is let go: the question
+  goes on, and that file keeps the expiry it had
   ([Missing documents](./reference/ask.md#missing-documents)).
 - **`refuseCrossSite: true`** on `createDocumentHandlers` refuses uploads and deletes that another
   site's page made a browser send. It becomes the default in 1.0

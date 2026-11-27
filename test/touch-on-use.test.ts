@@ -142,4 +142,71 @@ describe("touchOnUse", () => {
     await expect(askWithFiles({ files: without, model, owner, scope, documentIds: [used.id], messages: [{ role: "user", text: "q" }], touchOnUse: true })).rejects.toThrow(new TypeError("touchOnUse needs a library with touch(): createLargeFiles gives one."));
     expect(model.requests).toHaveLength(0);
   });
+
+  it("is best effort: a touch the store fails leaves the expiry as it was, and the question is answered", async () => {
+    let clock = Date.parse("2026-11-10T08:00:00Z");
+    const now = () => new Date(clock);
+    const inner = new MemoryDocumentStore({ now });
+    let tries = 0;
+    const store = new Proxy(inner, {
+      get(target, key) {
+        const value: unknown = Reflect.get(target, key);
+        if (typeof value !== "function") return value;
+        if (key === "patchMeta") return async () => { tries += 1; throw Object.assign(new Error("write failed"), { code: "ECONNRESET" }); };
+        return (value as (...given: unknown[]) => unknown).bind(target);
+      },
+    }) as DocumentStore;
+    const files = createLargeFiles({ store, now });
+    const used = await files.ingest({ id: "used-1", name: "used.txt", bytes: utf8("Used on day 2.\n"), owner, scope });
+    const before = (await files.getMeta(used.id, { owner, scope }))?.expiresAt;
+    clock += 47 * HOUR;
+    const model = fakeModel([says("ok")]);
+    const result = await askWithFiles({ files, model, owner, scope, documentIds: [used.id], messages: [{ role: "user", text: "q" }], touchOnUse: true });
+    expect(result.answered).toBe(true);
+    expect(tries).toBeGreaterThan(0);
+    expect(model.requests).toHaveLength(1);
+    expect((await files.getMeta(used.id, { owner, scope }))?.expiresAt).toBe(before);
+  });
+
+  it("is best effort for a library of your own too: a touch that rejects fails nothing", async () => {
+    const { files, used, later, now } = await library();
+    const own: LargeFiles = { ...files, touch: async () => { throw new Error("store down"); } };
+    delete (own as unknown as Record<symbol, unknown>)[Symbol.for("llm-large-files.touchOnUse")];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      later(47);
+      vi.setSystemTime(now());
+      expect((await ask(own, [used.id], { touchOnUse: true })).answered).toBe(true);
+      // A touch that throws at once, rather than rejecting, is let go too.
+      const sync: LargeFiles = { ...own, touch: () => { throw new Error("tenant check"); } };
+      expect((await ask(sync, [used.id], { touchOnUse: true })).answered).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still fails a library of your own whose store cannot touch at all (no patchMeta)", async () => {
+    let clock = Date.parse("2026-11-10T08:00:00Z");
+    const now = () => new Date(clock);
+    const inner = new MemoryDocumentStore({ now });
+    const store = new Proxy(inner, {
+      get(target, key) {
+        if (key === "patchMeta") return undefined;
+        const value: unknown = Reflect.get(target, key);
+        return typeof value === "function" ? (value as (...given: unknown[]) => unknown).bind(target) : value;
+      },
+    }) as DocumentStore;
+    const files = createLargeFiles({ store, now });
+    const used = await files.ingest({ id: "used-1", name: "used.txt", bytes: utf8("Used on day 2.\n"), owner, scope });
+    const own: LargeFiles = { ...files, touch: (id, access) => files.touch(id, access) };
+    delete (own as unknown as Record<symbol, unknown>)[Symbol.for("llm-large-files.touchOnUse")];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      clock += 37 * HOUR;
+      vi.setSystemTime(now());
+      await expect(ask(own, [used.id], { touchOnUse: true })).rejects.toThrow(TypeError);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

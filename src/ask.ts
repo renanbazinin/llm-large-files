@@ -1,7 +1,7 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
 import { eventErrorOf, EventEmitter, eventStream, newRunId, noteModelFailure, type AskEvent, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
-import { CitationHider, checkCitations, type CitationCheck } from "./citations.js";
+import { CitationHider, checkCitations, type CitationCheck, type LineCitation } from "./citations.js";
 import { hebrewWords, linesInWords, showsNothing } from "./citations-only.js";
 import { documentRef, eventResultOf } from "./event-visibility.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
@@ -305,8 +305,9 @@ export type AskOptions = {
    * request and changes nothing that is sent. Off by default: how long files are kept is the
    * application's to say. A library of your own that is not one `createLargeFiles` made has its
    * `touch` called by the 72 hours of the default; one without `touch` is a `TypeError`, and so is a
-   * store without `patchMeta`, as for `files.touch`. A value that is not true or false is a
-   * `TypeError` before any request. New in 0.99.13.
+   * store without `patchMeta`, as for `files.touch`. The touches are best effort: one that fails (a
+   * store write error) leaves that document's expiry as it was, and the question goes on. A value
+   * that is not true or false is a `TypeError` before any request. New in 0.99.13.
    */
   touchOnUse?: boolean;
   signal?: AbortSignal;
@@ -316,12 +317,15 @@ export type AskResult = {
   /**
    * Everything the model wrote, including any remark it made before calling a tool. With an
    * explorer model, only what the answering model wrote: the explorer's words are not shown. With
-   * `showCitations: false`, without its citations in parentheses, as it was shown (since 0.99.12).
+   * `showCitations: false`, without its citations in parentheses, as it was shown (since 0.99.12);
+   * a request that showed nothing but citations shows the lines they cite in words instead ("line
+   * 8", since 0.99.13).
    */
   text: string;
   /**
    * What the model wrote, as it wrote it: `text` with its citations, whatever `showCitations` says.
-   * Equal to `text` when nothing was hidden, and empty when `text` is (a filtered answer dropped).
+   * Equal to `text` when nothing was hidden or put in words; empty, as `text` is, for a filtered
+   * answer that was dropped.
    * Send it back as the assistant turn of a later question, and show `text`: the requests of that
    * question are then those it would have with citations shown. Also in the result of `run.finish`
    * and the partial result of `run.error`, and in what `partialResultOf` gives; never in what
@@ -483,13 +487,24 @@ const DEFAULT_TTL_MS = 72 * 60 * 60 * 1000;
  * `touchOnUse`: the documents planned that have less than half of their time to live left are
  * touched. A library made by `createLargeFiles` says which by its own `ttlMs` and clock
  * (`TOUCH_ON_USE`); one of your own is taken to have the default `ttlMs`, by the clock of this process.
+ * Best effort: a touch that fails leaves that document's expiry as it was, and the question goes on.
+ * A library or store that cannot touch at all (no `touch`, no `patchMeta`) is a TypeError.
  */
 async function touchPlanned(files: LargeFiles, documents: readonly DocumentMeta[], access: AccessOptions): Promise<void> {
   const own = (files as { [TOUCH_ON_USE]?: TouchOnUse })[TOUCH_ON_USE];
   if (typeof own === "function") return own.call(files, documents, access);
   if (typeof files.touch !== "function") throw new TypeError("touchOnUse needs a library with touch(): createLargeFiles gives one.");
   const at = Date.now();
-  for (const meta of documents) if (Date.parse(meta.expiresAt) - at < DEFAULT_TTL_MS / 2) await files.touch(meta.id, access);
+  const touch = files.touch.bind(files);
+  for (const meta of documents) {
+    if (Date.parse(meta.expiresAt) - at >= DEFAULT_TTL_MS / 2) continue;
+    // Best effort, whether `touch` throws or rejects; but a store that cannot touch at all says so.
+    await Promise.resolve()
+      .then(() => touch(meta.id, access))
+      .catch((error: unknown) => {
+        if (error instanceof TypeError && /needs a store with patchMeta/.test(error.message)) throw error;
+      });
+  }
 }
 
 /** `nativeDocuments` checked: true, false or nothing (0.99.9). */
@@ -1380,7 +1395,10 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const before = shownText.slice(shownFrom);
     if (!hider || signal?.aborted || !showsNothing(before)) return;
     const names = Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name]));
-    const words = linesInWords(checkCitations(written, [], names).cited ?? [], hebrewWords(written, question, citedFiles.map((meta) => meta.name)));
+    // A citation with no file found names a workbook when every file of the question is one.
+    const workbooks = new Set(citedFiles.filter((meta) => meta.format === "xlsx").map((meta) => meta.id));
+    const inWorkbook = ({ documentId }: LineCitation) => (documentId !== undefined ? workbooks.has(documentId) : citedFiles.length > 0 && workbooks.size === citedFiles.length);
+    const words = linesInWords(checkCitations(written, [], names).cited ?? [], hebrewWords(written, question, citedFiles.map((meta) => meta.name)), inWorkbook);
     if (!words) return;
     // Not glued to what the hider left of the request ("." of "(contract.txt L2)."): a space between.
     show(before && !/\s$/u.test(before) ? ` ${words}` : words, requestId);

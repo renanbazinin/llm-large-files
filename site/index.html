@@ -773,6 +773,7 @@ const app = express();
 // auth middleware): each upload is then theirs alone.
 const documents = createDocumentHandlers(files, {
   getOwner: (req) =&gt; (req as typeof req &amp; { user?: { id: string } }).user?.id,
+  refuseCrossSite: true, // another site's page cannot upload or delete in the user's name (new in 0.99.13)
 });
 app.post("/api/documents", documents.upload); // mount before express.json(): the body is the raw file
 app.get("/api/documents", documents.list); // the user's documents, the oldest first (new in 0.99.9)
@@ -787,7 +788,9 @@ app.delete("/api/documents/:id", (req, res) =&gt; documents.remove(req, res, req
   headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(file.name) },
   body: file,
 });
-const summary = await response.json(); // 201: { id, name, format, lines, estimatedTokens, expiresAt, … }; otherwise { error }</code></pre>
+const summary = await response.json(); // 201: { id, name, format, lines, estimatedTokens, expiresAt, … }
+// Otherwise { error, code?, category, retryAfterMs? } (code and category since 0.99.13): error is in English,
+// and code ("legacy_office", "empty", "too_large"…) lets the page answer in the user's language.</code></pre>
 </div>
 <div class="tab-panel">
 <h3 class="tab-title">Chat route</h3>
@@ -1965,7 +1968,7 @@ Figure 3: sales by region.</pre>
 <ul class="plain">
 <li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/getting-started.md">Getting started</a><span>Install, a quickstart that runs, the integration in short steps</span></li>
 <li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/how-it-works.md">How it works</a><span>The internals end to end, from ingest to the loop</span></li>
-<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/chatbot.md">A chatbot in one page</a><span>The whole integration in about 120 lines</span></li>
+<li><a href="https://github.com/renanbazinin/llm-large-files/blob/main/docs/guides/chatbot.md">A chatbot in one page</a><span>The whole integration in about 190 lines</span></li>
 </ul>
 <h3>Also</h3>
 <ul class="plain">

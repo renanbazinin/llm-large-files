@@ -22,8 +22,8 @@ async function table() {
 /** The three column errors, by the arguments that make them. */
 const CASES = [
   { what: "a column the table does not have", args: { metrics: ["sum:nothing-like-it"] }, told: "No such column in this table, which has 4 columns." },
-  { what: "a lower name of several joined headers", args: { metrics: ["sum:QZLOW"] }, told: "No such column: the name given names 2 of the 4 columns of this table." },
-  { what: "a filter's value that names several columns", args: { metrics: ["count"], filters: [{ column: "D", op: ">", value: "QZLOW" }] }, told: "No such column: the value of a filter names 2 of the 4 columns of this table." },
+  { what: "a lower name of several joined headers", args: { metrics: ["sum:QZLOW"] }, told: "Ambiguous column: the name given matches 2 of the 4 columns of this table." },
+  { what: "a filter's value that names several columns", args: { metrics: ["count"], filters: [{ column: "D", op: ">", value: "QZLOW" }] }, told: "Ambiguous column: the value of a filter matches 2 of the 4 columns of this table." },
 ];
 
 type Run = { events: AskEvent[]; sse: string; requests: ModelRequest[]; steps: string[]; toolTurns: string };

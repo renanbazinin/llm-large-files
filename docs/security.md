@@ -1399,7 +1399,7 @@ What you log is your choice, and some of what the library hands you holds user d
   error's `cause`. In 0.99.12, of 54 streamed failure cases, 36 carried the token client's words
   and 9 that address; now 0 and 0. With `eventResults` off, the error of a tool call that quotes
   the document is told without it in `tool.end`, the steps and SSE: `aggregate_table`'s column
-  errors, which list a table's headers, say "No such column" with a count (33 of 42 synthetic
+  errors, which list a table's headers, say "No such column" or "Ambiguous column" with a count (33 of 42 synthetic
   runs carried planted column names in 0.99.12, 0 now), and a `read_document` past the end of a
   workbook names no sheet. The model, and `tool.end.result` with `eventResults: true`, get the
   full message. A `LargeFiles` of your own whose tool set rebuilds its results loses this, and

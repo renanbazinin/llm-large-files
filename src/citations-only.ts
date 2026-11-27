@@ -40,8 +40,13 @@ export function hebrewWords(answer: string, question: string | undefined, names:
  * The lines of `cited`, in words, each once and in the order of the answer: "line 8", "lines 2 and
  * 3", "lines 4–6", "row 12" for rows; "שורה 8", "שורות 3 ו-8" in Hebrew. The file names are left
  * out, as the citations hid them. Empty for no citation.
+ *
+ * In Hebrew "שורה" is both a line and a row, and a workbook's line 7 may be its Row 400: when a
+ * line citation names a workbook (`inWorkbook`) and none of them is a row, the Hebrew words end with "בטקסט"
+ * ("שורה 7 בטקסט", line 7 of the text), which no one reads as a row of the sheet. English says
+ * "line", which is not a row.
  */
-export function linesInWords(cited: readonly LineCitation[], hebrew: boolean): string {
+export function linesInWords(cited: readonly LineCitation[], hebrew: boolean, inWorkbook: (citation: LineCitation) => boolean = () => false): string {
   const seen = new Set<string>();
   const ranges: Array<{ from: number; to: number; form: "line" | "row" }> = [];
   for (const { from, to, form } of cited) {
@@ -54,7 +59,9 @@ export function linesInWords(cited: readonly LineCitation[], hebrew: boolean): s
   const numbers = ranges.map(({ from, to }) => (from === to ? String(from) : `${from}–${to}`));
   const many = ranges.length > 1 || ranges[0]!.from !== ranges[0]!.to;
   const list = (and: string) => (numbers.length === 1 ? numbers[0]! : `${numbers.slice(0, -1).join(", ")}${and}${numbers.at(-1)!}`);
-  if (hebrew) return `${many ? "שורות" : "שורה"} ${list(" ו-")}`;
+  // "בטקסט" only when every one is a line: a row cited with them is a row of the sheet, not of the text.
+  const ofText = ranges.every((range) => range.form === "line") && cited.some((citation) => citation.form === "line" && inWorkbook(citation));
+  if (hebrew) return `${many ? "שורות" : "שורה"} ${list(" ו-")}${ofText ? " בטקסט" : ""}`;
   const word = ranges.every((range) => range.form === "row") ? "row" : "line";
   return `${word}${many ? "s" : ""} ${list(" and ")}`;
 }

@@ -1120,6 +1120,8 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
    * that never expires, or has more left, is not. A store without `patchMeta` is a TypeError, as
    * for `touch`, on every question, whether a document is due or not: otherwise it would show only
    * once a file has passed half of its time to live, 36 hours after its upload by the default.
+   * The touches themselves are best effort: one that fails (a store write error, a document deleted
+   * meanwhile) leaves that document's expiry as it was and fails nothing.
    */
   const touchOnUse: TouchOnUse = async (documents, access) => {
     if (!Number.isFinite(ttlMs) || ttlMs <= 0) return;
@@ -1132,7 +1134,8 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
     const worker = async () => {
       while (next < due.length) {
         const meta = due[next++]!;
-        await changeMeta(meta.id, caller, "touch", { expiresAt: expiryAfter(now(), ttlMs) });
+        // Best effort: a touch that fails leaves the document's expiry as it was, and the question goes on.
+        await changeMeta(meta.id, caller, "touch", { expiresAt: expiryAfter(now(), ttlMs) }).catch(() => undefined);
       }
     };
     await Promise.all(Array.from({ length: Math.min(TOUCHES_AT_ONCE, due.length) }, worker));

@@ -562,7 +562,7 @@ Errors say what to change: "No column \"Profit\" in this table. Its columns are:
 names 3 columns of this table: …. Name one of them in full.", "No table \"Budget\" in this file: it
 has 3 sheets…", "This file has no table to aggregate…". Since 0.99.13 the errors that list the
 table's columns reach events, steps and SSE as "No such column in this table, which has 6
-columns." or "No such column: the name given names 3 of the 6 columns of this table.", with no
+columns." or "Ambiguous column: the name given matches 3 of the 6 columns of this table." (for a filter's value: "the value of a filter matches 2 of the 6 columns"), with no
 column name; the model still gets them whole
 ([tool errors that quote the document](./events.md#tool-errors-that-quote-the-document)). `evidence` cites the header line and each
 group's lines; a result dropped to make room keeps its largest 30 groups.

@@ -318,8 +318,8 @@ export type AskEvent =
        * its message. For a call ended because its turn failed: why, as in `EventError.message`.
        * Since 0.99.13 an error that quotes the document is told in the library's words, here and in
        * `step`, while the model gets it whole (in `result` with `eventResults`): `aggregate_table`'s
-       * column errors, which list the table's columns, say "No such column" with a count, and
-       * `read_document`'s past the end of a workbook, which names its sheets, says only "start_line N
+       * column errors, which list the table's columns, say "No such column" or "Ambiguous column" with a count,
+       * and `read_document`'s past the end of a workbook, which names its sheets, says only "start_line N
        * is past the end of the file, which has M lines."
        */
       error?: string;

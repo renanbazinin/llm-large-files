@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { answerInfoOf, askWithFiles, createLargeFiles, MemoryDocumentStore, type AskEvent } from "llm-large-files";
 import { calls, fakeModel, says, serviceLog, utf8 } from "llm-large-files/testing";
+import { workbook } from "./xlsx-fixtures.js";
 
 async function library() {
   const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
@@ -70,6 +71,23 @@ describe("an answer made only of citations, shown without them", () => {
     // A Hebrew chat about a file with a Latin name is still a Hebrew chat.
     expect((await asked("contract-1", "(contract.txt L2)", { showCitations: false, question: "איפה כתוב על הקנס?" })).result.text).toBe("שורה 2");
     expect((await asked("contract-1", "- (contract.txt L2)\n- (L3)", { showCitations: false, question: "איפה?" })).result.text).toBe("שורות 2 ו-3");
+  });
+
+  it("says of a workbook's line, in Hebrew, that it is a line of the text, not a row of the sheet", async () => {
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
+    const cell = (row: number, text: string) => `<row r="${row}"><c r="A${row}" t="inlineStr"><is><t>${text}</t></is></c></row>`;
+    await files.ingest({ id: "stock-1", name: "מלאי.xlsx", bytes: await workbook(cell(1, "פריט") + cell(3, "ברגים") + cell(10, "אומים") + cell(400, "מסמרים")) });
+    const say = async (answer: string, question: string) =>
+      (await askWithFiles({ files, model: fakeModel([says(answer)]), documentIds: ["stock-1"], messages: [{ role: "user", text: question }], showCitations: false })).text;
+    // Line 7 of the text may be Row 400: "שורה 7" alone reads as row 7 of the sheet.
+    expect(await say("(מלאי.xlsx L7)", "איפה המסמרים?")).toBe("שורה 7 בטקסט");
+    expect(await say("(מלאי.xlsx L5, L7)", "איפה?")).toBe("שורות 5 ו-7 בטקסט");
+    expect(await say("(L7)", "איפה המסמרים?")).toBe("שורה 7 בטקסט");
+    // A row is a row; English "line" is not a row.
+    expect(await say("(מלאי.xlsx Row 400)", "איפה המסמרים?")).toBe("שורה 400");
+    expect(await say("(L7)", "Where are the nails?")).toBe("line 7");
+    // A row cited with a line: no "בטקסט", which would call Row 400 a line of the text.
+    expect(await say("(מלאי.xlsx Row 400, L7)", "איפה?")).toBe("שורות 400 ו-7");
   });
 
   it("says rows for rows", async () => {

@@ -649,8 +649,8 @@ Since 0.99.13 the question can do it: with `touchOnUse: true`, `askWithFiles` an
 the documents they plan, before the first request, once less than half of their `ttlMs` is left.
 With the default 72 hours, a file used 47 hours after its upload is kept 72 hours from then, and one
 used at 10 hours is not touched: no store call. It is off by default, since how long files are kept
-is your application's to say, and it changes nothing that is sent. A store write that fails while
-it touches fails the question, as other store failures do. A `LargeFiles` of your own (not made by
+is your application's to say, and it changes nothing that is sent. The touches are best effort: a
+store write that fails leaves that file's expiry as it was, and the question goes on. A `LargeFiles` of your own (not made by
 `createLargeFiles`) is touched by the default 72 hours, whatever its own `ttlMs`; one without
 `touch`, or a store without `patchMeta`, is a `TypeError`.
 

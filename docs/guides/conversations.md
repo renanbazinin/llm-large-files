@@ -701,8 +701,8 @@ export async function askWithoutGone(sessionId: string, userId: string, question
   default), each question touches the files it plans once less than half of their `ttlMs` is left:
   with the default 72 hours, a file used 47 hours after its upload is kept 72 hours from then, and
   one used at 10 hours is not touched, with no store call. It runs before the first request and
-  changes nothing that is sent. A store write that fails while it touches fails the question, as
-  any store failure does. A `LargeFiles` of your own (not made by `createLargeFiles`) is touched
+  changes nothing that is sent. The touches are best effort: a store write that fails leaves that
+  file's expiry as it was, and the question goes on. A `LargeFiles` of your own (not made by `createLargeFiles`) is touched
   by the default 72 hours, whatever its own `ttlMs`.
 - **The stored rounds still hold a gone file's text.** `"drop"` leaves the file out of the plan,
   but rounds that read it still carry its lines into every later question. To keep a gone file

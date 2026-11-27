@@ -547,12 +547,14 @@ whole:
 | Error | The model gets | `tool.end.error` and the step say |
 |---|---|---|
 | `aggregate_table`, a column that is not there | "No column \"Profit\" in this table. Its columns are: …" | "No such column in this table, which has 6 columns." |
-| `aggregate_table`, a name that names several columns | "\"Total\" names 3 columns of this table: … Name one of them in full." | "No such column: the name given names 3 of the 6 columns of this table." |
-| `aggregate_table`, a filter value that names several columns | "… names 2 columns of this table: …" | "No such column: the value of a filter names 2 of the 6 columns of this table." |
+| `aggregate_table`, a name that names several columns | "\"Total\" names 3 columns of this table: … Name one of them in full." | "Ambiguous column: the name given matches 3 of the 6 columns of this table." |
+| `aggregate_table`, a filter value that names several columns | "… names 2 columns of this table: …" | "Ambiguous column: the value of a filter matches 2 of the 6 columns of this table." |
 | `read_document` past the end of a workbook | the line count, then which line holds the row asked for and each sheet's row-to-line range, by sheet name | "start_line 400 is past the end of the file, which has 13 lines." |
 
-Neither the column or sheet names nor the name the model gave reach `tool.end.error`, `tool.end.step`,
-the steps of `run.finish` and `run.error`, `onStep`, `AskResult.steps` or SSE. This holds whatever
+The error part of `tool.end.error` and of the step (in `tool.end.step`, the steps of `run.finish` and
+`run.error`, `onStep`, `AskResult.steps` and SSE) carries neither the column or sheet names nor the
+name the model gave. The step's label still quotes the model's own arguments ("Aggregate
+budget.xlsx: sum:Q2"), as every label does. This holds whatever
 `onToolResult` does with the result: kept, copied or edited, the error is told in the library's
 words; a `{ reject }` reason is your own words and is told as you wrote it. With
 `eventResults: true`, `tool.end.result` still carries the error as the model got it. In 0.99.12,

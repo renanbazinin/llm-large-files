@@ -667,7 +667,8 @@ See [PDFs and other formats](./guides/pdfs.md#docx-and-pptx).
 
 **Cause.** The model answered with citations and nothing else, such as `(app.log L2, L3)`. Hidden,
 they would leave the answer shown empty while `answered` is true. Since 0.99.13 the lines they cite
-are shown in words instead, in Hebrew when the answer or the question is Hebrew, and a
+are shown in words instead, in Hebrew when the answer or the question is Hebrew (for a
+workbook, "שורה 7 בטקסט": line 7 of the text, which may be Row 400 of the sheet), and a
 `citations_only` notice (`display` `"none"`) says so. `result.citations` and `modelText` keep the
 citations as the model wrote them. Until 0.99.12 such an answer was shown empty.
 
