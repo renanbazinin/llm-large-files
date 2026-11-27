@@ -85,7 +85,32 @@ export type WholeDocumentResult = {
   notesLeftOut?: number;
   /** The model requests the read made: the parts, the merges and the answer. New in 0.10.0. */
   requests: number;
+  /** What each part's notes cite inside that part, and the parts that could not be read (CIT-9). Never sent to the model. New in 0.99.14. */
+  lineNotes?: WholeReadLines;
 };
+
+/**
+ * The lines a whole-file read's notes cite, each kept only when it is inside the part whose notes
+ * cite it, and the line ranges of the parts that could not be read (CIT-9). Kept beside the result,
+ * never sent to the model. New in 0.99.14.
+ */
+export type WholeReadLines = { noted: Array<[number, number]>; failed: Array<[number, number]> };
+
+/** "L12", "L12-14", "L12-L14", "line 12", "שורה 12", "שורות 12-14": the lines a note cites. */
+const NOTE_CITATION = /(?<![\p{L}\p{N}_])(?:[Ll] ?|lines? |[בלמוהכש]{0,2}שור(?:ה|ות) )(\d{1,9})(?:\s*[-–—־]\s*(?:[Ll] ?)?(\d{1,9}))?(?![\p{L}\p{N}_])/gu;
+
+/** The lines the notes of part `from`-`to` cite, inside it. */
+export function citedInPart(text: string, from: number, to: number): Array<[number, number]> {
+  const found: Array<[number, number]> = [];
+  for (const match of text.matchAll(NOTE_CITATION)) {
+    const first = Number(match[1]);
+    const last = match[2] === undefined ? first : Number(match[2]);
+    const start = Math.min(first, last);
+    const end = Math.max(first, last);
+    if (start >= from && end <= to) found.push([start, end]);
+  }
+  return found;
+}
 
 /** An item a read with `output: "items"` found, checked against its line. New in 0.10.0 (M9). */
 export type WholeItem = {
@@ -122,6 +147,8 @@ export type WholeItemsResult = {
   /** The replies of the parts that were read, and their lines that were not a JSON object (skipped). */
   replies: number;
   skippedLines: number;
+  /** The items' lines, and the parts that could not be read (CIT-9). Never sent to the model. New in 0.99.14. */
+  lineNotes?: WholeReadLines;
 };
 
 /**
@@ -625,6 +652,10 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
 
   const relevant = notes.filter((note) => !saysNothingRelevant(note.text));
   const relevantParts = relevant.filter((note) => note.read).length;
+  const lineNotes: WholeReadLines = {
+    noted: notes.flatMap((note) => (note.read ? citedInPart(note.text, note.from, note.to) : [])),
+    failed: notes.flatMap((note): Array<[number, number]> => (note.read ? [] : [[note.from, note.to]])),
+  };
   if (relevantParts === 0) {
     return {
       answer: `No part of ${name} contained anything relevant to: ${task}${failed ? ` (${failed} of ${notes.length} parts could not be read.)` : ""}`,
@@ -635,6 +666,7 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
       truncatedMerges: 0,
       answerTruncated: false,
       requests: used,
+      lineNotes,
     };
   }
 
@@ -704,7 +736,7 @@ export async function analyzeWholeDocument(options: WholeReadOptions): Promise<W
   }
 
   const cutShort = truncatedParts + truncatedMerges;
-  const counts = { parts: notes.length, relevantParts, failedParts: failed, truncatedParts, truncatedMerges };
+  const counts = { parts: notes.length, relevantParts, failedParts: failed, truncatedParts, truncatedMerges, lineNotes };
   // No request is left for the answer: the notes are the answer, as when that step fails.
   if (used + 1 > limit) return { answer: layer.join("\n\n"), ...counts, answerTruncated: false, answerSkipped: true, requests: used };
   // Merges stopped short of one request: the answer is written from the notes that fit one, in
@@ -1155,7 +1187,9 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
   const atPlace = new Map<string, Set<string>>();
   const moved = new Set<string>();
   const placeOf = (item: WholeItem) => `${item.line}\u0000${quoteForm(item.label ?? "")}`;
-  const fail = (error: unknown, reason: string) => {
+  const failedRanges: Array<[number, number]> = [];
+  const fail = (error: unknown, reason: string, from: number, to: number) => {
+    failedRanges.push([from, to]);
     pieces++;
     failed++;
     if (!firstFailure) {
@@ -1171,7 +1205,7 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
       heading = await headingAbove(document, from);
     } catch (error) {
       if (signal?.aborted || storeGaveUp(error)) throw error;
-      fail(error, safeErrorMessage(error));
+      fail(error, safeErrorMessage(error), from, to);
       return;
     }
     sent++;
@@ -1195,7 +1229,7 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
     } catch (error) {
       if (signal?.aborted) throw error;
       if (modelErrorOf(error)?.kind === "context_overflow" && await halve()) return;
-      fail(error, modelFailureReason(error));
+      fail(error, modelFailureReason(error), from, to);
       return;
     }
     // A list cut at the output limit is read again in halves, whose lists are shorter.
@@ -1261,5 +1295,6 @@ export async function listWholeDocumentItems(options: WholeReadOptions & { label
     for (const item of items) byLabel.set(item.label ?? "unlabeled", (byLabel.get(item.label ?? "unlabeled") ?? 0) + 1);
   }
   const countsByLabel: Record<string, number> = Object.fromEntries(byLabel);
-  return { items, countsByLabel, unverified, parts: pieces, failedParts: failed, ...(failed ? { firstFailure } : {}), truncatedParts, requests: used, replies, skippedLines };
+  const lineNotes: WholeReadLines = { noted: items.map((item): [number, number] => [item.line, item.line]), failed: failedRanges };
+  return { items, countsByLabel, unverified, parts: pieces, failedParts: failed, ...(failed ? { firstFailure } : {}), truncatedParts, requests: used, replies, skippedLines, lineNotes };
 }

@@ -8,6 +8,8 @@
 //   - FULL below is a `Required<AskResult>`: the test does not compile until a new key has a value
 //     here too, and the runtime part then checks what each event does with it.
 // 0.99.12's 16 keys keep what they did; modelText (0.99.13) is in onEvent's results and never in SSE.
+// 0.99.14 adds anchors (everywhere but SSE's run.error partial), sources (without quotes unless
+// eventResults, and never with quotes in SSE) and lineTalk (onEvent only): 20 keys.
 import { describe, expect, it } from "vitest";
 import type { AskEvent, AskResult } from "llm-large-files";
 import { sseMessageOf } from "llm-large-files/node";
@@ -39,31 +41,37 @@ const FULL: Required<AskResult> = {
   finish: "complete",
   citations: { checked: 1, supported: 1, unchecked: 0, unsupported: [], cited: [] },
   questionId: "q-1",
+  anchors: [{ at: 9, requestId: "req_2", sources: ["upload-1:2-2"], status: "resolved", label: 1, kind: "removed" }],
+  sources: [{ key: "upload-1:2-2", documentId: "upload-1", name: "salaries.txt", version: "0123456789abcdef", textVersion: 1, from: 2, to: 2, form: "line", locators: [{ kind: "line", line: 2 }], basis: "text", shown: true, seen: "shown", reason: "line", quote: QUOTE }],
+  lineTalk: { verdict: "none", left: { mentions: 0, numbers: 0, harmfulMentions: 0, harmless: { logLine: 0, excelRow: 0, csvRow: 0 }, harmful: { wrongWorkbookRow: 0, workbookTextLine: 0, documentLine: 0, csvShifted: 0, outOfRange: 0, unattributed: 0 }, hashes: [] }, kept: { count: 0 }, held: { characters: 0, times: 0 }, ambiguous: { count: 0 } },
 };
+const NO_QUOTES = FULL.sources.map(({ quote: _quote, ...rest }) => rest);
 
 const finishOf = (result: AskResult, withResults: boolean) => ({ type: "run.finish", seq: 9, runId: "run_0", time: 0, result: eventResultOf(result, withResults) }) as AskEvent;
 const errorOf = (result: AskResult, withResults: boolean) => ({ type: "run.error", seq: 9, runId: "run_0", time: 0, error: { message: "x" }, partial: eventResultOf(result, withResults) }) as AskEvent;
 
 describe("every AskResult key has an event-visibility decision", () => {
-  it("the table and AskResult name the same 17 keys", () => {
+  it("the table and AskResult name the same 20 keys", () => {
     expect(noneMissing).toBe(true);
     expect(noneExtra).toBe(true);
     expect(Object.keys(RESULT_VISIBILITY).sort()).toEqual(Object.keys(FULL).sort());
-    expect(Object.keys(RESULT_VISIBILITY)).toHaveLength(17);
+    expect(Object.keys(RESULT_VISIBILITY)).toHaveLength(20);
   });
 
   for (const [key, rule] of Object.entries(RESULT_VISIBILITY) as Array<[keyof AskResult, ResultVisibility]>) {
     it(`${key}: run.finish and run.error do what the table says (${rule.event} / sse ${rule.sse} / partial ${rule.ssePartial})`, () => {
       for (const withResults of [false, true]) {
         const event = eventResultOf(FULL, withResults) as Record<string, unknown>;
-        const shown = rule.event === "yes" || rule.event === "plan" || (rule.event === "withResults" && withResults);
+        const shown = rule.event === "yes" || rule.event === "plan" || rule.event === "sources" || (rule.event === "withResults" && withResults);
         expect(key in event, `${key} in run.finish, eventResults ${withResults}`).toBe(shown);
         if (rule.event === "yes") expect(event[key], key).toEqual(FULL[key]);
+        if (rule.event === "sources") expect(event[key], key).toEqual(withResults ? FULL[key] : NO_QUOTES);
         if (rule.event === "plan") expect(JSON.stringify(event[key])).not.toMatch(/"owner"|"scope"|"sha256"/);
         if (rule.event === "plan" && !withResults) expect(JSON.stringify(event[key])).not.toContain("outline");
         if (rule.event === "plan" && withResults) expect(JSON.stringify(event[key])).toContain("outline");
         const sse = (sseMessageOf(finishOf(FULL, withResults)).data as { result: Record<string, unknown> }).result;
         expect(sse[key] !== undefined, `${key} in SSE run.finish, eventResults ${withResults}`).toBe(rule.sse !== "no");
+        if (rule.sse === "sources") expect(sse[key], key).toEqual(NO_QUOTES);
         const partial = (sseMessageOf(errorOf(FULL, withResults)).data as { partial: Record<string, unknown> }).partial;
         expect(partial[key] !== undefined, `${key} in SSE run.error partial`).toBe(rule.ssePartial !== "no");
       }
@@ -81,6 +89,18 @@ describe("every AskResult key has an event-visibility decision", () => {
     expect(eventResultOf({ ...FULL, constructor: QUOTE, toString: QUOTE } as unknown as AskResult, true)).not.toHaveProperty("toString", QUOTE);
   });
 
+  it("quotes reach onEvent only with eventResults, and SSE never; lineTalk never reaches SSE", () => {
+    for (const withResults of [false, true]) {
+      expect(JSON.stringify(eventResultOf(FULL, withResults)).includes(QUOTE)).toBe(withResults);
+      expect(JSON.stringify(sseMessageOf(finishOf(FULL, withResults)).data)).not.toContain(QUOTE);
+      expect(JSON.stringify(sseMessageOf(finishOf(FULL, withResults)).data)).not.toContain("lineTalk");
+      expect(JSON.stringify(sseMessageOf(errorOf(FULL, withResults)).data)).not.toMatch(/anchors|sources|lineTalk/);
+    }
+    // The caller's own result keeps its quotes: eventResultOf copies.
+    eventResultOf(FULL, false);
+    expect(FULL.sources[0]!.quote).toBe(QUOTE);
+  });
+
   it("modelText is never in SSE, with or without eventResults", () => {
     for (const withResults of [false, true]) {
       expect(eventResultOf(FULL, withResults).modelText).toBe(FULL.modelText);
@@ -89,13 +109,16 @@ describe("every AskResult key has an event-visibility decision", () => {
     }
   });
 
-  it("keeps the order of 0.99.12: the result's keys, then the tool rounds, then the plan; SSE byte for byte", () => {
-    expect(Object.keys(eventResultOf(FULL, false))).toEqual(["text", "modelText", "answered", "blockReason", "steps", "evidence", "missing", "budget", "turns", "finishReason", "usage", "lastUsage", "finish", "citations", "questionId", "plan"]);
+  it("keeps the order of 0.99.12: the result's keys, then the tool rounds, then the plan; SSE byte for byte without the new keys", () => {
+    expect(Object.keys(eventResultOf(FULL, false))).toEqual(["text", "modelText", "answered", "blockReason", "steps", "evidence", "missing", "budget", "turns", "finishReason", "usage", "lastUsage", "finish", "citations", "questionId", "anchors", "sources", "lineTalk", "plan"]);
     expect(Object.keys(eventResultOf(FULL, true)).slice(-2)).toEqual(["toolTurns", "plan"]);
     // What 0.99.12's sseMessageOf wrote for this event, by its fixed lists.
     const { answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId } = FULL;
     const finished = { type: "run.finish", seq: 9, runId: "run_0", time: 0, result: { answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId } };
-    expect(JSON.stringify(sseMessageOf(finishOf(FULL, true)).data)).toBe(JSON.stringify(finished));
+    const { anchors: _anchors, sources: _sources, lineTalk: _lineTalk, ...old } = FULL;
+    expect(JSON.stringify(sseMessageOf(finishOf(old as AskResult, true)).data)).toBe(JSON.stringify(finished));
+    // The new keys come after questionId, sources without their quotes.
+    expect(JSON.stringify(sseMessageOf(finishOf(FULL, true)).data)).toBe(JSON.stringify({ ...finished, result: { ...finished.result, anchors: FULL.anchors, sources: NO_QUOTES } }));
     const failed = { type: "run.error", seq: 9, runId: "run_0", time: 0, error: { message: "x" }, partial: { steps, evidence, usage, missing } };
     expect(JSON.stringify(sseMessageOf(errorOf(FULL, false)).data)).toBe(JSON.stringify(failed));
     // A run.error without a partial result has none.

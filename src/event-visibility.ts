@@ -7,15 +7,17 @@ import type { DocumentMeta } from "./types.js";
  * - `event`, in the result of `run.finish` and the partial result of `run.error` that `onEvent`
  *   gets (`eventResultOf`): "yes", always; "withResults", only with `AskOptions.eventResults: true`;
  *   "plan", the documents named only (`DocumentRef`), or with `eventResults` their metadata without
- *   what is to stay on the server; "no", never.
- * - `sse`, in the result of `run.finish` as `sseMessageOf` sends it to a browser: "yes" or "no".
+ *   what is to stay on the server; "sources", each source without its `quote` unless
+ *   `eventResults: true` (since 0.99.14); "no", never.
+ * - `sse`, in the result of `run.finish` as `sseMessageOf` sends it to a browser: "yes", "no", or
+ *   "sources": each source without its `quote`, whatever `eventResults` says (since 0.99.14).
  * - `ssePartial`, in the partial result of `run.error` as `sseMessageOf` sends it: "yes" or "no".
  *
  * New in 0.99.13.
  */
 export type ResultVisibility = {
-  event: "yes" | "withResults" | "plan" | "no";
-  sse: "yes" | "no";
+  event: "yes" | "withResults" | "plan" | "sources" | "no";
+  sse: "yes" | "sources" | "no";
   ssePartial: "yes" | "no";
 };
 
@@ -27,7 +29,9 @@ export type ResultVisibility = {
  * `showCitations: false` hides, so it is never sent to a browser.
  *
  * The order of the rows is the order of the keys in `sseMessageOf`'s JSON: keep it, so that what a
- * browser gets stays byte for byte the same. New in 0.99.13.
+ * browser gets stays byte for byte the same. New in 0.99.13. Since 0.99.14 `anchors` and `sources`
+ * (without quotes) reach a browser, and `lineTalk` (counts for your logs) does not; the partial of
+ * `run.error` that `sseMessageOf` sends has neither, as it has no text to place chips in.
  */
 export const RESULT_VISIBILITY = {
   answered: { event: "yes", sse: "yes", ssePartial: "no" },
@@ -42,6 +46,9 @@ export const RESULT_VISIBILITY = {
   usage: { event: "yes", sse: "yes", ssePartial: "yes" },
   missing: { event: "yes", sse: "yes", ssePartial: "yes" },
   questionId: { event: "yes", sse: "yes", ssePartial: "no" },
+  anchors: { event: "yes", sse: "yes", ssePartial: "no" },
+  sources: { event: "sources", sse: "sources", ssePartial: "no" },
+  lineTalk: { event: "yes", sse: "no", ssePartial: "no" },
   modelText: { event: "yes", sse: "no", ssePartial: "no" },
   budget: { event: "yes", sse: "no", ssePartial: "no" },
   lastUsage: { event: "yes", sse: "no", ssePartial: "no" },
@@ -55,7 +62,7 @@ function visibilityOf(key: string): ResultVisibility | undefined {
 }
 
 /** The keys `sseMessageOf` sends of a result, in the order it sends them: those of `run.finish`, or of `run.error`'s partial. */
-export const SSE_RESULT_KEYS: readonly string[] = Object.entries(RESULT_VISIBILITY).flatMap(([key, rule]) => (rule.sse === "yes" ? [key] : []));
+export const SSE_RESULT_KEYS: readonly string[] = Object.entries(RESULT_VISIBILITY).flatMap(([key, rule]) => (rule.sse !== "no" ? [key] : []));
 export const SSE_PARTIAL_KEYS: readonly string[] = Object.entries(RESULT_VISIBILITY).flatMap(([key, rule]) => (rule.ssePartial === "yes" ? [key] : []));
 
 /** A document as an event names it. */
@@ -88,6 +95,7 @@ export function eventResultOf(result: AskResult, withResults: boolean): EventRes
   for (const [key, value] of Object.entries(result)) {
     const rule = visibilityOf(key);
     if (rule?.event === "yes") shown[key] = value;
+    else if (rule?.event === "sources") shown[key] = withResults ? value : withoutQuotes(value);
     else if (rule?.event === "withResults" && withResults) later[key] = value;
     else if (rule?.event === "plan") {
       const given = value as AskResult["plan"];
@@ -101,9 +109,22 @@ export function eventResultOf(result: AskResult, withResults: boolean): EventRes
   return { ...shown, ...later, ...(plan ? { plan } : {}) } as EventResult;
 }
 
+/** Sources without their quotes: a copy of each that has one (since 0.99.14). Not an array: as it is. */
+export function withoutQuotes(sources: unknown): unknown {
+  if (!Array.isArray(sources)) return sources;
+  return sources.map((source) => {
+    if (source === null || typeof source !== "object" || !Object.hasOwn(source, "quote")) return source;
+    const { quote: _quote, ...rest } = source as Record<string, unknown>;
+    return rest;
+  });
+}
+
 /** The keys of a result that `sseMessageOf` sends (`keys`: `SSE_RESULT_KEYS` or `SSE_PARTIAL_KEYS`), in their order. */
 export function sseResultOf(result: Partial<EventResult>, keys: readonly string[]): Record<string, unknown> {
   const picked: Record<string, unknown> = {};
-  for (const key of keys) picked[key] = (result as Record<string, unknown>)[key];
+  for (const key of keys) {
+    const value = (result as Record<string, unknown>)[key];
+    picked[key] = visibilityOf(key)?.sse === "sources" ? withoutQuotes(value) : value;
+  }
   return picked;
 }

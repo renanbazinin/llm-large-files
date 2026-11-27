@@ -6,6 +6,7 @@ import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type 
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
 import { classifyModelError, DocumentsNotFoundError, isModelStatus, type ModelErrorKind, type ModelReply, type ModelUsage, type ToolTurn } from "./model.js";
+import type { CitationAnchor, CitedSource } from "./sources.js";
 import type { DocumentFormat, DocumentMeta, DocumentSummary, ToolResult } from "./types.js";
 
 /** What every event carries. */
@@ -266,6 +267,16 @@ export type AskEvent =
     })
   /** Answer text as it arrives: what `onText` gets. Joined, the deltas of a run are `AskResult.text`. */
   | (EventBase & { type: "text"; requestId: string; delta: string })
+  /**
+   * A chip of the answer: where it goes in the shown text (`anchor.at`, at most the length of the
+   * text sent in `text` events so far) and the sources it opens, inline. Sent with
+   * `citationMarkers: "remove"` or `"token"` and `sources` "on", after the `text` event that holds
+   * its place, once its line is complete (the file of a citation may be named after it on the
+   * line). The sources carry no `quote` unless `eventResults` is true. A caller that joins a
+   * running question misses the chips sent before it joined: `run.finish` has them all in
+   * `result.anchors` and `result.sources`. New in 0.99.14.
+   */
+  | (EventBase & { type: "citation"; requestId: string; anchor: CitationAnchor; sources: CitedSource[] })
   /**
    * A tool call starts to run, or is settled without running (refused, already shown, not run).
    * Calls of one turn run a few at a time, so their starts and ends interleave.

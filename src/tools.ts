@@ -11,6 +11,7 @@ import { grepSource, numberLines, rankSource, REGEX_TIME_LIMIT_MS, scanSource, t
 import { estimateParts, formatBytes, outlineLines, REQUEST_BYTES_MARGIN } from "./plan.js";
 import type { RetryOptions } from "./retry.js";
 import { plural, removeInvisible, sliceWhole, wellFormedJson } from "./text.js";
+import { LOCATOR_TEXT, withReadLines } from "./locator-text.js";
 import type { Budget, GenerateText, PageImageOptions, ProgressListener, ToolCallHooks, ToolCallLimits, ToolDeclaration, ToolName, ToolOutput, ToolResult, ToolSet } from "./types.js";
 
 const DEFAULT_READ_LINES = 200;
@@ -1412,7 +1413,7 @@ export function createDocumentTools(options: {
       }
       failedWholeReads.delete(id);
       const room = limitOf(limits, Math.max(cap, ANALYSIS_RESULT_CHARACTERS));
-      if ("items" in result) return fitAnswer(itemsResult(document.meta.name, task, result), room);
+      if ("items" in result) return withReadLines(fitAnswer(itemsResult(document.meta.name, task, result), room), result.lineNotes);
       const notesCutShort = result.truncatedParts + result.truncatedMerges;
       const cutNote = notesCutShort ? " Some of them were cut off at the output limit, so they are incomplete: tell the user." : "";
       // Since 0.99.13 a read that lost parts says so in its note too, after any other (LOOP-5).
@@ -1425,7 +1426,7 @@ export function createDocumentTools(options: {
             ? notesLeftOutNote(result.notesLeftOut, result.relevantParts)
             : notesCutShort || result.answerTruncated ? INCOMPLETE_ANALYSIS : "";
       const note = [otherNote, failedNote].filter(Boolean).join(" ");
-      return fitAnswer({
+      return withReadLines(fitAnswer({
         document: document.meta.name,
         parts_read: result.parts,
         parts_with_relevant_content: result.relevantParts,
@@ -1436,7 +1437,7 @@ export function createDocumentTools(options: {
         ...(result.answerFailed !== undefined || result.answerSkipped ? { notes_only: true } : {}),
         ...(note ? { note } : {}),
         answer: result.answer,
-      }, room);
+      }, room), result.lineNotes);
     },
   };
 
@@ -1602,7 +1603,7 @@ export function createDocumentTools(options: {
     }
   }
 
-  return {
+  const toolSet: ToolSet = {
     declarations,
     has: (name) => known.has(name),
     execute: (name, args) => execute(name, args),
@@ -1670,4 +1671,14 @@ export function createDocumentTools(options: {
       return name;
     },
   };
+  // The whole stored text of a document of the tool set, read as its calls read it, for the
+  // locators of an answer's sources (0.99.14). Kept off the public type.
+  Object.defineProperty(toolSet, LOCATOR_TEXT, {
+    value: async (id: string, signal?: AbortSignal): Promise<string | undefined> => {
+      if (!allowed.has(id) && !inline.has(id)) return undefined;
+      const document = await until(options.load(id), signal);
+      return document ? await until(document.readText(), signal) : undefined;
+    },
+  });
+  return toolSet;
 }

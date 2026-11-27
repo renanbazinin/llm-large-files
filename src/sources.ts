@@ -138,8 +138,22 @@ export type CitationAnchor = {
  * sent to a browser by `sseMessageOf`. New in 0.99.14.
  */
 export type LineTalk = {
-  /** Citations recognized and left in the text as written, and the hash of each (8 hex digits). */
-  left: { count: number; hashes: string[] };
+  /** "none": the shown answer names no line or row; "harmless": only true log lines, Excel rows or CSV rows; "harmful": some other. */
+  verdict: "none" | "harmless" | "harmful";
+  /**
+   * Line and row numbers left in the shown text ("L12", "line 12", "Row 12", "שורה 12", a copied
+   * "12| " prefix), each mention judged by its numbers: harmless when it is a log line of a file
+   * with no split line, an Excel row whose cells the sentence names, or a CSV row before any quoted
+   * line break; harmful otherwise, by kind. `hashes`: a SHA-256 prefix (16 hex digits) per mention.
+   */
+  left: {
+    mentions: number;
+    numbers: number;
+    harmfulMentions: number;
+    harmless: { logLine: number; excelRow: number; csvRow: number };
+    harmful: { wrongWorkbookRow: number; workbookTextLine: number; documentLine: number; csvShifted: number; outOfRange: number; unattributed: number };
+    hashes: string[];
+  };
   /** Citations converted into words because the answer needed the place. */
   kept: { count: number };
   /** What the hider held back while it decided: the most characters at once, and how many times. */
