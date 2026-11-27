@@ -119,7 +119,8 @@ Through `files.tools(documents, options)` (a loop of your own, see [`ToolSet`](#
 whole numbers; a value that is neither a number nor a numeric string takes the default (an empty or
 blank string counts as 0, so it is clamped to the minimum); line numbers and counts out of range
 are clamped, not refused. Page numbers are the exception: `view_pages` refuses a page that is not a
-number of 1 or more. A `mode` other than `"exact"` or `"regex"` is `"keywords"`, and
+number of 1 or more. So are a `from_line` of `search_document` and, since 0.99.13, a `start_line` of
+`read_document` past the last line. A `mode` other than `"exact"` or `"regex"` is `"keywords"`, and
 `case_sensitive` and `whole_word` are on only when they are `true`, `1`, or the same as text
 (`"true"` in any case, or `"1"`), and off for any other value. Until 0.8.0, `case_sensitive: "true"`
 was off. An `order` other than `"last"` is `"first"`. A `group_by` that is missing, `null`, `""` or `"none"` counts no groups; any other
@@ -559,7 +560,11 @@ Result:
 
 Errors say what to change: "No column \"Profit\" in this table. Its columns are: …", "\"הכנסות\"
 names 3 columns of this table: …. Name one of them in full.", "No table \"Budget\" in this file: it
-has 3 sheets…", "This file has no table to aggregate…". `evidence` cites the header line and each
+has 3 sheets…", "This file has no table to aggregate…". Since 0.99.13 the errors that list the
+table's columns reach events, steps and SSE as "No such column in this table, which has 6
+columns." or "Ambiguous column: the name given matches 3 of the 6 columns of this table." (for a filter's value: "the value of a filter matches 2 of the 6 columns"), with no
+column name; the model still gets them whole
+([tool errors that quote the document](./events.md#tool-errors-that-quote-the-document)). `evidence` cites the header line and each
 group's lines; a result dropped to make room keeps its largest 30 groups.
 
 A filter that orders a column (`>`, `>=`, `<`, `<=`) against a value that is not a number and
@@ -583,7 +588,7 @@ The description the model sees:
 | Argument | Type | Required | Default and limits | Meaning |
 |---|---|---|---|---|
 | `document_id` | string | yes | | The document to read. |
-| `start_line` | integer | yes | Clamped to 1 through the last line; 1 when it is missing | First line to read, 1-based. |
+| `start_line` | integer | yes | 1 or more (a lower one is 1; 1 when it is missing); past the last line is an error (since 0.99.13) | First line to read, 1-based. |
 | `end_line` | integer | no | `start_line + 199`; clamped to `start_line` through `start_line + 599` and the last line | Last line to read. |
 
 The numbered text must fit in the cap less 500 characters, as JSON. When it does not, the range is
@@ -632,6 +637,24 @@ Gemini 3.5 Flash-Lite and 3.8 Flash read a contract they were asked to summarize
 ```json
 { "document": "app.log", "lines": "1200-1399", "total_lines": 5000, "text": "1200| ...\n1201| ...", "next_start_line": 1400 }
 ```
+
+**A start past the end** (new in 0.99.13). A `start_line` past the last line is refused, with the
+words `search_document` uses for a `from_line` past it: "start_line 9999 is past the end of the
+file, which has 50 lines." It is refused also when an earlier read showed the last line: the call
+runs, and is not answered with a pointer to that line. Until 0.99.13 the start was clamped to the
+last line, with no error: in a workbook, "Row 400" passed as a line read the last row of another
+sheet. A workbook's lines are not its rows, so for a workbook the error goes on with which line
+holds that row in each sheet that has it, and each sheet's rows with the lines they are on (up to
+20 sheets):
+
+> start_line 400 is past the end of the file, which has 13 lines. A line of a workbook is not its
+> row: Row 400 is on line 7 (sheet "מלאי"). Its sheets: sheet "מלאי", rows 1–1048 on lines 3–8;
+> sheet "ישן", rows 1–8 on lines 12–13.
+
+The sheet names are text of the document: events, steps and SSE get only the first sentence
+([tool errors that quote the document](./events.md#tool-errors-that-quote-the-document)). A
+document of no lines, and a `start_line` that is not a number or is below 1, read as before. No
+recorded read of the evals went past the end (0 of 20).
 
 ## `get_document_overview`
 
@@ -729,18 +752,40 @@ that number is (since 0.10.0; before, a number of 2 or more let it try again).
 | `document` | string | The file name. |
 | `parts_read` | number | The parts the file was read in, those that could not be read included; a part read as two halves counts as two. |
 | `parts_with_relevant_content` | number | The parts that were read and held something for the task. |
-| `parts_that_failed` | number, optional | Parts that could not be read. The notes name each one: "[This part could not be read: reason]". |
+| `parts_that_failed` | number, optional | Parts that could not be read, after their retries. The notes name each one: "[This part could not be read: reason]". Since 0.99.13 the read is then incomplete: see [a read that lost parts](#a-read-that-lost-parts). |
 | `notes_cut_short` | number, optional | Notes of parts, and merges of notes, that stopped at the output limit or were cut off by the provider. |
 | `notes_left_out` | number, optional | The relevant parts whose notes are not in the answer: the read reached `maxRequests` before it could merge them. New in 0.10.0. |
 | `answer_cut_short` | `true`, optional | The final answer stopped at its output limit. |
 | `notes_only` | `true`, optional | The last step, which writes one answer from the notes, failed, or (since 0.10.0) had no request left within `maxRequests`: `answer` is the notes of the parts, with their line citations. |
-| `note` | string, optional | With `notes_only`: "The last step of this read, which writes one answer from the notes of the parts, failed (REASON). The answer is those notes: answer from them.", or "This read reached the question's limit on model requests before its last step, which writes one answer from the notes of the parts. The answer is those notes: answer from them.", plus "Some of them were cut off at the output limit, so they are incomplete: tell the user." when some were. With `notes_left_out`: "Incomplete: this read reached the question's limit on model requests before it could combine the notes of every part, so the notes of N of the M relevant parts are not in this answer. Tell the user it is incomplete." and the same pointer to exact search as below. Otherwise, when notes or the answer were cut short: "Incomplete: the model's output limit was reached, so some relevant items are missing from this answer. Tell the user it is incomplete. For a complete list or an exact count, use search_document in exact or regex mode (it returns total_matching_lines), or ask about a narrower part of the file." |
+| `note` | string, optional | With `notes_only`: "The last step of this read, which writes one answer from the notes of the parts, failed (REASON). The answer is those notes: answer from them.", or "This read reached the question's limit on model requests before its last step, which writes one answer from the notes of the parts. The answer is those notes: answer from them.", plus "Some of them were cut off at the output limit, so they are incomplete: tell the user." when some were. With `notes_left_out`: "Incomplete: this read reached the question's limit on model requests before it could combine the notes of every part, so the notes of N of the M relevant parts are not in this answer. Tell the user it is incomplete." and the same pointer to exact search as below. Otherwise, when notes or the answer were cut short: "Incomplete: the model's output limit was reached, so some relevant items are missing from this answer. Tell the user it is incomplete. For a complete list or an exact count, use search_document in exact or regex mode (it returns total_matching_lines), or ask about a narrower part of the file." With `parts_that_failed` (since 0.99.13), after any of these: "Incomplete: F of the M parts could not be read, so this answer misses what they hold. Tell the user it is incomplete." |
 | `answer` | string | The answer. When no part held anything relevant: "No part of NAME contained anything relevant to: TASK", with the count of parts that could not be read, if any. |
 | `answer_shortened` | string, optional | "The rest of this answer did not fit in the room left in this conversation." The answer was cut at its end, which then reads `…`. |
 
 ```json
 { "document": "novel.txt", "parts_read": 4, "parts_with_relevant_content": 3, "answer": "Ada appears first in chapter 2 (L412) ..." }
 ```
+
+#### A read that lost parts
+
+New in 0.99.13. When parts could not be read even after their retries, the read says so
+everywhere, and a read in which every part was read sends what it sent before, byte for byte:
+
+- **The request for the answer** no longer says the notes cover "all" the parts:
+  "These notes cover 27 of the 29 parts of app.log (2 part(s) could not be read). Parts with
+  nothing relevant are omitted.", followed by "Some parts could not be read, so the notes are
+  incomplete. Say in the answer that it is incomplete."
+- **The result** gets the note "Incomplete: 2 of the 29 parts could not be read, so this answer
+  misses what they hold. Tell the user it is incomplete.", after any other note of the read.
+- **The step** ends with `, incomplete`: "Read all of app.log for “…” — 29 parts, 27 relevant,
+  incomplete" (`, notes only` still wins over it).
+- **The page** gets a [`read_incomplete` notice](./events.md#noticecode-and-noticedisplay), with
+  `counts: { failed: 2, parts: 29 }`. So does a read of items with `parts_failed`.
+- **The stand-in** of the result ([`stubResult`](./ask.md#stubresultcall-result-hadfiles)) keeps
+  `parts_that_failed` and the other fields that say a read is incomplete, with the read's note.
+
+In the test of a question whose read loses 2 of 29 parts, exactly 2 of its 38 requests change:
+the read's request for the answer and the chat request that gets its result. Before 0.99.13 the
+answer could read as complete.
 
 ### Items: `output: "items"`
 
@@ -863,7 +908,7 @@ key or a URL. It is one of:
 | `The model took too long to answer.` | of kind `timeout`; named `TimeoutError`, on the error or its cause (an `AbortSignal.timeout`, or a built-in part reader past its `timeoutMs`); or with undici's code `UND_ERR_HEADERS_TIMEOUT` or `UND_ERR_BODY_TIMEOUT` |
 | `The model could not be reached.` | of kind `unreachable`; or whose code, or that of a cause up to 3 levels down, is that of a connection that failed: `ECONNREFUSED`, `ECONNRESET`, `ECONNABORTED`, `ENOTFOUND`, `EAI_AGAIN`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`, `ENETDOWN`, `EPIPE`, `UND_ERR_CONNECT_TIMEOUT`, `UND_ERR_SOCKET`, `UND_ERR_CLOSED`, `UND_ERR_DESTROYED` |
 | `The model failed on its side (HTTP 503).` | of kind `server` |
-| `The model refused the key or token it was sent (HTTP 401).` | of kind `auth` |
+| `The model refused the key or token it was sent (HTTP 401).` | of kind `auth`. Since 0.99.13 also a key or token function that failed for any reason but a connection, with no status: `The model refused the key or token it was sent.` ([key and token functions](./errors-and-retries.md#key-and-token-functions)) |
 | `The model refused the request (HTTP 400).` | of kind `invalid` |
 | `The model's reply could not be read (HTTP 200).` | of kind `invalid` with a status from 200 to 299: a reply that was not JSON, or a streamed event too long |
 | `The model returned no text (SAFETY).` or `The model returned no text.` | the error a built-in part reader throws for a reply with no text. The provider's reason is given only when it is a plain word (letters and `_`, up to 40). |
@@ -1195,11 +1240,11 @@ throws.
 
 | The result has | The suffix |
 |---|---|
-| `error` | ` — failed:` and the error, as in ` — failed: Unknown tool “do_magic”.` |
+| `error` | ` — failed:` and the error, as in ` — failed: Unknown tool “do_magic”.` Since 0.99.13, for a result the tool set returned whose error quotes the document (a column error of `aggregate_table`, a `read_document` past the end of a workbook), the library's words instead: ` — failed: No such column in this table, which has 6 columns.` A copy of such a result is told as it is |
 | `total_matching_lines` (exact, regex) | ` — 1,203 matching lines` (numbers in en-US form), ` — 1 matching line` for one. With `total_groups` (`group_by`): ` — 214 matching lines in 3 groups`, ` in 1 group` for one |
 | `passages` (keywords) | ` — 5 passages`, ` — 1 passage` for one |
 | `total_items` and `parts_read` (a whole-file read that lists items, since 0.10.0) | ` — 37 items in 5 parts` (` — 1 item in 1 part` for one), then `, 2 not counted` with `unverified_items`, and `, incomplete` with `parts_failed` or `parts_cut_short` |
-| `parts_read` (whole-file read) | ` — 9 parts, 3 relevant` (` — 1 part, 1 relevant` for one), then `, notes only` with `notes_only`, or `, incomplete` with `notes_cut_short`, `notes_left_out` (since 0.10.0) or `answer_cut_short` |
+| `parts_read` (whole-file read) | ` — 9 parts, 3 relevant` (` — 1 part, 1 relevant` for one), then `, notes only` with `notes_only`, or `, incomplete` with `parts_that_failed` (since 0.99.13), `notes_cut_short`, `notes_left_out` (since 0.10.0) or `answer_cut_short` |
 | `lines` and `total_lines` (read) | ` — got 1200-1342` when the label does not end with the lines shown, else `""` |
 | `pages` and `total_pages` (view_pages) | ` — got page 2` or ` — got pages 2-3` when the label does not end with the pages shown, else `""` |
 | anything else (an overview, a cut result) | `""` |

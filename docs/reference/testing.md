@@ -17,6 +17,9 @@ import type { DocumentScope, DocumentStore, GenerateText, ModelAdapter, ModelCap
 The entry point depends on no test framework: it works with Vitest, Jest or `node:test`. It is
 code to import in tests, not in your server, but it does nothing when it is loaded.
 
+An [`AskResult`](./ask.md#askresult) you build by hand for a test needs `modelText` since 0.99.13,
+where the field is required: give it the same text as `text`.
+
 ## Contents
 
 - [A scripted model](#a-scripted-model): [`fakeModel()`](#fakemodelscript-options),
@@ -47,7 +50,7 @@ A [`ModelAdapter`](./ask.md#modeladapter) that answers each request with the nex
 |---|---|
 | A reply (`Partial<ModelReply>`) | Returns it, with `text` `""` and `calls` `[]` where it has none. |
 | An `Error` | Throws it, as an adapter throws a request that failed. |
-| A function `(request, call, hooks)` | Calls it with the request, its number (1 for the first) and the hooks, and uses what it returns (or resolves to) as above. |
+| A function `(request, call, hooks)` | Calls it with the request, its number (1 for the first) and the hooks, and uses what it returns (or resolves to) as above. Since 0.99.13 `hooks.onRefresh` is there when the question has an event listener: call it to play a token refreshed after a 401, which the loop tells as a `retry` event with `reason: "auth_refresh"`. |
 
 When the loop passes `hooks.onText` (your code set `onText` or `streamText`, or uses `askStream`),
 the text of a reply is passed to it in two pieces, as a stream would arrive.

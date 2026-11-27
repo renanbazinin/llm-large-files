@@ -45,8 +45,8 @@ export function lostFacts(baseline: CaseRun[], now: CaseRun[]): LostFact[] {
 
 /**
  * Why the runs of one case on one model fail the gate, or nothing: a question that ended with an
- * error or was not asked; pass^k missed by a case not known to fail on 0.9.0 (`failsOn090`); a fact
- * lost against the baseline.
+ * error or was not asked; pass^k missed by a case not known to fail on 0.9.0 (`failsOn090`), nor on
+ * the runs' model (`failsOn`, 0.99.13); a fact lost against the baseline.
  */
 export function gateProblems(evalCase: EvalCase, runs: CaseRun[], baseline: CaseRun[] = []): string[] {
   const problems: string[] = [];
@@ -56,7 +56,8 @@ export function gateProblems(evalCase: EvalCase, runs: CaseRun[], baseline: Case
     }
   }
   const passed = runs.filter((run) => run.passed).length;
-  if (passed < runs.length && !evalCase.failsOn090) {
+  const knownToFail = evalCase.failsOn090 !== undefined || (runs.length > 0 && runs.every((run) => evalCase.failsOn !== undefined && Object.hasOwn(evalCase.failsOn, run.model)));
+  if (passed < runs.length && !knownToFail) {
     const failed = [...new Set(runs.flatMap((run) => run.questions.flatMap((question) => question.facts.filter((fact) => fact.status === "fail").map((fact) => `question ${question.turn}: ${fact.fact}`))))];
     problems.push(`pass^${runs.length} missed: ${passed} of ${runs.length} runs passed${failed.length ? ` (failed: ${failed.join("; ")})` : ""}.`);
   }

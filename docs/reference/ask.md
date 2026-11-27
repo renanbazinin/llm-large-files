@@ -301,7 +301,7 @@ The options of `askWithFiles`.
 | `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
 | `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`, and all of them take one kind of file (`capabilities.toolFileTypes`: one small PDF, or, since 0.99.9, each page drawn as an image). It changes nothing for a library that keeps no originals. |
 | `nativeDocuments` | `boolean` | `true` | Send small visual files sent whole (a PDF with a picture or a scanned page, a deck) as the files themselves too, before their text, when every model of the question declares `capabilities.documents` and their original is kept. It changes nothing unless an adapter declares `documents`; `false` sends text only. Another value is a `TypeError` before any request ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). New in 0.99.9. |
-| `showCitations` | `boolean` | `true` | Whether the user sees the answer's line citations. `false`: the model is asked for them all the same (the requests are those of `true`), and `result.citations` checks and lists them (`cited`), but the citations in parentheses, such as `(report.docx L188-L200)`, `(L12)` or `(חוזה.docx שורות 188-200)`, are taken out of `onText`, the `text` events and `result.text`, each with the space before it. Text from a `(` is held back until its `)`, the end of its line or 200 characters, so a citation never shows for a moment. A parenthesis with other words in it, code, a form written in the files the model read (`(L4-L5)` of a medical report), and a citation written into a sentence ("line 12 of the contract says") stay. Another value is a `TypeError` before any request ([Citations the user does not see](#citations-the-user-does-not-see)). New in 0.99.12. |
+| `showCitations` | `boolean` | `true` | Whether the user sees the answer's line citations. `false`: the model is asked for them all the same (the requests are those of `true`), and `result.citations` checks and lists them (`cited`), but the citations in parentheses, such as `(report.docx L188-L200)`, `(L12)` or `(חוזה.docx שורות 188-200)`, are taken out of `onText`, the `text` events and `result.text`, each with the space before it. Text from a `(` is held back until its `)`, the end of its line or 200 characters, so a citation never shows for a moment. A parenthesis with other words in it, code, a form written in the files the model read (`(L4-L5)` of a medical report), and a citation written into a sentence ("line 12 of the contract says") stay. Since 0.99.13 [`AskResult.modelText`](#askresult) keeps the answer as the model wrote it, citations included: send that back as the assistant turn. An answer made only of citations is not shown empty: the lines it cited are shown in words ("line 8", "שורה 8"), with a `citations_only` notice. Another value is a `TypeError` before any request ([Citations the user does not see](#citations-the-user-does-not-see)). New in 0.99.12. |
 | `onText` | `(delta: string) => void` | none | The answer's text as it arrives. With it, `streamText` defaults to `true`, and the adapter streams when it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
 | `streamText` | `boolean` | `true` with `onText`, and in [`askStream`](#askstreamoptions); `false` otherwise | Whether to ask the model for the answer as it is written: the loop then passes `onText` to the adapter's `send` ([`SendHooks`](#sendhooks)), and an adapter that can stream does. A reply that fails after its first piece of text is not sent again: that text was shown. With `false`, the text of each reply comes once the reply is in, to `onText` and as `text` events, and a reply that fails can be sent again. A listener of the events alone (`onEvent` without `onText`) does not change how the model is asked. New in 0.7.0. |
 | `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry of a chat request ("The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…"), and "Writing the answer…" before the request for the answer. Show it as plain text: a tool call's line can quote the model's words. The retries of a whole-file read's requests are not told here: they come only as `retry` events. |
@@ -309,8 +309,9 @@ The options of `askWithFiles`.
 | `onEvent` | `(event: AskEvent) => void` | none | Everything the question does, as typed events in order: `run.start`, the `plan`, each model request (`request.start`, `retry`, `request.end`), each tool call (`tool.start`, `tool.progress`, `tool.end`), the text, the notices, and last `run.finish` or `run.error`. See [events](./events.md). `onText`, `onActivity` and `onStep` still get the same strings, at the same moments. A model error in an event is told by its kind and status, never in the provider's words ([`EventError`](./errors-and-retries.md#errors-in-events-eventerror)). Tool results are left out unless `eventResults` is set. A throw from it ends the question with that error ([a listener that throws](./events.md#a-listener-that-throws)). New in 0.7.0. |
 | `runId` | `string` | `"run_"` and 16 hex digits | The `runId` of every event of the question. Pass your own to find the events in your logs. New in 0.7.0. |
 | `questionId` | `string` | none | A stable ID of this question, made by the client for the turn, such as a UUID, and the same when the request is sent again: 1 to 128 letters, digits, `.`, `_`, `:` or `-`, starting with a letter or a digit ([`QUESTION_ID_PATTERN`](#question-ids)). Every event of the question (`EventBase.questionId`) and its result carry it. On its own it only labels the question: [`createQuestionRegistry()`](#question-ids) runs questions by it. It is never sent to the model: the requests are the same with and without it. Another value is a `TypeError` before any request. New in 0.99.9. |
-| `eventResults` | `boolean` | `false` | Put each tool result in its `tool.end` event (`result`), and `toolTurns` in the result that `run.finish` and `run.error` carry. Off by default: results hold the text of the documents, and events are often sent on to a browser. The result `askWithFiles` returns always has `toolTurns`. New in 0.7.0. |
+| `eventResults` | `boolean` | `false` | Put each tool result in its `tool.end` event (`result`), and `toolTurns` in the result that `run.finish` and `run.error` carry. Off by default: results hold the text of the documents, and events are often sent on to a browser. The result `askWithFiles` returns always has `toolTurns`. Either way, since 0.99.13, a tool error that quotes the document (the column names of a table, the sheet names of a workbook) reaches `tool.end.error` and the steps in the library's words, with a count; the model, and `result` with `eventResults`, get it whole ([what events carry](./events.md#tool-errors-that-quote-the-document)). New in 0.7.0. |
 | `storeRounds` | `"full" \| "compact"` | `"full"` | How `result.toolTurns` holds the results of the question's calls. `"full"`: as the model had them. `"compact"`: each large result replaced by its stand-in ([`stubResult`](#stubresultcall-result-hadfiles)), as [`compactToolTurns`](#compacttoolturnsturns) makes it, so a stored question takes a few hundred bytes for most calls instead of up to 24,000 characters (the stand-in of a whole-file read keeps its notes, up to 6,000 characters). A later question sends the stand-ins, and the model reads again what it needs, at the price of a tool call. The requests of this question are the same either way. Another value is a `TypeError`. New in 0.10.2. |
+| `touchOnUse` | `boolean` | `false` | Touch the documents the question plans ([`files.touch`](./library.md#filestouchid-access)) once less than half of their time to live is left, so that a chat that still uses its files keeps them. With the default `ttlMs` of 72 hours, a file used 47 hours after its upload is kept 72 hours from then, and one used at 10 hours is not touched, with no store call. Each touched document costs 2 store calls (its metadata read, then written), 8 documents at a time, before the first model request; what is sent to the model does not change. A document found gone meanwhile is left alone. The touches are best effort: one that the store fails leaves that document's expiry as it was, and the question goes on. A library that `createLargeFiles` did not make is taken to have the default 72 hours, by `Date.now()`, and its `touch` is called; one without `touch` is a `TypeError`, and so is a store without `patchMeta`. A document that never expires (`ttlMs: Infinity`) is never touched. Another value is a `TypeError` before any request. Off by default: how long files are kept is the application's to say ([missing documents](#missing-documents)). New in 0.99.13. |
 | `filteredAnswer` | `"keep" \| "drop"` | `"keep"` | What to do with an answer that a filter of the provider stopped (`result.finish` `"filtered"`). `"keep"` keeps its text, as in 0.9, with `answered: true` when it has some. `"drop"` gives `answered: false` and `text: ""`. Text that was already sent (`onText`, `text` events) cannot be taken back: the `answer_filtered` notice then has `discardText: true`, before `run.finish`, and the page takes the text away. Text of a reply that was not streamed is not sent at all. Any other value (`"Drop"`, `true`) is a `TypeError` before any request: it would keep an answer that was meant to be dropped. See [filtered and cut answers](../guides/errors-and-reliability.md#filtered-and-cut-answers). New in 0.10.0. |
 | `onToolResult` | `(context: ToolResultContext) => ToolResultVerdict \| undefined \| Promise<ToolResultVerdict \| undefined>` | none | Called with the result of every tool call that ran, as soon as it is in (the hooks of one turn may run at the same time), before the model, the evidence, the steps and the events get it ([`ToolResultContext` and `ToolResultVerdict`](#toolresultcontext-and-toolresultverdict)). A call that was refused, not run, or answered with a pointer is not passed to it. What it throws, or a value of another shape, ends the question. For data loss prevention: [security](../security.md#tool-results-ontoolresult). New in 0.10.0. |
 | `signal` | `AbortSignal` | none | Stops the question: the request under way is aborted through the adapter, tool calls stop, and nothing is sent again. `askWithFiles` then throws the signal's reason, at once: the loop does not wait for an adapter, or a part reader, that does not look at the signal. A request left running that way may be billed by the provider, and is not counted in the usage. Since 0.10.0 the loop does not wait either for `files.prepare`, a tool call or `onToolResult` once it aborts, and it passes the signal on with the access of the question (`PrepareOptions.signal`, `ToolOptions.access.signal`), for a library that ends its own waits for the store with it. |
@@ -363,6 +364,7 @@ question that failed.
 | Field | Type | What it holds |
 |---|---|---|
 | `text` | `string` | Everything the answering model wrote, as `onText` got it: a remark made before a tool call, then `"\n\n"` and the answer. With an explorer, only what `model` wrote. `""` when nothing was written. With `showCitations: false`, without its citations in parentheses, as it was shown (since 0.99.12). |
+| `modelText` | `string` | What the model wrote, as it wrote it: `text` with its citations, whatever `showCitations` says. Equal to `text` with `showCitations: true`, the default. Store it with the conversation and send it back as the assistant turn of a later question, and show `text`: the requests of that question are then the ones they would be with citations shown. Replayed over 16 recorded follow-ups with `showCitations: false`, history built from `modelText` sends the same requests in 16 of 16, and history built from `text` in 7 of 16. In the result of `run.finish`, in the `partial` of `run.error` and in what `partialResultOf` gives; never in what [`sseMessageOf`](./events.md#ssemessageofevent) sends to a browser, since it holds the citations that were hidden. Required: an `AskResult` you build by hand, such as a mock in a test, needs it. New in 0.99.13. |
 | `answered` | `boolean` | True when the last reply had text that is not blank, and the provider did not refuse the prompt. False when the prompt was refused (`blockReason`), or the last reply had no text: it was cut off or filtered before any text, or the request for the answer came back without text, and so did its second try. A turn whose tool call could not be read is not the answer, even with a remark in it: the answer is asked for (since 0.10.0; before, the remark was the answer). With `filteredAnswer: "drop"`, false for a filtered answer. `text` may then be empty, or hold a remark made before a tool call, or the start of a reply that was refused: show your own message ([`answerInfoOf`](#answerinfo) says which). |
 | `blockReason` | `string`, optional | Why the provider refused the prompt, in the adapter's words. Set only then. Nothing more is asked after a refusal. |
 | `steps` | `string[]` | Each finished step, in order: a line for each tool call, run or refused ("Search app.log (exact) for “timeout” — 12 matching lines", or "… — already shown above"), one for the calls of a turn over `callsPerTurn`, and one when the loop shortened older results, asked again after an empty or broken reply, or planned the documents again. The second try of the answer says "The model's answer was empty: it was asked again" or "The model called a tool instead of answering: it was asked again for the answer". The lines `onStep` got. Each is one line of plain text: a line break, a tab or another control character in what the model sent becomes one space with the blanks around it; the invisible characters that file text loses are dropped (text-direction overrides and isolates, zero-width spaces, word joiners, soft hyphens, tag characters); `](` becomes `] (`, so that a markdown link or picture stays text. A query is cut at 80 characters and a task at 100, never in the middle of a character. Steps still quote the model's words, HTML tags and web addresses included: show them as plain text, never as markdown or HTML. |
@@ -477,6 +479,11 @@ nothing. It is settled before any model request.
 
 A question planned again for a smaller window (after the provider refused its first request) keeps
 what was settled: the function is not asked again about the same documents.
+
+To keep a chat's files from expiring while the chat still uses them, pass `touchOnUse: true`
+(new in 0.99.13): each question then touches the documents it plans once less than half of their
+time to live is left. With the default 72 hours, a file used at 47 hours is still there at 73
+hours; without the option it is gone, and the next question finds it missing.
 
 ```ts
 import { askWithFiles, IngestError, type AskResult, type LargeFiles, type MissingDocumentsAction, type ModelAdapter } from "llm-large-files";
@@ -711,6 +718,26 @@ const sources = (result.citations?.cited ?? [])
   .map((cited) => (cited.from === cited.to ? `${cited.document}, line ${cited.from}` : `${cited.document}, lines ${cited.from}-${cited.to}`));
 ```
 
+Keep `result.modelText` for the history (since 0.99.13): it has the citations the user did not
+see. Sent back as the assistant turn, it makes the requests of later questions those they would be
+with citations shown: 16 of 16 recorded follow-ups, against 7 of 16 with the shown `text`:
+
+```ts
+import { askWithFiles, type ChatMessage } from "llm-large-files";
+
+// files, model and documentIds as in any question.
+declare const earlier: ChatMessage[]; // the chat so far, its answers stored as modelText
+const question = "And the penalty for paying late?";
+const answer = await askWithFiles({ files, model, documentIds, messages: [...earlier, { role: "user", text: question }], showCitations: false });
+// Show answer.text; keep answer.modelText as the model's turn of the history.
+const next: ChatMessage[] = [
+  ...earlier,
+  { role: "user", text: question },
+  ...answer.toolTurns,
+  ...(answer.answered ? [{ role: "assistant" as const, text: answer.modelText }] : []), // never an answer that is not one
+];
+```
+
 What goes is a parenthesis that holds citations alone: line and row citations in any of the forms
 above, file names (the question's, or any name with a known extension such as `.docx` or `.pdf`,
 also in backticks or quotes), document IDs (the tool guide shows them, and a model may cite
@@ -737,6 +764,19 @@ What stays as written:
 | A document ID that is a word of the files, or the file's name | `(form-7)` of a file that says "use form-7", `(report.docx)` | It means something to the user. |
 | A citation outside parentheses, or in brackets | `line 12 of the contract says`, `[L12]` | Rare in answers (none and 3 in 160), and brackets may be a link. |
 | A parenthesis that does not close on its line within 200 characters | | The longest citation in 160 answers was 144 characters. |
+
+**An answer made only of citations** (new in 0.99.13). When what a request shows has nothing left
+but spaces and punctuation once its citations are taken out (no letter, digit or symbol), the lines
+it cited are shown in words after it, without the file names: "line 8", "lines 2 and 3",
+"lines 4–6", "row 12" when every citation is a row; "שורה 8", "שורות 3 ו-8" in Hebrew. In Hebrew
+"שורה" is also a row, so a line citation of a workbook, whose line 7 may be its Row 400, reads
+"שורה 7 בטקסט" (line 7 of the text). Hebrew words
+are used when the answer or the question has Hebrew letters, English when either has words in
+Latin letters, and otherwise by the names of the files. A `citations_only` notice (display
+`"none"`) says so, once a question. The words reach `onText`, the `text` events and `result.text`;
+`modelText`, `citations` and `answered` (still true) do not change. Before 0.99.13, such an answer
+was shown empty and reported answered and complete: 4 of 4 in the tests, 0 of 4 now.
+`hideCitations` and `CitationHider` do not add the words.
 
 `hideCitations(text, names?, content?)` does the same over a whole text, and `CitationHider` a
 piece at a time, for a loop of your own: `push(delta)` gives what can be shown now, and `flush()`
@@ -1269,13 +1309,18 @@ it.
 ### `SendHooks`
 
 ```ts
-type SendHooks = { onText?: (delta: string) => void; signal?: AbortSignal };
+type SendHooks = {
+  onText?: (delta: string) => void;
+  signal?: AbortSignal;
+  onRefresh?: (refused: unknown) => void; // new in 0.99.13
+};
 ```
 
 | Field | What it holds |
 |---|---|
 | `onText` | Called with the reply's text as it arrives. The loop gives it only for a reply that is shown (never an explorer's) and only when the text is asked for as it is written: `streamText`, on by default with `onText` and in `askStream` (until 0.7.0, whenever the application gave `onText`). An adapter streams when it is given and it can; one that does not stream calls it once the reply is in: `openAiCompatible()`, `openAiResponses()` and `anthropic()` once with the whole text, `gemini()` once for each text part. The text is in `reply.text` either way, and the loop passes on what the adapter did not. The deltas must add up to the start of `reply.text`: the loop passes on the rest of `reply.text` only when it starts with what was streamed, and `result.text` is what was passed on. |
 | `signal` | The question's signal. Pass it to the request. |
+| `onRefresh` | Call it when a request refused with HTTP 401 is sent again at once with a new token, just before the token is asked for, with the 401 as `refused`. The loop tells it as a [`retry` event](./events.md#retry) with `reason: "auth_refresh"`, `attempt: 1` and `delayMs: 0`, and not to `onActivity`. `gemini()` calls it when its endpoint is `refreshable` (`vertexAi({ accessToken })` as a function). The loop gives it only when the question has an event listener. New in 0.99.13. |
 
 ### `ModelReply`
 
@@ -1317,6 +1362,7 @@ type GenerateText = (request: {
   signal?: AbortSignal;
   onTruncated?: () => void;
   onUsage?: (usage: GenerateUsage) => void;
+  onRefresh?: (refused: unknown) => void; // new in 0.99.13
 }) => Promise<string>;
 ```
 
@@ -1332,6 +1378,7 @@ library stays provider-neutral by taking it as a function: `ModelAdapter.generat
 | `signal` | Stops the read. Pass it to the request. |
 | `onTruncated` | Optional to call. Call it when the model stopped because it reached `maxOutputTokens`, so the read can say its result is incomplete. |
 | `onUsage` | Optional to call. Call it once for every request that was answered, with the tokens it used. In `askWithFiles`, a call of `generateText` that never calls it is counted as one request with no tokens. |
+| `onRefresh` | Optional to call, as `SendHooks.onRefresh`: when a request refused with HTTP 401 is sent again at once with a new token. The read tells it as a `retry` event of its `"reader"` request, with `reason: "auth_refresh"`. New in 0.99.13. |
 
 Throw a `ModelRequestError` for a request that failed, as `send` does: the part is sent again by
 the rule of `retry`, and an error without a status is tried once more. The model that asked for the
@@ -1590,7 +1637,7 @@ to 1,073), and replaced the result it was meant to shorten. Otherwise, by tool:
 | `read_document` | `lines`, `total_lines` |
 | `search_document` | `mode`, `query` (its first 200 characters), `total_matching_lines`, `lines_shown` (up to 60 ranges, such as `"120-180"`, the last match's among them when the search showed it); with `group_by`, `group_by`, `total_groups` and the first 30 `groups` |
 | `aggregate_table` | `table`, `rows_matched`, `total_groups`, and the first 30 `groups` |
-| `analyze_whole_document` | `parts_read`, and the first 6,000 characters of `answer`, followed by "…" when it was longer: the answer cannot be asked for again |
+| `analyze_whole_document` | `parts_read`, and the first 6,000 characters of `answer`, followed by "…" when it was longer: the answer cannot be asked for again. A read that lists items (`output: "items"`): `parts_read`, `total_items`, `counts_by_label`, `unverified_items` and the first 20 `items`. Since 0.99.13 the stand-in of an incomplete read also keeps every field that says so (`parts_that_failed`, `notes_cut_short`, `notes_left_out`, `notes_only`, `answer_cut_short`; for items, `parts_failed`, `parts_cut_short` and `more_items`, counted again against the 20 items kept), with the read's own note after the stand-in's, so a later question still knows the answer is incomplete. The stand-in of a complete read is unchanged |
 | `view_pages` | `pages`, `total_pages` |
 | `get_document_overview`, any other | nothing more than `document` and the note |
 

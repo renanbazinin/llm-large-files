@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { errorInfoOf, retryAfterOfCode, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE } from "../error-info.js";
+import { errorInfoOf, retryAfterOfCode, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE, type ErrorCategory, type ErrorInfo } from "../error-info.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type IngestErrorCode } from "../errors.js";
 import { eventStream, newRunId, withoutCredentials, type EventError, type IngestEvent } from "../events.js";
 import { checkAppData, reusedHere } from "../ingest.js";
@@ -149,12 +149,34 @@ export type RemovedContext = {
 /**
  * An error as the upload handler answers it (`uploadAnswerOf`): the HTTP status, the message of
  * the JSON body `{ "error": … }`, the `IngestErrorCode` of a file that could not be read, and how
- * long to wait before trying again (the `Retry-After` header of a 503). New in 0.9.0.
+ * long to wait before trying again (the `Retry-After` header of a 503). Since 0.99.13 the body
+ * also holds the `code` and `category` of `errorInfoOf` (see `ErrorBody`). New in 0.9.0.
  */
 export type UploadAnswer = {
   status: number;
   error: string;
   code?: IngestErrorCode;
+  retryAfterMs?: number;
+};
+
+/**
+ * The JSON body of every error the handlers answer (a status of 400 or more), since 0.99.13:
+ * - `error`: the words of the answer, in English, as before 0.99.13 (the body held only them);
+ * - `code` and `category`: those `errorInfoOf` gives the same error, so that a page tells the
+ *   failure in its own words and language ("legacy_office" and "empty" are told apart). `code` is
+ *   left out when `errorInfoOf` has none. The handlers' own refusals ("Sign in first.", a file with
+ *   no name, an upload that stopped arriving) and an error with a status thrown by a hook of yours
+ *   are read as the upload's `ingest.error` holds them (`{ message, status }`): category
+ *   "unknown", with no code. A file larger than `maxUploadBytes` is "ingest" and "too_large",
+ *   whether the handler or `ingest` refused it, and a document that `get` does not find is
+ *   "missing" and "documents_missing";
+ * - `retryAfterMs`: how long to wait before trying again, when the answer sets `Retry-After` (a
+ *   store that failed: 5000, with `Retry-After: 5`).
+ */
+export type ErrorBody = {
+  error: string;
+  code?: string;
+  category: ErrorCategory;
   retryAfterMs?: number;
 };
 
@@ -282,12 +304,49 @@ export type DocumentHandlerOptions = {
    * 0 or `Infinity` for no limit. Defaults to 30,000. New in 0.8.2.
    */
   uploadIdleTimeoutMs?: number;
+  /**
+   * Refuses a request that a page of another site made a browser send, on the routes that change
+   * what is stored: `upload` and `remove`. Without it, a page anywhere can make a signed-in user's
+   * browser upload a file into their chat, with their cookie: a form with `enctype="text/plain"`
+   * posted to the upload route with `?name=` is a "simple" request, sent with no preflight. `get`
+   * and `list` change nothing, and a browser does not let another site read their answers.
+   *
+   * A request is refused, with a 403 `{"error":"This request came from a page of another site, and
+   * was refused.","category":"unknown"}`, before `getOwner` or any hook is called and before its body is read (nothing is
+   * stored), when:
+   * - its `Sec-Fetch-Site` header says "cross-site", or
+   * - its `Origin` header is not the request's own origin, unless `Sec-Fetch-Site` says
+   *   "same-origin".
+   *
+   * An `Origin` listed in `allowedOrigins` is never refused. A request with neither `Sec-Fetch-Site`
+   * nor `Origin` is allowed: a browser sends them with every such request (`Sec-Fetch-Site` since
+   * 2023 in each of the main browsers, `Origin` with every POST and DELETE), and a server or `curl`
+   * sends none, and carries no user's cookie unless it was given one.
+   *
+   * A page cannot set or change these headers, nor `Host`. The request's own origin is read as the
+   * browser wrote the URL: the scheme of the first `X-Forwarded-Proto` (a proxy's), else "https" on
+   * a TLS connection and "http" otherwise, and the host of the first `X-Forwarded-Host`, else of
+   * `Host` (`:authority` over HTTP/2). It is needed only for a browser that sends no
+   * `Sec-Fetch-Site`. Behind a proxy that changes `Host` or ends TLS without saying so in these
+   * headers, list your site's own origin in `allowedOrigins`, or such a browser's uploads are refused
+   * (it fails closed). Defaults to false. New in 0.99.13. It becomes the default in 1.0.
+   */
+  refuseCrossSite?: boolean;
+  /**
+   * The origins of other sites whose pages may upload and delete under `refuseCrossSite`, such as
+   * `["https://app.example.com"]`: a scheme, a host and a port when it is not the scheme's own,
+   * with no path. Compared with the request's `Origin` header as a browser writes it (letter case
+   * and a default port do not matter). Only with `refuseCrossSite: true` (a TypeError otherwise).
+   * New in 0.99.13.
+   */
+  allowedOrigins?: readonly string[];
 };
 
 /**
  * The handlers answer every request themselves, errors included, and never reject: they can be
  * called without a `catch`, from `node:http`, from Express 4 (which does not catch a rejected
- * promise) or from Express 5.
+ * promise) or from Express 5. An error is answered with its status and a JSON `ErrorBody`
+ * (`{ error, code, category, retryAfterMs? }`; only `{ error }` before 0.99.13).
  */
 export type DocumentHandlers = {
   /**
@@ -296,6 +355,7 @@ export type DocumentHandlers = {
    * writes is answered with a 503 and `Retry-After`. Any other error is answered as
    * `uploadAnswerOf` says. The body is held in memory, or, with the `path` of `prepareUpload` or
    * with `uploadSpool`, written to a file as it arrives and ingested from its path (new in 0.9.0).
+   * With `refuseCrossSite` (0.99.13), a request from a page of another site is answered 403 first.
    *
    * When the request's `Accept` header names `text/event-stream` (not with `q=0`, nor only through a
    * wildcard), a file that passes the checks of the name, the owner, the scope and the size (which
@@ -312,7 +372,8 @@ export type DocumentHandlers = {
   /**
    * DELETE: removes the document, then calls `onRemoved`. Responds `{ deleted: boolean }`. A store
    * that does not answer within the library's `storeTimeoutMs`, or too many stuck calls, is a 503
-   * with `Retry-After` (0.10.0).
+   * with `Retry-After` (0.10.0). With `refuseCrossSite` (0.99.13), a request from a page of another
+   * site is answered 403 first.
    */
   remove(request: IncomingMessage, response: ServerResponse, id: string): Promise<void>;
   /**
@@ -392,33 +453,57 @@ function waitFor<T>(promise: Promise<T>, ms: number, signal: AbortSignal): Promi
 }
 
 /**
- * An error as the handlers answer it, `failed` saying what failed ("Upload failed"). See
- * `uploadAnswerOf`. It never throws: an error whose fields throw when read is a 500.
+ * An answer of the handlers, with the `code` and `category` of its JSON body (`ErrorBody`, 0.99.13):
+ * what `errorInfoOf` tells of the error.
  */
-function answerFor(error: unknown, failed: string): UploadAnswer {
-  const plain: UploadAnswer = { status: 500, error: `${failed}.` };
+type Answered = UploadAnswer & { info: Pick<ErrorInfo, "code" | "category"> };
+
+/** The `code` and `category` of an `ErrorInfo`, the code left out when it has none. */
+const kindOf = (info: ErrorInfo): Answered["info"] => ({ ...(info.code !== undefined ? { code: info.code } : {}), category: info.category });
+
+/**
+ * An error as the handlers answer it, `failed` saying what failed ("Upload failed"). See
+ * `uploadAnswerOf`. It never throws: an error whose fields throw when read is a 500. Its `info` is
+ * `errorInfoOf`'s of the error, except for an answer made of a status and words that `errorInfoOf`
+ * would read as a model's error (a status of 400 to 599, with no `kind`): the handlers' own
+ * refusals, and an error with a status from a hook of yours. Those are read as the upload's
+ * `ingest.error` holds them, `{ message, status }`; a 413 of the handlers with the code "too_large"
+ * of the same refusal by `ingest`.
+ */
+function answerFor(error: unknown, failed: string): Answered {
+  const plain = (): Answered => ({ status: 500, error: `${failed}.`, info: kindOf(errorInfoOf(error)) });
+  /** An answer of a status and words, read as its event holds them. */
+  const told = (status: number, words: string, code?: IngestErrorCode): Answered => ({
+    status,
+    error: words,
+    info: kindOf(errorInfoOf({ message: words, status, ...(code !== undefined ? { code } : {}) })),
+  });
   try {
-    if (error instanceof HttpError) return { status: error.status, error: error.message || plain.error };
+    if (error instanceof HttpError) return told(error.status, error.message || `${failed}.`, error.status === 413 ? "too_large" : undefined);
     if (IngestError.is(error)) {
       const status = isErrorStatus(error.status) ? error.status : 422;
       return {
         status,
         // An unreadable file has the words of a parser, or of an extractor of your own, which may
         // name a host: not words for a user (as for errorInfoOf).
-        error: error.code === "unreadable" ? UNREADABLE_MESSAGE : typeof error.message === "string" && error.message ? error.message : plain.error,
+        error: error.code === "unreadable" ? UNREADABLE_MESSAGE : typeof error.message === "string" && error.message ? error.message : `${failed}.`,
         code: error.code,
         ...(status === 503 && isWait(error.retryAfterMs) ? { retryAfterMs: error.retryAfterMs } : {}),
+        info: kindOf(errorInfoOf(error)),
       };
     }
     // Its message names what failed and a code, never a path or a host.
-    if (DocumentStoreError.is(error)) return { status: 503, error: errorInfoOf(error).message, retryAfterMs: STORE_RETRY_AFTER_MS };
+    if (DocumentStoreError.is(error)) {
+      const info = errorInfoOf(error);
+      return { status: 503, error: info.message, retryAfterMs: STORE_RETRY_AFTER_MS, info: kindOf(info) };
+    }
     // A scope the server gave wrong, or did not give, is its own bug: not the client's to fix.
-    if (DocumentScopeError.is(error)) return error.code === "scope_missing" ? { status: 404, error: CHAT_GONE } : plain;
+    if (DocumentScopeError.is(error)) return error.code === "scope_missing" ? { status: 404, error: CHAT_GONE, info: kindOf(errorInfoOf(error)) } : plain();
     // A model's error (an ingest or a hook of your own that asks one): its status is the provider's,
     // and its message the provider's words, which may name a project or a key.
     if (ModelRequestError.is(error) || errorKindOf(error) !== undefined) {
       const info = errorInfoOf(error);
-      if (info.category === "model") return { status: info.status, error: info.message, ...(info.status === 429 || info.status === 503 ? retryOf(info.retryAfterMs) : {}) };
+      if (info.category === "model") return { status: info.status, error: info.message, ...(info.status === 429 || info.status === 503 ? retryOf(info.retryAfterMs) : {}), info: kindOf(info) };
     }
     const status = statusOf(error);
     if (status !== undefined) {
@@ -426,15 +511,17 @@ function answerFor(error: unknown, failed: string): UploadAnswer {
       // is never meant for one (0.99.10): the user and password of a URL, the value of a key or a
       // token in one (`withoutCredentials`). An SDK's error with a status can hold them.
       const message = (error as Error).message;
-      return { status, error: typeof message === "string" && message ? withoutCredentials(message) || plain.error : plain.error, ...(status === 503 ? retryOf((error as { retryAfterMs?: unknown }).retryAfterMs) : {}) };
+      const words = typeof message === "string" && message ? withoutCredentials(message) || `${failed}.` : `${failed}.`;
+      return { ...told(status, words), ...(status === 503 ? retryOf((error as { retryAfterMs?: unknown }).retryAfterMs) : {}) };
     }
     const code = systemErrorCode(error);
-    if (!code) return plain;
+    if (!code) return plain();
     // A disk or a service that did not answer just now, or a full disk: 503, to try again (0.10.0).
     const retryAfterMs = retryAfterOfCode(code);
-    return retryAfterMs !== undefined ? { status: 503, error: `${failed} (${code}).`, retryAfterMs } : { status: 500, error: `${failed} (${code}).` };
+    const info = kindOf(errorInfoOf(error));
+    return retryAfterMs !== undefined ? { status: 503, error: `${failed} (${code}).`, retryAfterMs, info } : { status: 500, error: `${failed} (${code}).`, info };
   } catch {
-    return plain;
+    return { status: 500, error: `${failed}.`, info: { category: "unknown" } };
   }
 }
 
@@ -463,20 +550,29 @@ const retryOf = (value: unknown): { retryAfterMs?: number } => (isWait(value) ? 
  * It reads the errors of every copy of the package, and never throws. New in 0.9.0.
  */
 export function uploadAnswerOf(error: unknown): UploadAnswer {
-  return answerFor(error, "Upload failed");
+  const { status, error: message, code, retryAfterMs } = answerFor(error, "Upload failed");
+  return { status, error: message, ...(code !== undefined ? { code } : {}), ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) };
 }
 
 /**
- * Answers a failed request with JSON (see `answerFor`). A 413 of the handler or of `ingest` gets the
- * size message of the upload. An answer that says when to try again (a busy reader, a store, a
- * model's rate limit) sets `Retry-After`.
+ * Answers a failed request with JSON (see `answerFor`), its body an `ErrorBody`. A 413 of the
+ * handler or of `ingest` gets the size message of the upload. An answer that says when to try again
+ * (a busy reader, a store, a model's rate limit) sets `Retry-After`, and the body's `retryAfterMs`.
  */
 function fail(response: ServerResponse, error: unknown, failed: string, tooLarge: string, unread?: Unread): void {
   const answer = answerFor(error, failed);
   if (answer.retryAfterMs !== undefined && !response.headersSent) {
     response.setHeader("Retry-After", String(Math.max(1, Math.ceil(answer.retryAfterMs / 1_000))));
   }
-  send(response, answer.status, { error: messageOf(answer, error, tooLarge) }, unread);
+  send(response, answer.status, errorBody(answer, messageOf(answer, error, tooLarge)), unread);
+}
+
+/**
+ * The JSON body of an error (0.99.13): `error`, the answer's words, then the `code` and `category`
+ * of `errorInfoOf`, then `retryAfterMs` when the answer says when to try again (as `Retry-After`).
+ */
+function errorBody(answer: Answered, words: string): ErrorBody {
+  return { error: words, ...answer.info, ...(answer.retryAfterMs !== undefined ? { retryAfterMs: answer.retryAfterMs } : {}) };
 }
 
 /** A request whose body may not be read to its end when it is answered, and the idle time of its upload (`uploadIdleTimeoutMs`), which bounds the drain of the rest. */
@@ -691,6 +787,75 @@ function spoolOf(value: unknown): Spool | undefined {
   return { directory: path.resolve(directory ?? tmpdir()), minBytes: minBytes ?? 1024 * 1024, sweepAfterMs: sweepAfterMs ?? 24 * 60 * 60 * 1_000 };
 }
 
+/**
+ * An origin as a browser writes it in `Origin` ("https://app.example.com:8443"), in the form that
+ * compares (lower case, without the scheme's own port), or undefined when it is not one: "null",
+ * a value with a path, or several values that came in one header.
+ */
+function originOf(value: string): string | undefined {
+  if (!/^https?:\/\/[^\s,/?#@\\]+$/i.test(value)) return undefined;
+  try {
+    const url = new URL(value);
+    return url.origin === "null" ? undefined : url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The first value of a header a chain of proxies may have given several of ("https, http"), or "". */
+const firstValue = (value: string): string => value.split(",")[0]!.trim();
+
+/**
+ * The request's own origin as the browser that sent it wrote it (see `refuseCrossSite`): the scheme
+ * of the first `X-Forwarded-Proto`, else https on a TLS connection and http otherwise, and the host
+ * of the first `X-Forwarded-Host`, else of `Host` (or `:authority`, over HTTP/2). Undefined when it
+ * cannot be read.
+ */
+function ownOrigin(request: IncomingMessage): string | undefined {
+  const scheme = firstValue(rawHeader(request, "x-forwarded-proto")).toLowerCase() || ((request.socket as { encrypted?: unknown } | undefined)?.encrypted === true ? "https" : "http");
+  const host = firstValue(rawHeader(request, "x-forwarded-host")) || rawHeader(request, "host") || rawHeader(request, ":authority");
+  return host && (scheme === "http" || scheme === "https") ? originOf(`${scheme}://${host}`) : undefined;
+}
+
+/**
+ * Whether a browser sent `request` from a page of another site, which `refuseCrossSite` refuses
+ * (0.99.13): its `Origin` is not in `allowed`, and either `Sec-Fetch-Site` says "cross-site", or
+ * it has an `Origin` that is not the request's own and `Sec-Fetch-Site` does not say
+ * "same-origin". A request with neither header is not. A header that came more than once is read
+ * whole: "cross-site" in any of its values is cross-site, and "same-origin" must be all of them.
+ */
+function fromAnotherSite(request: IncomingMessage, allowed: ReadonlySet<string>): boolean {
+  const origin = rawHeader(request, "origin").trim();
+  const from = origin ? originOf(origin) : undefined;
+  if (from !== undefined && allowed.has(from)) return false;
+  const sites = rawHeader(request, "sec-fetch-site").split(",").map((site) => site.trim().toLowerCase()).filter(Boolean);
+  if (sites.includes("cross-site")) return true;
+  // The browser itself says that the page is of the URL's origin: no page can say so for it.
+  if (sites.length > 0 && sites.every((site) => site === "same-origin")) return false;
+  if (!origin) return false;
+  return from === undefined || from !== ownOrigin(request);
+}
+
+/** What a request `refuseCrossSite` refuses is answered, with a 403 (0.99.13). */
+const CROSS_SITE = "This request came from a page of another site, and was refused.";
+
+/** `refuseCrossSite` and `allowedOrigins`, checked: the origins allowed (normalized), or undefined when nothing is refused. */
+function crossSiteOf(refuse: unknown, origins: unknown): ReadonlySet<string> | undefined {
+  if (refuse !== undefined && typeof refuse !== "boolean") throw new TypeError(`refuseCrossSite must be true or false, and is ${typeof refuse}.`);
+  if (origins === undefined) return refuse ? new Set() : undefined;
+  if (!Array.isArray(origins)) throw new TypeError(`allowedOrigins must be an array of origins, such as ["https://app.example.com"], and is ${typeof origins}.`);
+  if (refuse !== true) throw new TypeError("allowedOrigins is read only with refuseCrossSite: true. Set refuseCrossSite: true, or leave allowedOrigins out.");
+  const allowed = new Set<string>();
+  for (const given of origins as unknown[]) {
+    const origin = typeof given === "string" ? originOf(given.replace(/\/$/, "")) : undefined;
+    if (origin === undefined) {
+      throw new TypeError(`allowedOrigins must hold origins: a scheme (http or https), a host and a port, with no path, such as "https://app.example.com". ${typeof given === "string" ? JSON.stringify(given) : typeof given} is not one.`);
+    }
+    allowed.add(origin);
+  }
+  return allowed;
+}
+
 /** `uploadFileMode`, checked: a file mode from 0 to 0o777. */
 function fileModeOf(value: unknown): number {
   if (value === undefined) return 0o600;
@@ -833,6 +998,12 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
     throw new TypeError("createDocumentHandlers needs getScope: the library requires a scope on every call (requireScope).");
   }
   const idleMs = idleLimit(options.uploadIdleTimeoutMs);
+  /** The origins allowed under `refuseCrossSite`, or undefined when it is off (0.99.13). */
+  const allowedOrigins = crossSiteOf(options.refuseCrossSite, options.allowedOrigins);
+  /** Refuses a request from a page of another site, under `refuseCrossSite`: before anything else is read or called. */
+  const refuseCrossSite = (request: IncomingMessage): void => {
+    if (allowedOrigins !== undefined && fromAnotherSite(request, allowedOrigins)) throw new HttpError(403, CROSS_SITE);
+  };
   /**
    * The documents stored by an upload of this process whose `onUploaded` has not ended, by ID, and
    * whether the hook kept the document (0.99.9). An upload that `dedupe` gives one of them waits
@@ -947,7 +1118,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
         const caller = await callerOf(request, "The file could not be looked up", false);
         const meta = await files.getMeta(id, caller);
         if (meta) send(response, 200, toDocumentSummary(meta));
-        else send(response, 404, { error: "This file is no longer available." });
+        // A document that is gone, as errorInfoOf tells a DocumentsNotFoundError (0.99.13).
+        else send(response, 404, { error: "This file is no longer available.", ...kindOf(errorInfoOf(new DocumentsNotFoundError([id]))) } satisfies ErrorBody);
       } catch (error) {
         fail(response, error, "The file could not be looked up", tooLarge);
       }
@@ -955,6 +1127,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
 
     async remove(request, response, id) {
       try {
+        refuseCrossSite(request);
         const caller = await callerOf(request, "The file could not be deleted", false);
         const deleted = await files.delete(id, caller);
         if (deleted && options.onRemoved) await options.onRemoved(id, { request, ...caller });
@@ -987,6 +1160,8 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
   /** Answers one upload (`upload`): never rejects. */
   async function answerUpload(request: IncomingMessage, response: ServerResponse): Promise<void> {
     try {
+      // A page of another site is refused first: nothing of the upload is read (0.99.13).
+      refuseCrossSite(request);
       const url = new URL(request.url ?? "/", "http://localhost");
       const name = header(request, "x-file-name").trim() || url.searchParams.get("name")?.trim() || "";
       if (!name) throw new HttpError(400, "Name the file with an X-File-Name header or a ?name= query parameter.");
@@ -1126,7 +1301,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
       // A body that stopped arriving is not drained: the answer ends, and so does the connection.
       if (error instanceof HttpError && error.close) {
         if (!response.headersSent) response.setHeader("Connection", "close");
-        send(response, error.status, { error: error.message });
+        send(response, error.status, errorBody(answerFor(error, "Upload failed"), error.message));
         if (response.writableFinished) request.destroy();
         else response.once("finish", () => request.destroy());
         return;

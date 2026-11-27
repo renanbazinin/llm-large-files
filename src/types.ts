@@ -506,8 +506,11 @@ export type ToolCallHooks = {
 
 /** One model request of a tool call (`ToolCallHooks.onRequest`). */
 export type ToolRequestHandle = {
-  /** The request failed and is sent again after `delayMs`. */
-  retry(notice: { attempt: number; delayMs: number; error: unknown }): void;
+  /**
+   * The request failed and is sent again after `delayMs`. `reason` "auth_refresh" (0.99.13): it
+   * was refused with HTTP 401 and is sent again at once with a new token.
+   */
+  retry(notice: { attempt: number; delayMs: number; error: unknown; reason?: "auth_refresh" }): void;
   /** The request ended, after any retries. Call it once. */
   end(end: ToolRequestEnd): void;
 };
@@ -579,6 +582,12 @@ export type GenerateText = (request: {
    * answered request (in `usage.requests` and against `limits.requests`), but not its tokens.
    */
   onUsage?: (usage: GenerateUsage) => void;
+  /**
+   * Call this when a request refused with HTTP 401 is sent again at once with a new token, just
+   * before the token is asked for; `refused` is the 401. A whole-document read tells it as a
+   * `retry` event of reason "auth_refresh". Optional. New in 0.99.13.
+   */
+  onRefresh?: (refused: unknown) => void;
 }) => Promise<string>;
 
 export type ProgressEvent = {

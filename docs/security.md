@@ -193,6 +193,47 @@ body is read.
 The routes, statuses and the rest of the upload flow are in [Web app](./guides/web-app.md) and the
 [node reference](./reference/node.md).
 
+### Uploads from another site's page
+
+The upload route takes a raw body, with the file's name in `X-File-Name` or `?name=`. A form on
+another site can send `POST /api/documents?name=notes.txt` with a `text/plain` body, which needs
+no preflight, and the browser adds the user's cookie: the file is stored in that user's chat, and
+the model reads it with the user's next question, instructions planted in it included
+([Prompt injection](#prompt-injection)). A `DELETE` from another site's script needs a CORS
+preflight, so it is sent only when your server's CORS lets that site in; the refusal below covers
+it too. A `SameSite=Lax` or `Strict` cookie stops this for a cookie session; a
+session in another header (a bearer token) is not sent by such a form at all.
+
+Turn on `refuseCrossSite` (new in 0.99.13; off by default until 1.0, when it becomes the default):
+
+```ts
+import { createDocumentHandlers } from "llm-large-files/node";
+
+// `files` is your createLargeFiles() instance; currentUserId(request) is your sign-in.
+export const documents = createDocumentHandlers(files, {
+  getOwner: (request) => currentUserId(request),
+  refuseCrossSite: true,
+  allowedOrigins: ["https://admin.example.com"], // other sites of yours whose pages upload, if any
+});
+```
+
+`upload` and `remove` then answer `403`
+`{"error":"This request came from a page of another site, and was refused.","category":"unknown"}`
+before `getOwner` or any hook runs and before the body is read, so nothing is stored, when the
+request's `Sec-Fetch-Site` says `cross-site`, or its `Origin` is not the request's own origin and
+`Sec-Fetch-Site` does not say `same-origin`. An `Origin` in `allowedOrigins` is never refused. A
+request with neither header is allowed: browsers send them with every such request, and `curl` or
+another server sends none (and no user's cookie unless it was given one). `get` and `list` change
+nothing, and another site's page cannot read their answers: they are not checked.
+
+- **Behind a proxy**, the request's own origin is read from the first `X-Forwarded-Proto` and
+  `X-Forwarded-Host` when they are there, else from the connection and `Host`. A proxy that
+  changes `Host` or ends TLS without these headers makes a browser that sends no `Sec-Fetch-Site`
+  look foreign: list your own site's origin in `allowedOrigins`, or such uploads are refused.
+- **`allowedOrigins` without `refuseCrossSite: true`** is a `TypeError` when the handlers are made,
+  even an empty list: leave it out when the refusal is off.
+- It was tested with the headers browsers send, written by hand, not in real browsers.
+
 ## Tool scoping
 
 `files.tools(documents)` reads only the documents it was made with. A model, or a prompt injected
@@ -390,6 +431,13 @@ export function askWithDlp(options: AskOptions): Promise<AskResult> {
   For data that must never reach a model, redact it before you ingest the file (or keep it out of
   the documents), and use the hook for what a search or a read brings back. To keep whole-file
   reads off, set `wholeDocumentAnalysis: false`.
+
+  This is no corner case. In a probe of 0.99.12 over synthetic files with planted canaries
+  (unique words, ID numbers, names), 1,275 canaries that a hook masked in tool results still
+  reached the model through the cards, in 60 of 81 runs. 0.99.13 does not change this. With DLP,
+  mask at ingest: for a text file, pass `ingest` the bytes of its masked text; for PDF, Word or
+  Excel, mask the text in an extractor of your own (`extractors` of `createLargeFiles`). The hook
+  then guards what is left.
 
 ## Prompt injection
 
@@ -1343,6 +1391,19 @@ What you log is your choice, and some of what the library hands you holds user d
 - **Errors.** The `cause` of a `DocumentStoreError` names paths or hosts. A `ModelRequestError`
   carries the provider's own message, unfiltered, and "could not be reached (…)" adds the HTTP
   client's message. Log them on the server, and show users a message of your own.
+- **Errors in events.** Events can be sent to a browser as they are (`writeSseEvents`). Their
+  errors are the library's words: a model error by its kind and status, never in the provider's
+  words. Since 0.99.13 that holds for key and token functions too: `retry`, `request.end`,
+  `run.error` (its partial steps included) and their SSE forms never carry what a token client
+  threw, nor the metadata server's address (`http://169.254.169.254/…`), which stay in the thrown
+  error's `cause`. In 0.99.12, of 54 streamed failure cases, 36 carried the token client's words
+  and 9 that address; now 0 and 0. With `eventResults` off, the error of a tool call that quotes
+  the document is told without it in `tool.end`, the steps and SSE: `aggregate_table`'s column
+  errors, which list a table's headers, say "No such column" or "Ambiguous column" with a count (33 of 42 synthetic
+  runs carried planted column names in 0.99.12, 0 now), and a `read_document` past the end of a
+  workbook names no sheet. The model, and `tool.end.result` with `eventResults: true`, get the
+  full message. A `LargeFiles` of your own whose tool set rebuilds its results loses this, and
+  falls back to the full message in events.
 - **Errors in a whole-file read.** A model request of the read that failed is told to the model,
   and in steps and `toolTurns`, by the error's kind, its HTTP status (`status`, `statusCode` or
   `response.status`), the code of a connection that failed, or a timeout, never by its message:
@@ -1362,6 +1423,11 @@ What you log is your choice, and some of what the library hands you holds user d
   user: `ingest` refuses it.
 - Take `documentIds` and the conversation, `toolTurns` included, from your server, not from the
   browser ([Prompt injection](#prompt-injection)).
+- Pass `refuseCrossSite: true` to `createDocumentHandlers`, with `allowedOrigins` for other sites
+  of yours that upload ([Uploads from another site's page](#uploads-from-another-sites-page)).
+- With data loss prevention, mask at ingest: cards and the parts of whole-file reads reach the
+  model without `onToolResult` ([Tool results](#tool-results-ontoolresult)).
+- Keep `eventResults` off in a stream to a browser ([What the library logs](#what-the-library-logs)).
 - Set `ttlMs` to your data policy, run `sweep` on a schedule, and make your deletion rules cover
   stored `toolTurns` ([Storage and retention](#storage-and-retention)).
 - Keep the store on encrypted storage. With `FileDocumentStore`, keep the default file modes, or

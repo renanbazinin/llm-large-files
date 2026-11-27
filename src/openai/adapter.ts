@@ -1,12 +1,14 @@
 // Any Chat Completions endpoint as a model of `askWithFiles`: OpenAI, Azure OpenAI, DeepSeek,
 // LiteLLM, vLLM, Ollama, OpenRouter, Gemini's OpenAI layer. No SDK: the caller gives the URL.
 import { randomUUID } from "node:crypto";
+import { connectionFailure } from "../connection-failure.js";
 import { base64, idleWatch, noteCutReply, notJsonMessage, parseArguments, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { checkToolTurnVersion, laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { documentsOption, messageFiles } from "../native.js";
 import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
+import { headerFailure } from "../token-failure.js";
 import type { DocumentsCapability, GenerateText, GenerateUsage, ToolDeclaration, ToolFile, ToolResult } from "../types.js";
 
 /** The endpoint answered with an HTTP error, or could not be reached (`status` 0). */
@@ -39,9 +41,13 @@ export type OpenAiCompatibleOptions = {
   baseUrl?: string | undefined;
   /** The whole Chat Completions URL, when it is not `baseUrl` + `/chat/completions` (Azure OpenAI, a gateway). */
   url?: string | undefined;
-  /** Sent as `Authorization: Bearer …`. A function is called for each request. */
+  /**
+   * Sent as `Authorization: Bearer …`. A function is called for each request. Since 0.99.13, one
+   * that throws on a connection that failed is called again with the request; one that throws
+   * otherwise ends it as an "auth" error.
+   */
   apiKey?: SecretSource | undefined;
-  /** More headers, or all of them (Azure's `api-key`). A function is called for each request. */
+  /** More headers, or all of them (Azure's `api-key`). A function is called for each request, as `apiKey`'s is. */
   headers?: HeaderSource | undefined;
   /** More fields for the body of every chat request: `temperature`, `reasoning_effort`, `max_completion_tokens`, and so on. */
   body?: Record<string, unknown> | undefined;
@@ -441,9 +447,18 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
    */
   let usageInStream = !(options.body && "stream_options" in options.body);
 
+  /**
+   * The headers of a request. A key or headers function that throws fails the request before
+   * anything is sent (since 0.99.13): a connection that failed on the way is sent again, anything
+   * else is an "auth" error (`headerFailure`).
+   */
   const headersNow = async (): Promise<Record<string, string>> => {
-    const key = await resolveSecret(options.apiKey);
-    return { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}), ...await resolveHeaderSource(options.headers) };
+    try {
+      const key = await resolveSecret(options.apiKey);
+      return { "Content-Type": "application/json", ...(key ? { Authorization: `Bearer ${key}` } : {}), ...await resolveHeaderSource(options.headers) };
+    } catch (error) {
+      throw headerFailure(error, OpenAiRequestError, "The model");
+    }
   };
 
   const built = new WeakMap<ModelToolRound, { number: number; messages: OpenAiMessage[] }>();
@@ -478,8 +493,10 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
    */
   const post = async (body: Json, signal: AbortSignal | undefined, stopped: () => boolean, lost: (error: unknown) => OpenAiRequestError = unreachable, headers?: Record<string, string>, bounded = false): Promise<Response> => {
     let response: Response;
+    // Outside the try: a key that could not be had is its own error, not a connection that failed.
+    const given = headers ?? await headersNow();
     try {
-      const sent = fetchImpl(url, { method: "POST", headers: headers ?? await headersNow(), body: JSON.stringify(body), ...(signal ? { signal } : {}) });
+      const sent = fetchImpl(url, { method: "POST", headers: given, body: JSON.stringify(body), ...(signal ? { signal } : {}) });
       response = await (bounded ? until(sent, signal) : sent);
     } catch (error) {
       if (stopped()) throw error;
@@ -745,8 +762,13 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
   }
 }
 
-/** A request that got no answer: the reason, without the stack of the HTTP client. */
+/**
+ * A request that got no answer: the reason, without the stack of the HTTP client. Since 0.99.13 an
+ * answer that did not come in time (undici's headers or body timeout) is of kind "timeout", and is
+ * sent again once, not three times (`connectionFailure`).
+ */
 export function unreachable(error: unknown): OpenAiRequestError {
+  if (connectionFailure(error)?.kind === "timeout") return new OpenAiRequestError(`The model took too long to answer${unreachableReason(error)}.`, 0, { kind: "timeout", cause: error });
   return new OpenAiRequestError(`The model could not be reached${unreachableReason(error)}.`, 0, { cause: error });
 }
 

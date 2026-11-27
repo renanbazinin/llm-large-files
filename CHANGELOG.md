@@ -36,6 +36,266 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.99.13 — not released yet
+
+Quick fixes. A chat that hides citations can send the model's own words back as history
+(`AskResult.modelText`), a key or token function that fails once no longer ends the question, and
+events and error bodies say less of what they should not and more of what a page needs. Two
+opt-ins for a chatbot: files kept while a chat still uses them (`touchOnUse`), and uploads from
+another site's page refused (`refuseCrossSite`). What the library sends a model does not change,
+except when a whole-file read loses parts, when a token function fails during one, in the
+stand-in of a whole-file read that was incomplete, and for a `read_document` call that starts past
+the end of a file (no recorded read does: 0 of 20). The eval
+replay passes 96 of 96, byte for byte for Gemini.
+
+### Upgrading: what you need to change
+
+Code written for 0.99.12 may not compile. Two changes to the public types can break it:
+
+- **`AskResult.modelText` is required.** An `AskResult` you build by hand, such as a mock or a test
+  fixture, fails with TS2741 ("Property 'modelText' is missing"). So does a `run.finish` event or a
+  `run.error` `partial` built by hand, because `EventResult` is made from `AskResult`, and so does
+  a `Record<keyof AskResult, …>`. **What to do:** add `modelText`. For an answer shown with its
+  citations it equals `text`
+  ([`AskResult`](docs/reference/ask.md#askresult), [testing](docs/guides/testing.md)).
+- **`NoticeCode` has two more members, `"read_incomplete"` and `"citations_only"`.** A switch over
+  every code that ends in a `never` check fails with TS2322, and a `Record<NoticeCode, …>` fails
+  with TS2739. **What to do:** add both cases
+  ([`NoticeCode`](docs/reference/events.md#noticecode-and-noticedisplay)).
+
+The other type changes are new and optional. In the main entry point: `AskOptions.touchOnUse`,
+`reason` on the `retry` event, on `RetryNotice` and on the notice of `ToolRequestHandle.retry`,
+`counts` on the `notice` event, and `onRefresh` on `SendHooks` and on `GenerateText`'s options. In
+`llm-large-files/node`: the `ErrorBody` type, and `refuseCrossSite` and `allowedOrigins` on
+`DocumentHandlerOptions`.
+
+These changes in behavior may need a line in an application:
+
+- **The JSON error bodies of the Node handlers have more keys.** Every JSON refusal is now
+  `{ error, code?, category, retryAfterMs? }`. `error` keeps its words, and every status is the
+  same. A test that compares a body whole with `toEqual({ error: "Sign in first." })` now fails:
+  the body is `{ error: "Sign in first.", category: "unknown" }`. The handlers' own refusals (401,
+  400, 403, 408, 409) have category `"unknown"` and no `code`. A 413 is `"ingest"`/`"too_large"`, like ingest's own refusal
+  of the file, and the 404 of `get` is `"missing"`/`"documents_missing"`. `uploadAnswerOf` is
+  unchanged. **What to do:** compare the fields you mean, or add the new ones. A page can now pick
+  its words by `code` ([`ErrorBody`](docs/reference/node.md#errorbody)).
+- **Events no longer quote a table's columns or a workbook's sheets in a tool error.** In
+  `tool.end.error` and in the step (`onStep`, `result.steps`, the steps of `run.finish` and
+  `run.error`, SSE):
+  - a column error of `aggregate_table` now says "No such column in this table, which has 6
+    columns." or "Ambiguous column: the name given matches 3 of the 6 columns of this table." (for a filter's value: "the value of a filter matches 2 of the 6 columns");
+  - a `read_document` call past the end of a workbook says only "start_line 400 is past the end
+    of the file, which has 13 lines.".
+
+  The model still gets the whole message. An `onToolResult` hook that keeps, copies or rewrites
+  such a result does not change what events say. A `{ reject }` reason is still shown as written.
+  `toolResultSummary` gives the same text for a result the tool set returned. **Who:** apps that
+  show, parse or pin the text of tool errors. **What to do:** nothing, unless a test pins the old
+  text. With `eventResults: true`, `tool.end.result` still has the full result
+  ([Tool errors that quote the document](docs/reference/events.md#tool-errors-that-quote-the-document)).
+- **`read_document` refuses a `start_line` past the end of the file**, as `search_document`
+  refuses a `from_line` past it. Before, it read the last line instead. In a workbook, that was a
+  row of another sheet, with no error. For a workbook, the model is now told which line holds that
+  row in each sheet, and each sheet's rows and lines. A start past the end is refused even after a
+  read that showed the last line; it is no longer pointed to the line already shown. A file of 0
+  lines, and a negative or non-numeric start, read as before. **Who:** tests or tool sets of your
+  own that relied on the clamp ([`read_document`](docs/reference/tools.md#read_document)).
+- **A key, token or header function that throws is the model request's error.** This covers
+  `vertexAi({ accessToken })`, a Gemini endpoint's `headers`, and the `apiKey`, `authToken` or
+  `headers` functions of `openAiCompatible`, `openAiResponses` and `anthropic`.
+  - A connection that failed (`ECONNRESET`, undici's "fetch failed", with or without a `syscall`)
+    is status 0, kind `"unreachable"` (or `"timeout"`), and the request is sent again. The function
+    can now be called up to 4 times for one request (1 and 3 retries). In a chat request, 0.99.12
+    called it once and ended the question.
+  - Any other failure, such as a revoked grant or a bug in the function, is kind `"auth"`, status
+    0, and is not sent again. Events say "The model refused the key or token it was sent.", and
+    `errorInfoOf` gives category `"model"`, code `"auth"`. In 0.99.12 it was `"unknown"`, with the
+    function's own words in `run.error`.
+  - The thrown error's message is the library's own: "Gemini could not be reached: its key or
+    token could not be fetched (ECONNRESET)." or "Gemini was sent no key or token: the function
+    that gives it failed." The function's own error is only its `cause`.
+  - When this happens during a whole-file read, the model now gets "Could not read any part of
+    app.log: The model refused the key or token it was sent." in place of "… The model request
+    failed." (Gemini), or of "… The model could not be reached." after 3 retries (OpenAI and
+    Claude, whose part reads took any such failure for a connection that failed).
+  - After a 401, a Vertex token refresh that fails on a connection is sent again. One that fails
+    any other way keeps the 401 with its cause, as before.
+
+  **Who:** apps that log `error.message` to see why a token could not be had, or that look for
+  "could not be read from storage". **What to do:** log `error.cause`
+  ([Key and token functions](docs/reference/errors-and-retries.md#key-and-token-functions)).
+- **Node's own time limits are a timeout.** Node's `fetch` cuts a request that gets no headers, or
+  no body data, for 300 s (undici's `headersTimeout` and `bodyTimeout`). That comes before the
+  adapters' `firstByteTimeoutMs` of 600 s. Such a cut is now kind `"timeout"`, worded "Gemini took
+  too long to answer (fetch failed)." ("Claude …", "The model …" for OpenAI-compatible endpoints).
+  It is sent again once (2 attempts); it was "could not be reached", with 4 attempts. A connection
+  that times out before it opens is unchanged. **What to do:** to wait the full 600 s, give Node's
+  `fetch` longer limits
+  ([Node's own time limits](docs/reference/errors-and-retries.md#nodes-own-time-limits)).
+- **A Vertex token refresh after a 401 is told.** Each refresh is one `retry` event with
+  `reason: "auth_refresh"`, `attempt: 1`, `delayMs: 0` and the message "The model refused the
+  token (HTTP 401). Trying again with a new one…". `onActivity` is not told. Other retries carry
+  no `reason`, and their events are byte for byte as before. **Who:** pages or metrics that count
+  `retry` events as failures. **What to do:** skip those with a `reason`
+  ([`retry`](docs/reference/events.md#retry)).
+- **A whole-file read that lost parts says so.** This applies only when parts failed after their
+  retries:
+  - the read's last request says "These notes cover 27 of the 29 parts of app.log (2 part(s)
+    could not be read)." and asks for the answer to say it is incomplete;
+  - the tool result gets the note "Incomplete: 2 of the 29 parts could not be read, so this answer
+    misses what they hold. Tell the user it is incomplete.";
+  - the step ends ", incomplete", and a `read_incomplete` notice (display `"none"`) carries
+    `counts: { failed, parts }`;
+  - the stand-in of any incomplete whole-file read (when room is made, through
+    `compactToolTurns`, or with `storeRounds: "compact"`) keeps `parts_that_failed` and every
+    other field that says a read is incomplete (`notes_cut_short`, `notes_left_out`,
+    `notes_only`, `answer_cut_short`; `parts_failed`, `more_items` and `parts_cut_short` of an
+    items read), with the read's note. This also holds for a read cut short with no part failed,
+    so stored rounds of such a read are sent with these fields from 0.99.13 on.
+
+  When every part is read and the read is complete, nothing changes: 0 of 32 request bodies
+  differ from 0.99.12's, and exactly 2 of 38 differ when 2 of 29 parts fail. **What to do:** nothing; show the notice if you
+  like ([A read that lost parts](docs/reference/tools.md#a-read-that-lost-parts)).
+- **With `showCitations: false`, an answer made only of citations is shown in words.** If nothing
+  but citations is left in what a request shows (the model answered "(contract.txt L8)"), the
+  cited lines are shown in words instead: "line 8", "lines 2 and 3", "שורה 8", in the chat's
+  language (a workbook's line in Hebrew is "שורה 7 בטקסט", so it is not read as Row 7). They go to `onText`, the `text` events and `result.text`, and the question gets one
+  `citations_only` notice. `modelText`, `citations` and `answered` do not change. This is checked
+  per request, so the words can also come in the middle of an answer, after a request that called
+  tools. 0.99.12 showed such an answer empty and reported it answered (4 of 4 in the test, 0 now).
+  The 112 recorded answers are shown as before. **Who:** pages that treat an empty `text` as no
+  answer ([Citations the user does not see](docs/reference/ask.md#citations-the-user-does-not-see)).
+- **A question reads its documents in parallel.** Before the first request, metadata and text are
+  read up to 8 at a time, and the results are used in order. A store now gets up to 8 calls of
+  one question at once. A store must already take calls in parallel, since two questions run at
+  once. With 20 files, a first question makes 6 rounds of store calls instead of 40, and a
+  follow-up 3 instead of 20. The first request is byte for byte the same. When a read fails,
+  the error thrown is the one 0.99.12 threw ([`files.prepare`](docs/reference/library.md#filesprepareids-base-options)).
+
+### New: what you can add
+
+- **`AskOptions.touchOnUse`** (`askWithFiles`, `askStream`, `askGemini`). It touches the planned
+  documents that have less than half of their time to live left, so a chat that still uses its
+  files keeps them. With the default 72 hours, a file used at 47 hours is still there at 73
+  hours, and one used at 10 hours is not touched, with no store call. Each touch costs 2 store
+  calls before the first request, and is best effort: a touch the store fails leaves that
+  file's expiry as it was, and the question goes on. A store without `patchMeta` is a
+  `TypeError` on every question. A library you did not make with
+  `createLargeFiles` is taken to have 72 hours, by `Date.now()`. Off by default
+  ([Missing documents](docs/reference/ask.md#missing-documents)):
+
+  ```ts
+  const result = await askWithFiles({ files, model, owner, scope, documentIds, messages, onMissingDocuments: "drop", touchOnUse: true });
+  ```
+
+- **`AskResult.modelText`**: what the model wrote, citations included, whatever `showCitations`
+  says. Store it, and send it back as the assistant turn; show `text`. With citations hidden, 16
+  of 16 recorded follow-ups send their recorded requests when the history is built from
+  `modelText`, against 7 of 16 from `text`. It is in `run.finish`, the `run.error` partial and
+  `partialResultOf`, but never in what `sseMessageOf` sends to a browser
+  ([Conversations](docs/guides/conversations.md#storing-a-conversation-and-asking-the-next-question)):
+
+  ```ts
+  earlier.push({ role: "user", text: question }, ...(result.answered ? [{ role: "assistant" as const, text: result.modelText }] : []));
+  ```
+
+- **`refuseCrossSite` and `allowedOrigins`** (`createDocumentHandlers`). Upload and delete requests
+  that a page of another site made a browser send are refused with a 403, before `getOwner`, any
+  hook, or reading the body. A request with neither `Sec-Fetch-Site` nor `Origin` (curl, a server)
+  is allowed. `allowedOrigins` lists real clients on other origins, and is a `TypeError` without
+  `refuseCrossSite: true`. Off by default until 1.0. It was tested with synthetic headers, not in
+  real browsers
+  ([Uploads from another site's page](docs/security.md#uploads-from-another-sites-page)):
+
+  ```ts
+  const documents = createDocumentHandlers(files, { getOwner, refuseCrossSite: true });
+  ```
+
+- **`ErrorBody`** (`llm-large-files/node`): the type of the handlers' JSON error bodies, with
+  `code` and `category` for a page in another language, and `retryAfterMs` when the answer sets
+  `Retry-After` ([`ErrorBody`](docs/reference/node.md#errorbody)).
+- **Two notice codes.** `"read_incomplete"`, with the new `notice.counts` field, and
+  `"citations_only"`, both with display `"none"`
+  ([`notice`](docs/reference/events.md#notice)).
+- **`reason: "auth_refresh"`** on the `retry` event and on `RetryNotice`.
+- **`SendHooks.onRefresh` and `onRefresh` on `GenerateText`'s options**, for an adapter of your
+  own that refreshes a token after a 401. Call it before the refresh, and the loop tells it as an
+  `auth_refresh` retry ([`SendHooks`](docs/reference/ask.md#sendhooks)).
+- **The chatbot guide, updated** ([A chatbot in one page](docs/guides/chatbot.md)). It is now
+  about 190 lines in four files:
+  - it keeps each chat's file IDs and names, passes `onMissingDocuments: "drop"` and
+    `touchOnUse: true`, and names the files that are gone in the `documents_missing` notice;
+  - it leaves out stored calls of files no longer there before it sends the history;
+  - it stores `{ text, modelText, usedDocumentIds, finish }` and the full rounds of each turn, and
+    sends the rounds of questions older than the last two through `compactToolTurns`. On a
+    15-question chat, the first request of question 15 drops from 276,271 to 66,086 estimated
+    tokens;
+  - it turns on `refuseCrossSite`, and sweeps expired files from a scheduled job instead of on
+    every server.
+
+  A test runs the guide's own code blocks, with an expired file, a deleted one, `touchOnUse` and
+  a cross-site upload.
+
+### Changed: what works differently
+
+- **Errors in events use the library's words for a failed connection.** When an adapter or
+  `generateText` of your own fails with a raw socket error that has no kind, `request.end` and
+  `run.error` now say "The model could not be reached." (kind `"unreachable"`). If it had a
+  `syscall`, 0.99.12 said "The file could not be read from storage (ECONNRESET).". `errorInfoOf`
+  on the thrown error is unchanged: category `"unknown"`.
+
+### Fixed
+
+- **Privacy of events.**
+  - *A token client's words and the metadata server's address reached the browser.* When a token
+    function kept failing, `run.error`, `request.end` and `retry`, and their SSE forms, carried
+    the token client's own words in 36 of 54 test cases, and `http://169.254.169.254/…` in 9.
+    Both are now 0 of 54.
+  - *Column names of a table reached events with `eventResults` off*, through the errors of
+    `aggregate_table`, against what the docs promised. This happened in 33 of 42 test runs, and
+    in 3 recorded answers; it is now 0 of 42. The SSE of the 112 recorded answers is the same but
+    for those 6 lines.
+  - *Sheet names of a workbook* stay out of events for the new error of a read past the end: 0 in
+    events, steps and SSE.
+- **Adapters.**
+  - *A token function that failed once ended the question.* Over 9 adapters, 5 shapes of a
+    connection that failed, streamed and not, 0 of 90 questions were answered; now 90 of 90 are. A blip while a
+    Vertex token was refreshed after a 401 ended the question too, or lost a part of a whole-file
+    read: 0 of 6 answered with every part read, now 6 of 6.
+    Part reads already recovered (45 of 45). Their retries are now all told, 45 of 45 instead of
+    35: Gemini's were silent.
+  - *Undici's 300 s headers and body timeouts* were sent again 3 times as a connection that could
+    not be made. They are now a timeout in 8 of 8 cases (4 adapters, 2 timeouts), with 2 attempts.
+- **The loop.**
+  - *An answer made only of citations was shown empty* with `showCitations: false`, and reported
+    answered and complete (see Upgrading).
+  - *A whole-file read that lost parts* asked the model to answer from "all" the parts' notes,
+    and its result gave no sign that it was incomplete (see Upgrading).
+  - *Metadata was read one document at a time before the first request.* With a store at 15 ms a
+    call, 20 files took 600 to 700 ms; it now takes 6 rounds of calls instead of 40.
+- **Whole-file reads.** The progress message said "1 relevant parts"; it says "1 relevant part".
+- **Tools.** `read_document` read the last line for a `start_line` past the end. In a sparse
+  workbook, "Row 400" gave the last row of a hidden sheet, with no error. It is refused now, 4 of
+  4 in the test (see Upgrading).
+- **Node handlers.** A JSON refusal said only `{ error }`, in English, so a page in Hebrew could
+  not tell a legacy .doc from an empty file. 4 of 4 refusals in the test now carry `code` and
+  `category`, and the 503 carries `retryAfterMs`.
+- **Docs.**
+  - [Security](docs/security.md#tool-results-ontoolresult): `onToolResult` does not see the cards
+    sent when a file is planned (the first 25 lines, the outline, a log's templates), nor the
+    parts of a whole-file read. To mask, mask at ingest. In a probe of 0.99.12, 1,275 canaries
+    that a hook masked still reached the model through cards, in 60 of 81 runs.
+  - The glossary lists `aggregate_table`, and says the input ceiling always applies.
+  - The first OpenAI samples of `gpt-5.5` give its window (1,050,000) and
+    `reasoning_effort: "none"`.
+  - The README's 5 MB log is no longer "1.27M tokens", the estimate of 0.1.0. Today's estimate
+    of such a log is about 3.3M ([measurements](docs/measurements.md)).
+  - Node's 300 s fetch limits, and how to raise them, are documented.
+- **Evals** (the repository, not the package). A `rows` fact catches an answer that names a text
+  line as an Excel row. It fails exactly 2 recorded answers, both listed in the new per-model
+  `failsOn` (Flash sales-hebrew, Flash-Lite budget-units), and `eval:recheck` stays green
+  ([Contributing](CONTRIBUTING.md)).
+
 ## 0.99.12 — 2026-11-25
 
 Citations the user does not see. A chatbot can now show answers without their line citations, in

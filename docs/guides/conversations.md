@@ -61,7 +61,7 @@ const chart = (await readFile("chart.png")).toString("base64");
 const messages: ChatMessage[] = [
   { role: "user", text: question },
   ...first.toolTurns, // what the tools returned, between the question and its answer
-  ...(first.answered ? [{ role: "assistant" as const, text: first.text }] : []), // only an answer
+  ...(first.answered ? [{ role: "assistant" as const, text: first.modelText }] : []), // only an answer, in the model's own words
   // A turn with a part in Gemini's own form.
   { role: "user", parts: [{ text: "Does this chart show the same outage?" }, { native: { inlineData: { mimeType: "image/png", data: chart } } }] },
 ];
@@ -154,10 +154,18 @@ What to keep for each question:
 |---|---|---|
 | The question | What the user typed | The user turn of the history. Not the document text: the loop adds it. |
 | The tool rounds | `result.toolTurns` | Sent back between the question and its answer. |
-| The answer | `result.text`, when `result.answered` is true | The assistant turn. |
+| The answer | `result.modelText`, when `result.answered` is true | The assistant turn: the model's own words, citations included (new in 0.99.13). |
+| What was shown | `result.text` | Only with `showCitations: false`, to show the chat again: `text` without its citations. Otherwise it equals `modelText`. |
 | The documents | Your session record | Passed as `documentIds` on every question ([below](#owners-and-documents-across-turns)). |
 | `evidence` | `result.evidence` | Optional: the document and the lines or pages each call showed, to show sources or check a citation. |
 | `usage` | `result.usage` | Optional: tokens and requests of the question, to count cost per user or session ([Costs and limits](./costs-and-limits.md)). |
+
+Send `modelText` back, not `text`. With `showCitations: false`, `text` is the answer without its
+citations, and a history built from it changes the requests of later questions: in 9 of 16
+recorded follow-ups, the request was not the one sent with citations shown. Built from
+`modelText`, 16 of 16 replay as recorded. Until 0.99.12 `AskResult` held no copy of the model's own
+text when citations were hidden. [A chatbot in one page](./chatbot.md#3-chats-and-their-history)
+keeps both.
 
 An answer that is not one (`answered: false`) is not stored as the assistant's turn: the model
 would read your error message as its own words. Keep the question and its tool rounds, so a second
@@ -188,7 +196,7 @@ type TurnRecord = {
   index: number;
   question: string;
   toolTurns: ToolTurn[];
-  answer?: string; // only when the question was answered
+  answer?: string; // result.modelText, only when the question was answered
   evidence: Evidence[];
   usage: UsageTotals;
   createdAt: Date;
@@ -235,7 +243,7 @@ export async function ask(sessionId: string, userId: string, question: string, o
     await turns.insertOne({
       ...asked,
       toolTurns: result.toolTurns,
-      ...(result.answered ? { answer: result.text } : {}),
+      ...(result.answered ? { answer: result.modelText } : {}),
       evidence: result.evidence,
       usage: result.usage,
     });
@@ -447,7 +455,7 @@ export async function next(files: LargeFiles, endpoint: GeminiEndpoint, owner: s
     ...history,
     asked,
     ...geminiToolTurns(result.toolTurns),
-    ...(result.answered ? [{ role: "model" as const, parts: [{ text: result.text }] }] : []),
+    ...(result.answered ? [{ role: "model" as const, parts: [{ text: result.modelText }] }] : []),
   ];
 }
 ```
@@ -503,7 +511,7 @@ export async function next(files: LargeFiles, owner: string, documentIds: string
     ...history,
     asked,
     ...openAiToolTurns(result.toolTurns), // convert once: a call without an ID gets a new random one each time
-    ...(result.answered ? [{ role: "assistant", content: result.text }] : []),
+    ...(result.answered ? [{ role: "assistant", content: result.modelText }] : []),
   ];
 }
 ```
@@ -541,7 +549,7 @@ export async function next(files: LargeFiles, owner: string, documentIds: string
     ...history,
     asked,
     ...anthropicToolTurns(result.toolTurns), // convert once: a call without an ID gets a new random one each time
-    ...(result.answered ? [{ role: "assistant" as const, content: result.text }] : []),
+    ...(result.answered ? [{ role: "assistant" as const, content: result.modelText }] : []),
   ];
 }
 ```
@@ -688,6 +696,19 @@ export async function askWithoutGone(sessionId: string, userId: string, question
 - A tool call that finds a document gone during the question (deleted while the question ran)
   answers the model that it is no longer available, and the question gets a `document_gone`
   notice ([events](../reference/events.md#noticecode-and-noticedisplay)).
+- **Files of a chat still in use expire too.** A file uploaded on Monday is gone on Thursday,
+  even if the chat asked about it an hour before. With `touchOnUse: true` (new in 0.99.13, off by
+  default), each question touches the files it plans once less than half of their `ttlMs` is left:
+  with the default 72 hours, a file used 47 hours after its upload is kept 72 hours from then, and
+  one used at 10 hours is not touched, with no store call. It runs before the first request and
+  changes nothing that is sent. The touches are best effort: a store write that fails leaves that
+  file's expiry as it was, and the question goes on. A `LargeFiles` of your own (not made by `createLargeFiles`) is touched
+  by the default 72 hours, whatever its own `ttlMs`.
+- **The stored rounds still hold a gone file's text.** `"drop"` leaves the file out of the plan,
+  but rounds that read it still carry its lines into every later question. To keep a gone file
+  out of the request, leave out the stored calls whose `document_id` is no longer one of the
+  chat's documents (the sample above takes `result.missing` off the chat) before you send the
+  history, as [A chatbot in one page](./chatbot.md) does.
 
 ## Related pages
 

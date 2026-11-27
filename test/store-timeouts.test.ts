@@ -310,7 +310,7 @@ describe("the upload handlers and a store that does not answer (LO-3)", () => {
     expect(answer).not.toBe("pending");
     const response = (answer as { value: Response }).value;
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: "This chat has too many files." });
+    expect(await response.json()).toEqual({ error: "This chat has too many files.", category: "unknown" });
     expect(store.calls).toContain("delete");
   });
 
@@ -324,6 +324,6 @@ describe("the upload handlers and a store that does not answer (LO-3)", () => {
     const response = (answer as { value: Response }).value;
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("5");
-    expect(await response.json()).toEqual({ error: "The document could not be deleted (ETIMEDOUT). Try again." });
+    expect(await response.json()).toEqual({ error: "The document could not be deleted (ETIMEDOUT). Try again.", code: "ETIMEDOUT", category: "store", retryAfterMs: 5000 });
   });
 });

@@ -251,7 +251,7 @@ describe("maxPendingUploadBytes of the upload handler (0.8.2)", () => {
     expect(head).toMatch(/\r\nretry-after: 5\r\n/i);
     const refused = await upload("b.txt", 600);
     expect(refused.status).toBe(503);
-    expect(await refused.json()).toEqual({ error: "The server is receiving other files right now. Try again in a moment." });
+    expect(await refused.json()).toEqual({ error: "The server is receiving other files right now. Try again in a moment.", code: "busy", category: "ingest", retryAfterMs: 5000 });
     // A body that a framework already read, and that is over maxUploadBytes, is too large, not busy.
     const parsed = await fetch(url, { method: "POST", headers: { "X-File-Name": "p.txt", "X-Parsed-Size": "5000" }, body: "x" });
     expect(parsed.status).toBe(413);

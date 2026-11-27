@@ -124,12 +124,24 @@ It returns:
 | `explorerUrl` | The `:generateContent` URL of `explorerModel`, only when an explorer is named. Otherwise the field is absent. |
 | `refreshable` | `true` when `accessToken` is a function, new in 0.10.0: a request refused with HTTP 401 is sent once more with a new token. Absent for a token given as a string, and for `apiKey`. |
 
-It makes no request and does not call `accessToken`. An error that the token function throws comes
-out of the request that needed the token, as it was thrown: it is not a `GeminiRequestError`. It
-has no status, so a chat request is not sent again: `askGemini`, or `askWithFiles` with `gemini()`,
-throws it. A part read is tried once more, and then counts as unread. One exception: when the
-function throws as it is called with `{ refresh: true }` after a 401, the request's error is that
-401 (a `GeminiRequestError` of kind `"auth"`), with what the function threw as its `cause`.
+It makes no request and does not call `accessToken`. Since 0.99.13 an error that the token
+function throws fails the request that needed the token with a `GeminiRequestError` of status 0,
+what the function threw as its `cause`
+([key and token functions](./errors-and-retries.md#key-and-token-functions)):
+
+- a connection that failed (a metadata server that reset, `ECONNRESET`, undici's "fetch failed"):
+  kind `"unreachable"`, "Gemini could not be reached: its key or token could not be fetched
+  (ECONNRESET).", sent again as any request that got no answer;
+- anything else (a revoked grant, a bug in the function): kind `"auth"`, "Gemini was sent no key or
+  token: the function that gives it failed.", never sent again. Events say "The model refused the
+  key or token it was sent."
+
+After a 401, the call with `{ refresh: true }` is told as a `retry` event with
+`reason: "auth_refresh"`. When it throws on a connection that failed, the request is sent again
+from the start; when it throws otherwise, the request's error is that 401 (kind `"auth"`), with
+what the function threw as its `cause`, as before. Until 0.99.13 the function's error came out as
+it was thrown, with no status: a chat request was not sent again after one blip of the token
+server.
 
 ```ts
 import { GoogleAuth } from "google-auth-library";
@@ -227,9 +239,9 @@ Where a Gemini model is and how to call it.
 |---|---|---|---|
 | `url` | `string` | required | The non-streaming `...:generateContent` URL. Chat requests made without `onText`, and the part reads of a whole-file read when there is no explorer, go here. |
 | `streamUrl` | `string` | none | The streaming `...:streamGenerateContent?alt=sse` URL, used for a chat request when `onText` is given. Without it each reply arrives whole, and `onText` gets its text once it has arrived. |
-| `headers` | `Record<string, string>` or a function that returns them | required | Sent with every request as they are. A function is called before every request, so a renewed token is used. Since 0.10.0 it may take a context: it is called with `{ refresh: true }` when a request of a `refreshable` endpoint is sent again after a 401, and with nothing otherwise. `gemini()` adds no header of its own: give `"Content-Type": "application/json"`, as `geminiApi()` and `vertexAi()` do. |
+| `headers` | `Record<string, string>` or a function that returns them | required | Sent with every request as they are. A function is called before every request, so a renewed token is used. Since 0.10.0 it may take a context: it is called with `{ refresh: true }` when a request of a `refreshable` endpoint is sent again after a 401, and with nothing otherwise. Since 0.99.13 a function that throws fails the request with a `GeminiRequestError` of status 0: kind `"unreachable"`, sent again, for a connection that failed; kind `"auth"`, not sent again, for anything else ([key and token functions](./errors-and-retries.md#key-and-token-functions)). `gemini()` adds no header of its own: give `"Content-Type": "application/json"`, as `geminiApi()` and `vertexAi()` do. |
 | `explorerUrl` | `string \| undefined` | none | The `...:generateContent` URL of an explorer model, called with the same `headers` and never streamed. Only `askGemini` reads it, and only when it differs from `url`. With `askGemini` it receives the explorer's chat requests and the part reads of whole-file reads. `gemini()` ignores it. |
-| `refreshable` | `true \| undefined` | none | `headers({ refresh: true })` gives a token that is new, not the one it keeps in a cache: a request refused with HTTP 401 is sent once more with those headers, in chat requests, part reads and askGemini's explorer alike. A second 401 is the error: there is no third try. `vertexAi()` sets it when `accessToken` is a function. New in 0.10.0. |
+| `refreshable` | `true \| undefined` | none | `headers({ refresh: true })` gives a token that is new, not the one it keeps in a cache: a request refused with HTTP 401 is sent once more with those headers, in chat requests, part reads and askGemini's explorer alike. A second 401 is the error: there is no third try. `vertexAi()` sets it when `accessToken` is a function. New in 0.10.0. Since 0.99.13 the refresh is told as a `retry` event with `reason: "auth_refresh"`, and a refresh that fails on a connection sends the request again from the start. |
 
 An endpoint for a gateway that proxies Generate Content:
 
@@ -291,8 +303,8 @@ another endpoint.
   the retries. An explorer that fails throws it too. `partialResultOf(error)` gives what the
   question found until then. A part read of a whole-file read that fails is not thrown: the tool
   reports it to the model.
-- The error of an `accessToken` function, as it was thrown, when a chat request needed the token
-  ([`vertexAi()`](#vertexaioptions)).
+- For an `accessToken` function that throws, a `GeminiRequestError` of status 0 since 0.99.13
+  ([`vertexAi()`](#vertexaioptions)); before, its error as it was thrown.
 - The reason of `signal`, when it aborts.
 
 ```ts
@@ -463,7 +475,9 @@ What `send` does:
   tools at all by default, because Gemini can ignore mode `NONE` and go on calling them; with
   `answerWithoutTools: "mode_none"` it keeps them, with mode `NONE`.
 - A request refused with HTTP 401 by a `refreshable` endpoint is sent once more, with the headers of
-  `headers({ refresh: true })`. A second 401 is the error. New in 0.10.0.
+  `headers({ refresh: true })`. A second 401 is the error. New in 0.10.0. Since 0.99.13 it calls
+  `hooks.onRefresh` first ([`SendHooks`](./ask.md#sendhooks)), which the loop tells as a `retry`
+  event with `reason: "auth_refresh"`.
 - A model turn of the question goes back unchanged, thought signatures included, in the later
   requests to the same adapter. Another model of the question gets it rebuilt from its calls, as a
   stored tool round (`toolTurns`) is.
@@ -497,6 +511,8 @@ What `send` does:
 | Gemini answered with an HTTP error | `GeminiRequestError` with Gemini's `error.message`, or "Gemini returned HTTP 503." | The HTTP status | Told from the status, Gemini's `error.status` and `details` |
 | An error object inside the stream, or in a reply of HTTP 200 that is not streamed | `GeminiRequestError` with its message, or "Gemini reported an error." | Its `code` when that is a whole number from 400 to 599; else, since 0.10.0, the status of its `google.rpc` name (`"UNAVAILABLE"` 503, `"RESOURCE_EXHAUSTED"` 429, `"DEADLINE_EXCEEDED"` 504, `"INVALID_ARGUMENT"` 400 …); else 500. Before 0.10.0, the response's 200, so it was not sent again. | As above |
 | The connection failed, before or while the reply arrived, or an event of the stream was not JSON | `GeminiRequestError`: "Gemini could not be reached (fetch failed)." | 0 | `"unreachable"` |
+| Node's own headers or body time limit ran out (undici's `UND_ERR_HEADERS_TIMEOUT`, `UND_ERR_BODY_TIMEOUT`, 300 s by default) | `GeminiRequestError`: "Gemini took too long to answer (fetch failed).", sent again once. New in 0.99.13: it was `"unreachable"`, sent again 3 times ([Node's own time limits](./errors-and-retries.md#nodes-own-time-limits)) | 0 | `"timeout"` |
+| The `headers` function threw | `GeminiRequestError`: "Gemini could not be reached: its key or token could not be fetched (ECONNRESET)." for a connection that failed; "Gemini was sent no key or token: the function that gives it failed." otherwise. New in 0.99.13 | 0 | `"unreachable"` (or `"timeout"`); `"auth"`, not sent again |
 | A reply of HTTP 200 whose body is empty | `GeminiRequestError`: "Gemini could not be reached (the reply was empty).", new in 0.6.0. When the reply's type is `text/event-stream`, "Gemini's reply ended before it was complete." Either is sent again as a reply cut off on its way. | 0 | `"unreachable"` |
 | Nothing arrived for a whole wait | `GeminiRequestError`: "Gemini sent nothing for 600 s." | 0 | `"timeout"` |
 | A stream that closed with no `finishReason` and no `blockReason` | `GeminiRequestError`: "Gemini's reply ended before it was complete." | 0 | `"unreachable"` |
@@ -737,12 +753,12 @@ completion a whole-file read uses for each part. `gemini()` builds one on its en
 | Option | Type | Default | What it does |
 |---|---|---|---|
 | `url` | `string` | required | The `...:generateContent` URL. What is learned about the model's output limit is kept under it. |
-| `headers` | `Record<string, string>` or a function that returns them | required | A function is called before every request: a whole-file read can outlast an access token. |
+| `headers` | `Record<string, string>` or a function that returns them | required | A function is called before every request: a whole-file read can outlast an access token. Since 0.99.13 one that throws fails the part's request as `gemini()`'s does: kind `"unreachable"`, sent again, for a connection that failed; kind `"auth"`, not sent again, otherwise. |
 | `fetchImpl` | `typeof fetch` | the global `fetch` | Your own `fetch`. |
 | `generationConfig` | `(maxOutputTokens: number) => Record<string, unknown>` | `{ maxOutputTokens }` | The `generationConfig` of each request, from its output limit. Until 0.6.0 the default also sent `temperature: 0.2`. |
 | `body` | `(maxOutputTokens: number) => GeminiRequestFields` | none | More fields for the body of each request, given its output limit, merged last (`gemini({ analysisBody })`). New in 0.10.0. |
 | `timeoutMs` | `number` | `180_000` | The longest time one request may take, its whole body included. A second try at a larger limit gets its own. 0 sets none (since 0.10.0; before, 0 aborted every request at once). |
-| `refreshable` | `boolean` | `false` | A request refused with HTTP 401 is sent once more with the headers of `headers({ refresh: true })`. A second 401 is the error. New in 0.10.0. |
+| `refreshable` | `boolean` | `false` | A request refused with HTTP 401 is sent once more with the headers of `headers({ refresh: true })`. A second 401 is the error. New in 0.10.0. Since 0.99.13 it calls the request's `onRefresh` first ([`GenerateText`](./ask.md#generatetext)), and a refresh that fails on a connection sends the part again from the start. |
 
 Each request posts `contents: [{ role: "user", parts: [{ text: prompt }] }]`, the system
 instruction when it is not empty (since 0.99.10; before, an empty one was sent as a text part with
@@ -941,7 +957,10 @@ declare class GeminiRequestError extends ModelRequestError {
 
 A Gemini request that failed: Gemini answered with an HTTP error, or `status` is 0 because Gemini
 could not be reached, sent nothing for a whole wait, ended a stream before it was complete, or did
-not answer a part read within `timeoutMs`. A reply of HTTP 200 that could not be read (not JSON, or
+not answer a part read within `timeoutMs`. Since 0.99.13 also, with status 0, a request whose
+token or headers function threw, with what it threw as the `cause`: kind `"unreachable"` (or
+`"timeout"`) for a connection that failed, `"auth"` otherwise
+([key and token functions](./errors-and-retries.md#key-and-token-functions)). A reply of HTTP 200 that could not be read (not JSON, or
 an event too long) keeps its 200, with kind `"invalid"`. An error that came inside a reply of HTTP
 200 has the status of its code or of its `google.rpc` name (since 0.10.0).
 `gemini()` throws it for chat requests, and its part reader (`generateText`) for part reads.

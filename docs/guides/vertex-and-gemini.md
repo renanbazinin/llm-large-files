@@ -116,9 +116,16 @@ const endpoint = vertexAi({
   to store. Off Google Cloud, point `GOOGLE_APPLICATION_CREDENTIALS` at its key file, or pass
   `keyFilename` to `GoogleAuth`. The account needs a role that may call the model, such as Vertex AI
   User (`roles/aiplatform.user`).
-- **An error thrown by your function** has no HTTP status and no `kind`. In a chat request it ends
-  the question with that error: the request is not sent again. In a part read it is tried once
-  more, and the part is then reported as one that could not be read.
+- **An error thrown by your function** fails the request before anything is sent, since 0.99.13,
+  as a `GeminiRequestError` of status 0 with what the function threw as its `cause`. A connection
+  that failed on the way (the metadata server reset on GKE, "fetch failed") is of kind
+  `"unreachable"` and is sent again, as any request that got no answer: one blip no longer ends the
+  question. Anything else (a revoked grant, a bug in the function) is of kind `"auth"`, told "The
+  model refused the key or token it was sent.", and is not sent again. The function's own words,
+  which can name the metadata server, stay in `cause`: no event and no SSE message carries them
+  ([A key or token function that fails](./errors-and-reliability.md#a-key-or-token-function-that-fails)).
+  Until 0.99.12 such an error had no status and no `kind`, ended the question at once, and was
+  told as storage when it had a `syscall`.
 - **A token that is refused with HTTP 401** is asked for again, since 0.10.0, when `accessToken` is
   a function: the function is called with `{ refresh: true }`, and the request is sent once more
   with the token it returns. A token provider such as `google-auth-library` returns the token in
@@ -127,8 +134,11 @@ const endpoint = vertexAi({
   the clients that keep their token in `credentials`: a service account, the metadata server
   (Cloud Run, GKE, Compute Engine) and user credentials. A second 401 is the error: there is no
   third try. If the function throws when it is asked to refresh, the first 401 is the error (a
-  `GeminiRequestError` of kind `"auth"`), with what the function threw as its `cause`. A token
-  given as a string, an API key and a gateway's headers get no second try.
+  `GeminiRequestError` of kind `"auth"`), with what the function threw as its `cause`; since
+  0.99.13, if it throws because a connection failed, the request is sent again from the start
+  instead. A token given as a string, an API key and a gateway's headers get no second try. Since
+  0.99.13 the refresh is told as a `retry` event with `reason: "auth_refresh"`, `attempt: 1` and
+  `delayMs: 0` ([events](../reference/events.md#retry)); before, it left no trace.
 - **A token that is refused for good** (HTTP 401 twice, or 403: a missing role, the Vertex AI API
   not enabled in the project) is a `GeminiRequestError` with `kind` `"auth"`. It is not sent again.
 
@@ -343,6 +353,12 @@ What this means for your server:
   that timeout: a load balancer, a proxy, Cloud Run. Keep the stream to the browser alive while the
   model is silent: [Web app](./web-app.md) and [Deployment](./deployment.md).
 - **Part reads have a limit of their own**, `timeoutMs` (180 s a request): [below](#whole-file-reads-in-parts).
+- **Node's `fetch` gives up at 300 s.** Its headers and body timeouts (undici's `headersTimeout`
+  and `bodyTimeout`) cut a request that gets nothing for 300 s, before the 600 s above. Since
+  0.99.13 that cut is of kind `"timeout"` and sent again once, as the adapter's own wait is (it was
+  `"unreachable"`, and sent again three times). For a `firstByteTimeoutMs` above 300 s, pass
+  `gemini()` or `askGemini` a `fetch` whose undici `Agent` waits longer:
+  [Node's own time limits](../reference/errors-and-retries.md#nodes-own-time-limits).
 
 ## Thinking
 
@@ -605,10 +621,10 @@ names a wait. The loop sends a request again when another try can help, and thro
 it cannot. What each kind means for the user:
 [Errors and reliability](./errors-and-reliability.md).
 
-Two failures are not a `GeminiRequestError`, and have no `kind`:
-
-- an error thrown by your `accessToken` or `headers` function;
-- the abort of your own `signal`, thrown as it came.
+One failure is not a `GeminiRequestError`, and has no `kind`: the abort of your own `signal`,
+thrown as it came. Until 0.99.12 an error thrown by your `accessToken` or `headers` function was
+one too; since 0.99.13 it is a `GeminiRequestError` of status 0 and kind `"unreachable"` or
+`"auth"` ([Access tokens](#access-tokens-for-vertex-ai)).
 
 A reply of HTTP 200 whose body is not JSON, such as a gateway's HTML page, is a
 `GeminiRequestError` of kind `"invalid"`, status 200, with the `SyntaxError` as `cause`: "Gemini's
@@ -685,6 +701,9 @@ not an overflow.
 | Gemini failed on its side | 5xx | `"server"` | Yes |
 | An error inside a stream, or in a body of HTTP 200, without a numeric code | The status of its `google.rpc` name: `"UNAVAILABLE"` 503, `"RESOURCE_EXHAUSTED"` 429, `"DEADLINE_EXCEEDED"` 504, `"INVALID_ARGUMENT"` 400 …; 500 for a name it does not know. Before 0.10.0, 200. | By the status | Yes for 408, 409, 429 and 5xx (`"ABORTED"` and `"ALREADY_EXISTS"` are 409), unless text was shown; a daily quota is `"quota"`, and is not |
 | Nothing came for `firstByteTimeoutMs` or `idleTimeoutMs` | 0 | `"timeout"` | Once |
+| Node's `fetch` cut the request: no headers or no piece of the body for 300 s (undici's `UND_ERR_HEADERS_TIMEOUT`, `UND_ERR_BODY_TIMEOUT`) | 0 | `"timeout"` (since 0.99.13; `"unreachable"` before) | Once ([Waits](#waits-a-model-that-thinks-sends-nothing)) |
+| Your `accessToken` or `headers` function threw on a connection that failed | 0 | `"unreachable"` (since 0.99.13) | Yes |
+| Your `accessToken` or `headers` function threw for another reason | 0 | `"auth"` (since 0.99.13) | No |
 | A part read took longer than `timeoutMs` | 0 | `"timeout"` | Once (since 0.10.0) |
 | The connection failed, or a stream ended before its `finishReason` | 0 | `"unreachable"` | Yes, unless text was shown |
 | A reply of HTTP 200 whose body is empty | 0 | `"unreachable"` | Yes |
@@ -713,7 +732,7 @@ import { askGemini, geminiToolTurns, type GeminiContent } from "llm-large-files/
 const history: GeminiContent[] = [{ role: "user", parts: [{ text: "Why did the import fail at 02:00?" }] }];
 
 const result = await askGemini({ files, endpoint, documentIds, contents: history });
-history.push(...geminiToolTurns(result.toolTurns), ...(result.answered ? [{ role: "model" as const, parts: [{ text: result.text }] }] : []));
+history.push(...geminiToolTurns(result.toolTurns), ...(result.answered ? [{ role: "model" as const, parts: [{ text: result.modelText }] }] : [])); // modelText: the model's own words (0.99.13)
 ```
 
 Store no model turn for a question that was not answered

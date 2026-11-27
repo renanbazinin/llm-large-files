@@ -152,7 +152,8 @@ const model = openAiCompatible({
   baseUrl: "https://api.openai.com/v1", // the default; DeepSeek, OpenRouter, vLLM, Ollama: their own
   apiKey: process.env.OPENAI_API_KEY!,
   model: "gpt-5.5",
-  contextTokens: 400_000, // your model's context window: the plan follows it
+  contextTokens: 1_050_000,           // gpt-5.5's window, by OpenAI's model page: the plan follows it
+  body: { reasoning_effort: "none" }, // tool calls through Chat Completions need it on gpt-5.5
 });
 
 const result = await askWithFiles({
@@ -165,7 +166,10 @@ const result = await askWithFiles({
 ```
 
 Set `contextTokens` to the window of your model. Without it, the plan assumes the library's
-window, 1,000,000 tokens unless you set another. The recipe for each server is in
+window, 1,000,000 tokens unless you set another. GPT-5.5 reasons at `"medium"` effort unless told
+otherwise, and newer OpenAI models refuse tools with any effort but `"none"` on Chat Completions:
+send `reasoning_effort: "none"` as above, or use `openAiResponses()` to let it reason while it
+calls the tools. The recipe for each server is in
 [OpenAI-compatible endpoints](./guides/openai-compatible.md).
 
 ### With Claude
@@ -230,14 +234,17 @@ export const endpoint = vertexAi({
   accessToken: async () => (await auth.getAccessToken())!,
 });
 
-// An expired document is ignored at once. This frees the space it took.
+// An expired document is ignored at once. This frees the space it took. With several servers,
+// run it on one of them only (see Deployment).
 setInterval(() => {
   files.sweep().catch((error) => console.error("sweep failed", error));
 }, 60 * 60 * 1000).unref();
 ```
 
 Documents are kept for 72 hours (`ttlMs`), and uploads are taken up to 100 MB
-(`maxUploadBytes`). To let the model look at the pages of a PDF, add `keepOriginals: ["pdf"]`
+(`maxUploadBytes`). A chat that is still in use after that loses its files: pass
+`touchOnUse: true` with each question (new in 0.99.13), and the files a question uses are kept
+another `ttlMs` once less than half of it is left. To let the model look at the pages of a PDF, add `keepOriginals: ["pdf"]`
 ([PDFs](./guides/pdfs.md)). Every option is in the
 [library reference](./reference/library.md#largefilesoptions).
 
@@ -304,7 +311,7 @@ import { endpoint, files } from "./large-files.js";
 
 // A chat session as your app stores it: who owns it, its documents, and its turns.
 export type Session = { userId: string; documentIds: string[]; turns: StoredTurn[] };
-export type StoredTurn = { question: string; toolTurns: ToolTurn[]; answer: string };
+export type StoredTurn = { question: string; toolTurns: ToolTurn[]; answer: string }; // answer: result.modelText
 
 export async function ask(session: Session, question: string, send: (event: string, data: unknown) => void, signal: AbortSignal) {
   // The whole history, on every turn, with the tool rounds of each earlier question in its place.
@@ -331,8 +338,9 @@ export async function ask(session: Session, question: string, send: (event: stri
     send("error", "No answer came back. Please ask again.");
     return;
   }
-  // Keep what the question read with its answer: the next question starts from it.
-  session.turns.push({ question, toolTurns: result.toolTurns, answer: result.text });
+  // Keep what the question read with its answer: the next question starts from it. modelText
+  // (0.99.13) is the answer as the model wrote it, citations included: send it back, show text.
+  session.turns.push({ question, toolTurns: result.toolTurns, answer: result.modelText });
   send("done", {});
 }
 ```
@@ -360,6 +368,11 @@ Store it with the answer, and put it back between the question and the answer, a
 above. The model then sees what it found before, and a follow-up question often needs no new
 search. A call whose result is still in the conversation in full is not run again: the model gets
 a pointer to it, and the step ends with `— already shown above`.
+
+Store `result.modelText` as the answer you send back (new in 0.99.13), and show `result.text`. They
+are the same unless `showCitations: false` hid the citations from `text`: the model then gets its
+own words back, citations included, and later questions send what they would with citations shown
+([A chatbot in one page](./guides/chatbot.md#3-chats-and-their-history)).
 
 Storing history across servers, keeping it inside the window, and converting history that is in a
 provider's own form are in [Conversations](./guides/conversations.md).

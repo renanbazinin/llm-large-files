@@ -20,6 +20,10 @@
      "status": "pass"
     },
     {
+     "fact": "names only rows 53, 106, 159 … 1166 (22 rows) of sales-1",
+     "status": "pass"
+    },
+    {
      "fact": "answers in Hebrew",
      "status": "pass"
     }
@@ -36,7 +40,8 @@
     "checked": 0,
     "supported": 0,
     "unchecked": 0,
-    "unsupported": []
+    "unsupported": [],
+    "cited": []
    },
    "tools": [
     "aggregate_table"

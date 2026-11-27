@@ -30,6 +30,7 @@ Contents:
   [`ToolOutcome`](#tooloutcome), [`NoticeCode` and `NoticeDisplay`](#noticecode-and-noticedisplay),
   [How the callbacks map to events](#how-the-callbacks-map-to-events)
 - **What events carry:** [Errors: `EventError`](#errors-eventerror),
+  [Tool errors that quote the document](#tool-errors-that-quote-the-document),
   [Documents: `eventResults` and `EventResult`](#documents-eventresults-and-eventresult),
   [A listener that throws](#a-listener-that-throws)
 - **Reading events:** [`askStream(options)`](#askstreamoptions),
@@ -219,11 +220,22 @@ requests: the first ends with `outcome: "error"` and `error.kind: "context_overf
 | `requestId` | `string` | The request sent again. |
 | `attempt` | `number` | 1 for the first retry. |
 | `delayMs` | `number` | The wait before it is sent again. |
+| `reason` | `"auth_refresh"`, optional | The request was refused with HTTP 401 and is sent again at once with a new token. New in 0.99.13. |
 | `error` | [`EventError`](#errors-eventerror) | Why it failed, in words for users. |
 | `message` | `string` | The line `onActivity` gets for a retry of a chat request: "The model did not answer (HTTP 503). Trying again…". |
 
 The retries of a `"reader"` request (a whole-file read) are told only here: `onActivity` never got
 them.
+
+**A token refreshed after a 401** (new in 0.99.13). When `vertexAi({ accessToken })` is given a
+function, a request refused with HTTP 401 is sent once more with a token asked for with
+`{ refresh: true }`. That refresh is told as a `retry` with `reason: "auth_refresh"`, `attempt: 1`
+and `delayMs: 0`, an `error` of kind `"auth"` and status 401, and the message "The model refused
+the token (HTTP 401). Trying again with a new one…". It is not told to `onActivity`. Before
+0.99.13 a refresh left no trace. Other retries carry no `reason`, and are the same as before. A
+refresh can come before the retries of the same request: when the new token could not be fetched
+for a connection that failed, the request is sent again as one that got no answer
+([errors and retries](./errors-and-retries.md#key-and-token-functions)).
 
 #### `text`
 
@@ -290,7 +302,7 @@ outcome that says so.
 | `step` | `string`, optional | The finished step, as `onStep` got it. Absent for `"not_run"` (one `calls_not_run` notice says it for all of them), and for a call ended because its turn failed. |
 | `evidence` | [`Evidence`](./ask.md#evidence), optional | What the call showed the model, with this `callId`. Each entry of `AskResult.evidence` that a call made has its `callId` too, so you can find the call it came from. The entries of the files sent whole (`tool: "inline"`, new in 0.10.0) have none: no call made them. |
 | `resultCharacters` | `number`, optional | The characters of the JSON result the model was sent. 0 for a call ended because its turn failed. |
-| `error` | `string`, optional | When the result the model was sent is an error (outcomes `"error"`, `"refused"`, `"not_run"`): its message. For a call ended because its turn failed: why, as in `EventError.message`. |
+| `error` | `string`, optional | When the result the model was sent is an error (outcomes `"error"`, `"refused"`, `"not_run"`): its message. For a call ended because its turn failed: why, as in `EventError.message`. Since 0.99.13 an error that quotes the document is told in the library's words, here and in `step` ([tool errors that quote the document](#tool-errors-that-quote-the-document)). |
 | `result` | [`ToolResult`](./tools.md#toolresult), optional | The result the model was sent. Only with `eventResults: true`: it holds document text. |
 
 #### `notice`
@@ -300,14 +312,15 @@ outcome that says so.
 | `code` | [`NoticeCode`](#noticecode-and-noticedisplay) | What happened. |
 | `message` | `string` | One line of plain text, word for word what the callback got when there was one. |
 | `display` | [`NoticeDisplay`](#noticecode-and-noticedisplay) | Where it went in the callbacks: `"activity"`, `"step"` or `"none"`. |
-| `documentIds` | `string[]`, optional | The documents the notice is about: those left out (`"documents_missing"`), the one found gone (`"document_gone"`), the one whose pages were not looked at (`"page_looks_busy"`). New in 0.9.0. |
+| `documentIds` | `string[]`, optional | The documents the notice is about: those left out (`"documents_missing"`), the one found gone (`"document_gone"`), the one whose pages were not looked at (`"page_looks_busy"`), the one a whole-file read could not read all of (`"read_incomplete"`, since 0.99.13). New in 0.9.0. |
+| `counts` | `{ failed: number; parts: number }`, optional | With `"read_incomplete"`: the parts of the whole-file read that could not be read, and all of its parts, those included. New in 0.99.13. |
 | `discardText` | `true`, optional | With `"answer_filtered"` under `AskOptions.filteredAnswer: "drop"`: text of the question was already sent (`text` events, `onText`), and the answer is dropped. The page takes away the text it showed for the question, and shows its own message. Absent when no text was sent. See [filtered and cut answers](../guides/errors-and-reliability.md#filtered-and-cut-answers). New in 0.10.0. |
 
 #### `run.finish`
 
 | Field | Type | What it holds |
 |---|---|---|
-| `result` | [`EventResult`](#documents-eventresults-and-eventresult) | A copy of the result `askWithFiles` returns, without `toolTurns` and with a plan that names the documents only, unless `eventResults: true`. |
+| `result` | [`EventResult`](#documents-eventresults-and-eventresult) | A copy of the result `askWithFiles` returns, without `toolTurns` and with a plan that names the documents only, unless `eventResults: true`. It has `modelText` (since 0.99.13), which `sseMessageOf` leaves out. |
 
 Nothing comes after it.
 
@@ -427,11 +440,14 @@ to `onStep` and `AskResult.steps`, `"none"` to neither. The `"none"` notices are
 | `"page_looks_busy"` | none | A look at pages waited longer than `pageLookWaitMs` for its turn (`maxConcurrentPageLooks`, [library](./library.md#largefilesoptions)) and was not run. The model was told the server is busy. `documentIds` names the PDF. New in 0.9.0. | "The pages of report.pdf were not looked at: the server was busy with other looks at pages." |
 | `"answer_filtered"` | none | A filter of the provider stopped the answer, with or without text (`AskResult.finish` `"filtered"`). Right before `run.finish`. With `filteredAnswer: "drop"`, `discardText` says when text was already sent. New in 0.10.0. | "A filter of the provider stopped the answer before it was finished.", "… before any text came.", or under `"drop"` "… before it was finished: its text was dropped." |
 | `"answer_cut"` | none | The answer stopped at the output limit (`AskResult.finish` `"cut"`). Right before `run.finish`. The answer is kept. New in 0.10.0. | "The answer stopped at the model's output limit, so it is incomplete.", or "… before any text came." |
+| `"read_incomplete"` | none | A whole-file read could not read some of its parts, even after their retries, so its answer misses what they hold. The model was told so in the call's result, and the call's step ends with `, incomplete`. Once for each such read, before its `tool.end`. `documentIds` names the document, and `counts` gives `{ failed, parts }`. Read from the result the tool returned, whatever `onToolResult` made of it. New in 0.99.13. | "2 of the 29 parts of app.log could not be read, so the answer may miss what they hold." |
+| `"citations_only"` | none | With `showCitations: false`, the answer was nothing but line citations, which would have left it shown empty: the lines it cited are shown in words instead ("line 8", "שורה 8"; see [citations the user does not see](./ask.md#citations-the-user-does-not-see)). `answered` stays true. Once a question. New in 0.99.13. | "The answer was only line citations, which are not shown: the lines it cited are shown in words." |
 
 The messages are written for people and may change between versions. Test `code`, not `message`.
 
 New codes come with new versions: 0.9.0 added `"documents_missing"`, `"document_gone"` and
-`"page_looks_busy"`, and 0.10.0 `"answer_filtered"` and `"answer_cut"`. In TypeScript, a `switch`
+`"page_looks_busy"`, 0.10.0 `"answer_filtered"` and `"answer_cut"`, and 0.99.13
+`"read_incomplete"` and `"citations_only"`. In TypeScript, a `switch`
 over `NoticeCode` that must handle every code (one with a `never` check in its `default`) no longer
 compiles until it handles them. Give such a switch a `default` that shows nothing, or the message.
 
@@ -472,6 +488,15 @@ How `message` is written:
   the library's words: "The model was busy (HTTP 429).", "The model failed on its side (HTTP
   503).", "The model refused the key or token it was sent (HTTP 401).". The provider's own words
   can name projects, hosts or keys: they stay on the error that is thrown, for your logs.
+  Since 0.99.13 this holds for a key, token or headers function that throws too: its event says
+  "The model could not be reached." (kind `"unreachable"`, or `"timeout"`) for a connection that
+  failed, and "The model refused the key or token it was sent." (kind `"auth"`) for anything else.
+  The token client's own words, and the address of a metadata server
+  (`http://169.254.169.254/…`), stay only on the thrown error's `cause`. In 0.99.12, of 54
+  streamed failure cases, 36 carried the token client's words and 9 the address in `run.error`
+  and its partial steps, `request.end`, `retry` or their SSE forms; 0 of 54 now. A
+  socket error with no `kind` that a request of your own adapter or `generateText` failed with is
+  told as the model's ("The model could not be reached."), never as storage.
 - **A storage error** (`DocumentStoreError`) is told by its own message, which names only the
   code, and so is a `DocumentsNotFoundError`, which names the IDs. **A Node system error** (one with a `code` and a `syscall`) is told as "The file could not
   be read from storage (ENOENT).". Since 0.9.0 its code is told only when it reads as one
@@ -502,7 +527,8 @@ plain `Error`s, and their events said `name: "Error"`; a test that expects that 
 listener that threw have no `code`.
 
 Where errors appear: `retry.error`, `request.end.error`, `run.error.error` and `ingest.error.error`
-are `EventError`s. `tool.end.error` is a string: the error the model was sent, or, for a call
+are `EventError`s. `tool.end.error` is a string: the error the model was sent (since 0.99.13 in the library's words
+when it [quotes the document](#tool-errors-that-quote-the-document)), or, for a call
 ended because its turn failed, the `message` of the turn's error. An ingest whose store failed to
 write the document says only "The document could not be stored. Try again later.", whatever the
 store threw. Since 0.9.0 that error also has `name: "DocumentStoreError"` and `status: 503`, so it
@@ -511,6 +537,29 @@ reads as the error `ingest` throws.
 To show your own words, map the error by `kind` and `name`, as `examples/server.ts` does in its
 `userMessage`, and the error of an ingest by `code`. [Errors and reliability](../guides/errors-and-reliability.md) says what each kind
 means.
+
+### Tool errors that quote the document
+
+New in 0.99.13. Some tool errors name text of the document, so that the model can mend its call.
+Events, steps and SSE get the library's words instead, with a count, while the model gets the error
+whole:
+
+| Error | The model gets | `tool.end.error` and the step say |
+|---|---|---|
+| `aggregate_table`, a column that is not there | "No column \"Profit\" in this table. Its columns are: …" | "No such column in this table, which has 6 columns." |
+| `aggregate_table`, a name that names several columns | "\"Total\" names 3 columns of this table: … Name one of them in full." | "Ambiguous column: the name given matches 3 of the 6 columns of this table." |
+| `aggregate_table`, a filter value that names several columns | "… names 2 columns of this table: …" | "Ambiguous column: the value of a filter matches 2 of the 6 columns of this table." |
+| `read_document` past the end of a workbook | the line count, then which line holds the row asked for and each sheet's row-to-line range, by sheet name | "start_line 400 is past the end of the file, which has 13 lines." |
+
+The error part of `tool.end.error` and of the step (in `tool.end.step`, the steps of `run.finish` and
+`run.error`, `onStep`, `AskResult.steps` and SSE) carries neither the column or sheet names nor the
+name the model gave. The step's label still quotes the model's own arguments ("Aggregate
+budget.xlsx: sum:Q2"), as every label does. This holds whatever
+`onToolResult` does with the result: kept, copied or edited, the error is told in the library's
+words; a `{ reject }` reason is your own words and is told as you wrote it. With
+`eventResults: true`, `tool.end.result` still carries the error as the model got it. In 0.99.12,
+33 of 42 synthetic runs leaked column names this way, 0 of 42 now. A [`LargeFiles`](./library.md#largefiles)
+of your own whose tool set builds its own results gets the error as it is.
 
 ### Documents: `eventResults` and `EventResult`
 
@@ -525,6 +574,22 @@ text of the documents:
   headings of the outline and, for a log, the templates of its most frequent lines.
 
 `missing` (new in 0.9.0) is there as in `AskResult`: the IDs of the documents left out.
+`modelText` (new in 0.99.13) is there too: the answer as the model wrote it, with any citations
+that `showCitations: false` hid. `sseMessageOf` never sends it to a browser.
+
+Since 0.99.13 each key of `AskResult` has a decided place in the events and in SSE, and a key put
+on a result that `AskResult` does not declare is left out of every event:
+
+| Key | In `run.finish` and `run.error` (`onEvent`) | In `run.finish` over SSE | In `run.error`'s `partial` over SSE |
+|---|---|---|---|
+| `answered`, `text`, `finish`, `finishReason`, `blockReason`, `citations`, `turns`, `questionId` | yes | yes | no |
+| `steps`, `evidence`, `usage`, `missing` | yes | yes | yes |
+| `modelText`, `budget`, `lastUsage` | yes | no | no |
+| `toolTurns` | only with `eventResults: true` | no | no |
+| `plan` | names only (`DocumentRef`), or the metadata without server fields with `eventResults: true` | no | no |
+
+The keys of 0.99.12 keep their place: what `sseMessageOf` sends is byte for byte the same, but for
+tool errors that quote the document.
 
 ```ts
 type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
@@ -809,12 +874,14 @@ Two events are made smaller:
 
 | Event | `data` |
 |---|---|
-| `run.finish` | `{ type, seq, runId, questionId, time, result }`, where `result` is `{ answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId }`: not `toolTurns`, `plan`, `budget` or `lastUsage`. Keep `toolTurns` on the server, with the conversation. |
+| `run.finish` | `{ type, seq, runId, questionId, time, result }`, where `result` is `{ answered, text, finish, finishReason, blockReason, citations, steps, evidence, turns, usage, missing, questionId }`: not `toolTurns`, `plan`, `budget`, `lastUsage` or `modelText` (0.99.13). Keep `toolTurns` and `modelText` on the server, with the conversation. |
 | `run.error` | `{ type, seq, runId, questionId, time, error, partial }`, where `partial` is `{ steps, evidence, usage, missing }` of the partial result, or `undefined`. |
 | Any other event | The event as it is. Ingest events too. |
 
 A field that is `undefined` is left out of the JSON: `questionId` is there only for a question that
-has one (new in 0.99.9).
+has one (new in 0.99.9). Since 0.99.13 both lists come from the library's table of where each key of
+`AskResult` goes ([`EventResult`](#documents-eventresults-and-eventresult)): a key with no place in it
+is never sent.
 
 ## Ingest
 
@@ -1015,7 +1082,7 @@ type ToolCallHooks = {
 };
 type ToolRequestStart = { purpose: "part" | "merge" | "final"; detail: string };
 type ToolRequestHandle = {
-  retry(notice: { attempt: number; delayMs: number; error: unknown }): void;
+  retry(notice: { attempt: number; delayMs: number; error: unknown; reason?: "auth_refresh" }): void; // reason: new in 0.99.13
   end(end: ToolRequestEnd): void;
 };
 type ToolRequestEnd = { outcome: "ok" | "error"; usage?: GenerateUsage; error?: unknown };
@@ -1024,7 +1091,7 @@ type ToolRequestEnd = { outcome: "ok" | "error"; usage?: GenerateUsage; error?: 
 | Field | Type | What it does |
 |---|---|---|
 | `onProgress` | `ProgressListener` | Progress of this call, in place of `ToolOptions.onProgress` for it: `{ kind: "map" \| "reduce", message, done, total }`. |
-| `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle` | Called as each model request of this call starts, with its `purpose` and `detail` (`"part 3 of 12"`, `"first half of part 3 of 12"`, `"round 2: 1 of 4"`, `"the answer"`). The handle you return is told of each retry of that request, and once of its end, with the usage its part reader reported (summed over its sends) and, on an error, the error. |
+| `onRequest` | `(request: ToolRequestStart) => ToolRequestHandle` | Called as each model request of this call starts, with its `purpose` and `detail` (`"part 3 of 12"`, `"first half of part 3 of 12"`, `"round 2: 1 of 4"`, `"the answer"`). The handle you return is told of each retry of that request (since 0.99.13 with `reason: "auth_refresh"` for a token refreshed after a 401), and once of its end, with the usage its part reader reported (summed over its sends) and, on an error, the error. |
 | `onDocumentGone` | `(documentId: string) => void` | Called when the document the call names is no longer in the store: deleted or expired since it was planned, or not the caller's. The call's result is the error the model is told. `askWithFiles` makes it a `"document_gone"` notice. New in 0.9.0. |
 | `onPagesBusy` | `(documentId: string) => void` | Called when a look at pages (`view_pages`) waited longer than `pageLookWaitMs` for its turn and was not run. The call's result is the error the model is told. `askWithFiles` makes it a `"page_looks_busy"` notice. New in 0.9.0. |
 | `signal` | `AbortSignal` | Ends this call alone: its scans, regex searches, whole-file read, look at pages and loads. Joined with `ToolOptions.signal`. New in 0.10.0. |

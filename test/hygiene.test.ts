@@ -539,7 +539,7 @@ describe("owner values (S16)", () => {
     const anonymous = await fetch(url, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "notes" });
     expect(anonymous.status).toBe(500);
     // It names the owner, so that an operator knows where to look, and nothing else.
-    expect(await anonymous.json()).toEqual({ error: "Upload failed (empty owner)." });
+    expect(await anonymous.json()).toEqual({ error: "Upload failed (empty owner).", category: "unknown" });
     expect(stored).toBe(0);
     expect((await fetch(url, { method: "POST", headers: { "X-File-Name": "a.txt", "X-User": "alice" }, body: "notes" })).status).toBe(201);
     expect(stored).toBe(1);

@@ -1,6 +1,7 @@
 // What a question or an ingest does while it runs, as typed data in order. The callbacks of
 // earlier versions (onText, onActivity, onStep) still get the same strings, at the same moments.
 import type { AskResult } from "./ask.js";
+import { connectionFailure, type ConnectionFailure } from "./connection-failure.js";
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import type { Evidence } from "./evidence.js";
 import { modelFailureReason } from "./map-reduce.js";
@@ -128,7 +129,14 @@ export type ToolOutcome = "ok" | "error" | "refused" | "already_shown" | "not_ru
  * - "answer_filtered": a filter of the provider stopped the answer, with or without text
  *   (`AskResult.finish` "filtered"). New in 0.10.0;
  * - "answer_cut": the answer stopped at the output limit (`AskResult.finish` "cut"). New in
- *   0.10.0.
+ *   0.10.0;
+ * - "read_incomplete": a whole-file read could not read some of its parts, even after their
+ *   retries, so its answer misses what they hold. The model was told so in the call's result, and
+ *   the call's step ends with ", incomplete". `counts` gives the parts that failed and all the
+ *   parts. New in 0.99.13;
+ * - "citations_only": with `AskOptions.showCitations: false`, the answer was nothing but line
+ *   citations, which would have left it shown empty: the lines it cited are shown in words
+ *   instead ("line 8", "שורה 8"). New in 0.99.13.
  *
  * A switch over every code must handle the codes added in a later version.
  */
@@ -148,7 +156,9 @@ export type NoticeCode =
   | "document_gone"
   | "page_looks_busy"
   | "answer_filtered"
-  | "answer_cut";
+  | "answer_cut"
+  | "read_incomplete"
+  | "citations_only";
 
 /**
  * Where a notice went in the callbacks of earlier versions: "activity" to `onActivity`, "step" to
@@ -161,7 +171,9 @@ export type NoticeDisplay = "activity" | "step" | "none";
  * `toolTurns`, which hold the text of the documents the tools returned, and with its plan naming
  * the documents only (`DocumentRef`). With
  * `AskOptions.eventResults: true` they are there too. The result `askWithFiles` returns (and
- * `askStream`'s `result`, and `partialResultOf`) always has them: keep them from there.
+ * `askStream`'s `result`, and `partialResultOf`) always has them: keep them from there. It has
+ * `modelText` (since 0.99.13), which `sseMessageOf` never sends to a browser. A key put on a result
+ * that `AskResult` does not declare is left out (since 0.99.13).
  */
 export type EventResult = Omit<AskResult, "toolTurns" | "plan"> & {
   toolTurns?: ToolTurn[];
@@ -243,6 +255,12 @@ export type AskEvent =
       /** 1 for the first retry. */
       attempt: number;
       delayMs: number;
+      /**
+       * "auth_refresh": the request was refused with HTTP 401 and is sent again at once with a new
+       * token (`vertexAi({ accessToken })` as a function): attempt 1, delayMs 0. Absent for the
+       * other retries. New in 0.99.13.
+       */
+      reason?: "auth_refresh";
       error: EventError;
       message: string;
     })
@@ -298,6 +316,11 @@ export type AskEvent =
       /**
        * When the result the model was sent is an error (outcomes "error", "refused", "not_run"):
        * its message. For a call ended because its turn failed: why, as in `EventError.message`.
+       * Since 0.99.13 an error that quotes the document is told in the library's words, here and in
+       * `step`, while the model gets it whole (in `result` with `eventResults`): `aggregate_table`'s
+       * column errors, which list the table's columns, say "No such column" or "Ambiguous column" with a count,
+       * and `read_document`'s past the end of a workbook, which names its sheets, says only "start_line N
+       * is past the end of the file, which has M lines."
        */
       error?: string;
       /** The result itself. Only with `AskOptions.eventResults: true`: it holds document text. */
@@ -310,9 +333,15 @@ export type AskEvent =
       display: NoticeDisplay;
       /**
        * The documents the notice is about: those left out ("documents_missing"), the one found gone
-       * ("document_gone"), the one whose pages were not looked at ("page_looks_busy"). New in 0.9.0.
+       * ("document_gone"), the one whose pages were not looked at ("page_looks_busy"), the one a
+       * whole-file read could not read all of ("read_incomplete", since 0.99.13). New in 0.9.0.
        */
       documentIds?: string[];
+      /**
+       * With "read_incomplete": the parts of the whole-file read that could not be read, and all of
+       * its parts, those included. New in 0.99.13.
+       */
+      counts?: { failed: number; parts: number };
       /**
        * With "answer_filtered", under `AskOptions.filteredAnswer: "drop"`: text of the answer was
        * already sent (`text` events, `onText`), and the page should take it away. New in 0.10.0.
@@ -389,7 +418,9 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
     }
     const out: EventError = { message: message ?? userMessageOf(error) };
     const own = DocumentStoreError.is(error) ? "DocumentStoreError" : DocumentsNotFoundError.is(error) ? "DocumentsNotFoundError" : undefined;
+    const connection = failedModelConnection(error);
     if (typeof record.kind === "string") out.kind = record.kind as ModelErrorKind;
+    else if (connection) out.kind = connection.kind;
     else if (isModelStatus(record.status) && own === undefined && !isPlainData(record)) {
       // A model's error without a kind of its own (an adapter of yours, `httpError`): the kind its
       // status gives, as its message is told, so that a model's EventError always has its kind.
@@ -412,6 +443,32 @@ export function eventErrorOf(error: unknown, message?: string): EventError {
 }
 
 const SOMETHING_WENT_WRONG = "Something went wrong.";
+
+/** The errors model requests failed with: see `noteModelFailure`. */
+const modelFailures = new WeakSet<object>();
+
+/**
+ * Takes note that a model request failed with this error (0.99.13). Its event then tells a
+ * connection that failed as the model's, by its kind ("The model could not be reached."), even
+ * when the error has none of its own: a socket error that an adapter of your own, or its key or
+ * token function, let through is never told as storage, nor in the HTTP client's words.
+ */
+export function noteModelFailure(error: unknown): void {
+  if (typeof error === "object" && error !== null) modelFailures.add(error);
+}
+
+/**
+ * The connection that failed, of an error a model request failed with (`noteModelFailure`) that
+ * has no kind or model status of its own to be told by. Undefined for any other error.
+ */
+function failedModelConnection(error: unknown): ConnectionFailure | undefined {
+  if (typeof error !== "object" || error === null || !modelFailures.has(error) || DocumentStoreError.is(error)) return undefined;
+  const { kind, status } = error as { kind?: unknown; status?: unknown };
+  if (typeof kind === "string" || isModelStatus(status)) return undefined;
+  // By a code only: a `TimeoutError` is the reason of a signal, the app's own, and told as it is.
+  const connection = connectionFailure(error);
+  return connection?.code !== undefined ? connection : undefined;
+}
 
 /** Data, not an error: an object of no class, as an `EventError` is, or one parsed from JSON. */
 export function isPlainData(value: object): boolean {
@@ -442,8 +499,9 @@ function userMessageOf(error: unknown): string {
   if (DocumentStoreError.is(error) || DocumentsNotFoundError.is(error)) return (error as Error).message;
   if (typeof error !== "object" || error === null) return SOMETHING_WENT_WRONG;
   const record = error as { kind?: unknown; status?: unknown; code?: unknown; syscall?: unknown; errno?: unknown; message?: unknown };
-  // A model error, as eventErrorOf gives it a kind: the provider's words stay on the error.
-  if (typeof record.kind === "string" || (isModelStatus(record.status) && !isPlainData(record))) return modelFailureReason(error);
+  // A model error, as eventErrorOf gives it a kind: the provider's words stay on the error. So is
+  // a connection that failed in a model request, with no kind of its own (0.99.13).
+  if (typeof record.kind === "string" || (isModelStatus(record.status) && !isPlainData(record)) || failedModelConnection(error)) return modelFailureReason(error);
   // Any other status (thrown plain data, a status no model answers with) is not a model's, and the
   // words that came with it may be anyone's: errorInfoOf tells it so too.
   if (typeof record.status === "number") return SOMETHING_WENT_WRONG;

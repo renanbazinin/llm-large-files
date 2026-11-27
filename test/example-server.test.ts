@@ -54,7 +54,7 @@ describe("examples/server.ts", () => {
     // Without the cookie of the page, an upload is refused before it is read.
     const stranger = await fetch(`${base}/api/documents`, { method: "POST", headers: { "X-File-Name": "a.txt" }, body: "notes" });
     expect(stranger.status).toBe(401);
-    expect(await stranger.json()).toEqual({ error: "Sign in first." });
+    expect(await stranger.json()).toEqual({ error: "Sign in first.", category: "unknown" });
 
     const alice = browser(base);
     const bob = browser(base);
@@ -102,7 +102,7 @@ describe("examples/server.ts", () => {
     // Without the cookie of the page: nobody's list.
     const stranger = await fetch(`${base}/api/documents`);
     expect(stranger.status).toBe(401);
-    expect(await stranger.json()).toEqual({ error: "Sign in first." });
+    expect(await stranger.json()).toEqual({ error: "Sign in first.", category: "unknown" });
 
     const alice = browser(base);
     const bob = browser(base);

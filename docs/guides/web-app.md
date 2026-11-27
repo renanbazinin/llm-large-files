@@ -85,6 +85,7 @@ const documents = createDocumentHandlers(files, {
     if (!userId) throw Object.assign(new Error("Sign in to attach files."), { status: 401 });
     return userId;
   },
+  refuseCrossSite: true, // another site's page cannot upload or delete in the user's name (0.99.13)
 });
 
 // Before any body parser: the body of an upload is the raw file.
@@ -107,6 +108,18 @@ app.use(express.json());
 
 Mount the upload route before your body parsers, and have the browser send
 `Content-Type: application/octet-stream`, which JSON and form parsers leave alone.
+
+**Uploads from another site's page.** A form on another site can post to your upload route with
+the user's cookie: a `text/plain` body with `?name=` needs no preflight, and plants a file in the
+user's chat. With `refuseCrossSite: true` (new in 0.99.13, off by default until 1.0), `upload` and
+`remove` answer such a request `403` before `getOwner` runs or the body is read, so nothing is
+stored: a `Sec-Fetch-Site: cross-site` header, or an `Origin` that is not the request's own. A
+request with neither header (`curl`, another server) is let through. List the origins of other
+sites of yours that upload in `allowedOrigins` (only with `refuseCrossSite: true`: a `TypeError`
+otherwise). Behind a proxy that changes `Host` without `X-Forwarded-Host` and
+`X-Forwarded-Proto`, list your own site's origin there too, or a browser that sends no
+`Sec-Fetch-Site` is refused. `get` and `list` change nothing, and are not checked
+([Security](../security.md#uploads-from-another-sites-page)).
 
 ### Mount them in plain `node:http`
 
@@ -482,7 +495,7 @@ A successful upload answers `201` with a `DocumentSummary`:
 
 ```json
 { "id": "doc_3f9c0a7e5b2d4c18a6e0f7b9d1c3e5a7", "name": "app.log", "mimeType": "text/plain",
-  "format": "log", "bytes": 5082044, "lines": 60000, "estimatedTokens": 1270511,
+  "format": "log", "bytes": 5236281, "lines": 60000, "estimatedTokens": 3260485,
   "expiresAt": "2026-11-22T07:43:14.435Z" }
 ```
 
@@ -494,8 +507,16 @@ for the file saved as UTF-8.
 
 `onUploaded`'s `answer`, when it returns one, adds its fields to it.
 
-Everything else is JSON `{ "error": "…" }`, with a message you can show: `400` for a missing name or
-a body another middleware already parsed, `401` "Sign in first." under `requireOwner` (the default), `404` "This
+Everything else is JSON `{ "error": "…", "code": "…", "category": "…" }` (`ErrorBody`): `error`, a
+message in English you can show; since 0.99.13 also the `code` and `category` that `errorInfoOf`
+gives the error, for words of your own in your users' language (`code` is left out when there is
+none), and `retryAfterMs` when the answer sets `Retry-After`. A `422` for a Word file of before
+2007 is `{ "error": "…", "code": "legacy_office", "category": "ingest" }`; the handlers' own
+refusals, such as "Sign in first.", are `category` `"unknown"` with no code
+([a page in Hebrew](./errors-and-reliability.md#your-users-words-errorinfoof) maps them). The
+statuses: `400` for a missing name or a body another middleware already parsed, `401` "Sign in
+first." under `requireOwner` (the default), `403` for a page of another site under
+`refuseCrossSite` (0.99.13), `404` "This
 chat no longer exists." for a chat whose folder is gone, `413` over `maxUploadBytes`, `422` for a
 file that cannot be read, `409` "A file is already saved for this upload." when a file is already at the
 path of `prepareUpload`, `503` with `Retry-After` when the server holds as many uploads as it
@@ -797,6 +818,7 @@ size your servers ([Deployment](./deployment.md)).
 
 ```ts
 import type { DocumentSummary } from "llm-large-files";
+import type { ErrorBody } from "llm-large-files/node";
 
 /** Sends one file to POST /api/documents. Throws with a message you can show. */
 export async function uploadFile(file: File): Promise<DocumentSummary> {
@@ -817,13 +839,15 @@ export async function uploadFile(file: File): Promise<DocumentSummary> {
     response = await send();
   }
   // An error page of a proxy (a 413 or a 502) is not JSON: the status then makes the message.
-  const result = (await response.json().catch(() => ({}))) as Partial<DocumentSummary> & { error?: string };
+  // An error body also has code and category (0.99.13): map them to your own words if you like.
+  const result = (await response.json().catch(() => ({}))) as Partial<DocumentSummary> & Partial<ErrorBody>;
   if (!response.ok || !result.id) throw new Error(result.error ?? `The upload failed (HTTP ${response.status}).`);
   return result as DocumentSummary; // keep result.id with the chat session
 }
 ```
 
-- The `import type` is erased when the page is built, so the browser loads nothing of the library.
+- The `import type` lines are erased when the page is built, so the browser loads nothing of the
+  library.
 - `encodeURIComponent` is needed: `fetch` refuses a header value with characters outside Latin-1,
   and a file name can have any.
 - `fetch` reports no progress of an upload. For a progress bar on large files, send the same
@@ -1077,7 +1101,8 @@ export function chatRoute(chats: ChatStore) {
       await chats.save(sessionId, {
         question,
         toolTurns: result.toolTurns,
-        ...(result.answered ? { answer: result.text } : {}),
+        // modelText (0.99.13): the answer as the model wrote it, citations included, for the history.
+        ...(result.answered ? { answer: result.modelText } : {}),
         usage: result.usage,
       }).catch((error: unknown) => console.error("could not keep the question", error));
     }
@@ -1116,6 +1141,11 @@ What the route does, and why:
   does, never sends a follow-up before the last question is in the history.
 - **The tool rounds come from `stream.result`**, or from `partialResultOf(error)` when the question
   failed or was stopped: see [where to keep `toolTurns`](#where-to-keep-toolturns).
+- **The answer kept for the history is `modelText`** (new in 0.99.13): the model's own words, with
+  their citations even when `showCitations: false` hid them from `text`. Send it back as the
+  assistant turn and show `text`
+  ([Conversations](./conversations.md#storing-a-conversation-and-asking-the-next-question)). It is
+  in `run.finish`'s result on the server, and `sseMessageOf` never sends it to the browser.
 
 With another model, call `askStream({ files, model, explorer, ... })` in place of `eventStream` and
 `askGemini`: it takes the same `owner`, `documentIds`, `messages` and `signal`, streams the text
@@ -1143,7 +1173,7 @@ Between events, a comment line `: keep-alive` comes every 15 seconds. The events
 | `tool.progress` | `callId`, `stage` (`"map"` or `"reduce"`), `done`, `total`, `message` | A whole-file read: a counter on that call's line, and the status line: `message` and "…". |
 | `tool.end` | `callId`, `outcome` (`"ok"`, `"error"`, `"refused"`, `"already_shown"`, `"not_run"`, `"redacted"`), `ms`, `step`, `evidence`, `error` | The call's line, done: `step`, with a mark for the outcome. `step` is what `onStep` gets; it is absent for `"not_run"` and for a call ended because its turn failed. |
 | `text` | `delta`, `requestId` | The answer, growing. The deltas add up to the result's `text`. |
-| `notice` | `code`, `message`, `display`, `documentIds` | `display` `"activity"`: the status line. `"step"`: a line in the list. `"none"`: notices earlier versions did not show, such as `budget_reached` and `blocked`; show them if you like. New in 0.9.0: `documents_missing` (files left out of the question, `onMissingDocuments: "drop"`), `document_gone` and `page_looks_busy`, with the files' IDs in `documentIds`: map them to the names you show. |
+| `notice` | `code`, `message`, `display`, `documentIds` | `display` `"activity"`: the status line. `"step"`: a line in the list. `"none"`: notices earlier versions did not show, such as `budget_reached` and `blocked`; show them if you like. New in 0.9.0: `documents_missing` (files left out of the question, `onMissingDocuments: "drop"`), `document_gone` and `page_looks_busy`, with the files' IDs in `documentIds`: map them to the names you show. New in 0.99.13: `read_incomplete` (a whole-file read lost parts; `counts` gives `{ failed, parts }`) and `citations_only` (with `showCitations: false`, an answer made only of citations, shown as the lines in words: "line 8", "שורה 8"). |
 | `retry` | `requestId`, `attempt`, `delayMs`, `error`, `message` | The status line: `message` ("The model did not answer (HTTP 503). Trying again in 2 s…"). |
 | `request.start`, `request.end` | `requestId`, `role`, `purpose`, `model`, `turn`; `ms`, `outcome`, `usage`, `error` | Usually not shown. For your logs and timings. |
 | `run.finish` | `result` (below) | The summary under the answer. Last. |
@@ -1173,7 +1203,11 @@ do not carry them, so take them from what the question returns:
 
 `eventResults: true` would put them in `run.finish`, but `writeSseEvents` leaves them out of what it
 sends anyway, and it would put each tool result in its `tool.end`, which it does send. Keep
-`eventResults` off in a route to a browser.
+`eventResults` off in a route to a browser. With it off, no event carries text of the documents:
+since 0.99.13 that holds for the errors of calls too. A column that `aggregate_table` cannot find
+is told "No such column in this table, which has 6 columns." in `tool.end` and the steps, not with
+the table's headers, and a `read_document` past the end of a workbook says "start_line 400 is past
+the end of the file, which has 13 lines." without its sheet names. The model gets the full message.
 
 ### When the browser goes away
 
@@ -1279,7 +1313,7 @@ export function chatRoute(chats: ChatStore) {
         questionId, // one question per ID: two requests can get the same result
         question,
         toolTurns: result.toolTurns,
-        ...(result.answered ? { answer: result.text } : {}),
+        ...(result.answered ? { answer: result.modelText } : {}),
         usage: result.usage,
       }).catch((error: unknown) => console.error("could not keep the question", error));
     }
@@ -1817,7 +1851,7 @@ export function chatRouteWithCallbacks(chats: ChatStore) {
       await chats.save(sessionId, {
         question,
         toolTurns: result.toolTurns,
-        ...(result.answered ? { answer: result.text } : {}),
+        ...(result.answered ? { answer: result.modelText } : {}),
         usage: result.usage,
       });
       send("done", {
@@ -2063,9 +2097,15 @@ guide covers:
 - The page shows its own message when `answered` in `run.finish` is false.
 - `toolTurns` are kept on the server with each question, from `stream.result` or
   `partialResultOf(error)`, and passed back in the history. The page never handles them.
-- `eventResults` stays off, so no event carries the text of your documents.
+- `eventResults` stays off, so no event carries the text of your documents. Since 0.99.13 that
+  includes the errors of tool calls: the column names of a table and the sheet names of a
+  workbook stay out of `tool.end`, the steps and SSE.
 - `run.error` carries a message safe to show; map it to your own words by `kind` and `name` if you
-  like. The provider's message is on the thrown error, for your log only.
+  like. The provider's message is on the thrown error, for your log only. Since 0.99.13 no event
+  carries the words of a token function either (`retry`, `request.end`, `run.error` and their SSE
+  forms), nor the address of the metadata server: they stay in the error's `cause`.
+- The upload handlers have `refuseCrossSite: true`, so another site's page cannot upload or delete
+  in the user's name.
 - The stream is passed to `writeSseEvents` itself, or the route stops the question when the
   response closes.
 - Keep-alive comments and a deadline keep long questions alive and bounded.

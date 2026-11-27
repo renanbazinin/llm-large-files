@@ -1,10 +1,12 @@
 // The tool loop, for any model: plan the documents, offer the tools, run the calls within the
 // limits of the request, and end with an answer. A provider is an adapter (see model.ts).
-import { eventErrorOf, EventEmitter, eventStream, newRunId, type AskEvent, type DocumentRef, type EventResult, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
-import { CitationHider, checkCitations, type CitationCheck } from "./citations.js";
+import { eventErrorOf, EventEmitter, eventStream, newRunId, noteModelFailure, type AskEvent, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
+import { CitationHider, checkCitations, type CitationCheck, type LineCitation } from "./citations.js";
+import { hebrewWords, linesInWords, showsNothing } from "./citations-only.js";
+import { documentRef, eventResultOf } from "./event-visibility.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
-import type { LargeFiles } from "./library.js";
+import { TOUCH_ON_USE, type AccessOptions, type LargeFiles, type TouchOnUse } from "./library.js";
 import { Limiter } from "./limiter.js";
 import {
   checkToolTurnVersion,
@@ -17,6 +19,7 @@ import {
   TOOL_TURN_VERSION,
   UsageMeter,
   type ChatMessage,
+  type ChatTurn,
   type ModelAdapter,
   type ModelMessage,
   type ModelReply,
@@ -37,6 +40,7 @@ import { statusOf, withRetry, type RetryNotice, type RetryOptions } from "./retr
 import { estimateTokens, jsonBytes, wellFormedJson } from "./text.js";
 import {
   alreadyShown,
+  eventErrorTextOf,
   failureKind,
   fitAnswer,
   LEAST_RESULT_CHARACTERS,
@@ -239,8 +243,9 @@ export type AskOptions = {
    * until its ")" or the end of its line, so that a citation never shows for a moment. What stays
    * (`CitationHider`): a parenthesis with other words in it, code, a form with no file name that is
    * written in the files the model read ("(L4-L5)" of a medical report), and a citation written
-   * into a sentence ("line 12 of the contract says"). A value that is not true or false is a
-   * `TypeError` before any request. New in 0.99.12.
+   * into a sentence ("line 12 of the contract says"). `AskResult.modelText` keeps the answer as the
+   * model wrote it, citations included (since 0.99.13): send that back as the assistant turn. A
+   * value that is not true or false is a `TypeError` before any request. New in 0.99.12.
    */
   showCitations?: boolean;
   /** Answer text as it arrives. The adapter streams when this is set and it can (see `streamText`). */
@@ -279,7 +284,9 @@ export type AskOptions = {
   /**
    * Put each tool result in its `tool.end` event (`result`), and the tool rounds in the result that
    * `run.finish` and `run.error` carry (`toolTurns`). Off by default: results hold the text of the
-   * documents, and events are often sent on to a browser.
+   * documents, and events are often sent on to a browser. Either way, since 0.99.13 the `error` and
+   * `step` of a call whose error quotes the document (a table's column names, a workbook's sheet
+   * names) say it in the library's words, with a count: the model and `result` have it whole.
    */
   eventResults?: boolean;
   /**
@@ -290,6 +297,19 @@ export type AskOptions = {
    * needs, at the price of a tool call. New in 0.10.2.
    */
   storeRounds?: "full" | "compact";
+  /**
+   * Touch the documents the question plans (`files.touch`) once less than half of their time to
+   * live is left, so that a chat that still uses its files keeps them: with the default `ttlMs` of
+   * 72 hours, a file used 47 hours after its upload (25 hours left) is kept for 72 hours from then,
+   * and one used at 10 hours is not touched, with no store call. It is done before the first model
+   * request and changes nothing that is sent. Off by default: how long files are kept is the
+   * application's to say. A library of your own that is not one `createLargeFiles` made has its
+   * `touch` called by the 72 hours of the default; one without `touch` is a `TypeError`, and so is a
+   * store without `patchMeta`, as for `files.touch`. The touches are best effort: one that fails (a
+   * store write error) leaves that document's expiry as it was, and the question goes on. A value
+   * that is not true or false is a `TypeError` before any request. New in 0.99.13.
+   */
+  touchOnUse?: boolean;
   signal?: AbortSignal;
 };
 
@@ -297,9 +317,21 @@ export type AskResult = {
   /**
    * Everything the model wrote, including any remark it made before calling a tool. With an
    * explorer model, only what the answering model wrote: the explorer's words are not shown. With
-   * `showCitations: false`, without its citations in parentheses, as it was shown (since 0.99.12).
+   * `showCitations: false`, without its citations in parentheses, as it was shown (since 0.99.12);
+   * a request that showed nothing but citations shows the lines they cite in words instead ("line
+   * 8", since 0.99.13).
    */
   text: string;
+  /**
+   * What the model wrote, as it wrote it: `text` with its citations, whatever `showCitations` says.
+   * Equal to `text` when nothing was hidden or put in words; empty, as `text` is, for a filtered
+   * answer that was dropped.
+   * Send it back as the assistant turn of a later question, and show `text`: the requests of that
+   * question are then those it would have with citations shown. Also in the result of `run.finish`
+   * and the partial result of `run.error`, and in what `partialResultOf` gives; never in what
+   * `sseMessageOf` sends to a browser, since it holds the citations that were hidden. New in 0.99.13.
+   */
+  modelText: string;
   /**
    * False when the reply that should be the answer had no text: the prompt was blocked, or the
    * reply was cut off or filtered before any text. A turn whose tool call could not be read is
@@ -440,6 +472,39 @@ function quotesIn(value: unknown, found: string[] = []): string[] {
 function checkShowCitations(given: unknown): void {
   if (given === undefined || typeof given === "boolean") return;
   throw new TypeError(`showCitations must be true or false, and is ${shownValue(given)}.`);
+}
+
+/** `touchOnUse` checked: true, false or nothing (0.99.13). */
+function checkTouchOnUse(given: unknown): void {
+  if (given === undefined || typeof given === "boolean") return;
+  throw new TypeError(`touchOnUse must be true or false, and is ${shownValue(given)}.`);
+}
+
+/** The time to live a library of your own is taken to have for `touchOnUse`: the default `ttlMs`. */
+const DEFAULT_TTL_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * `touchOnUse`: the documents planned that have less than half of their time to live left are
+ * touched. A library made by `createLargeFiles` says which by its own `ttlMs` and clock
+ * (`TOUCH_ON_USE`); one of your own is taken to have the default `ttlMs`, by the clock of this process.
+ * Best effort: a touch that fails leaves that document's expiry as it was, and the question goes on.
+ * A library or store that cannot touch at all (no `touch`, no `patchMeta`) is a TypeError.
+ */
+async function touchPlanned(files: LargeFiles, documents: readonly DocumentMeta[], access: AccessOptions): Promise<void> {
+  const own = (files as { [TOUCH_ON_USE]?: TouchOnUse })[TOUCH_ON_USE];
+  if (typeof own === "function") return own.call(files, documents, access);
+  if (typeof files.touch !== "function") throw new TypeError("touchOnUse needs a library with touch(): createLargeFiles gives one.");
+  const at = Date.now();
+  const touch = files.touch.bind(files);
+  for (const meta of documents) {
+    if (Date.parse(meta.expiresAt) - at >= DEFAULT_TTL_MS / 2) continue;
+    // Best effort, whether `touch` throws or rejects; but a store that cannot touch at all says so.
+    await Promise.resolve()
+      .then(() => touch(meta.id, access))
+      .catch((error: unknown) => {
+        if (error instanceof TypeError && /needs a store with patchMeta/.test(error.message)) throw error;
+      });
+  }
 }
 
 /** `nativeDocuments` checked: true, false or nothing (0.99.9). */
@@ -860,7 +925,12 @@ export function shareRoom(caps: number[], room: number, rates?: number[]): Array
   return shares;
 }
 
-function retryMessage({ error, delayMs }: RetryNotice): string {
+/** The retry of a request refused with HTTP 401 and sent again at once with a new token (ADAPT-REFRESH, 0.99.13). */
+const AUTH_REFRESH = { attempt: 1, delayMs: 0, reason: "auth_refresh" } as const;
+
+function retryMessage({ error, delayMs, reason }: RetryNotice): string {
+  // A 401 sent again at once with a new token (0.99.13): no wait, and no failed connection.
+  if (reason === "auth_refresh") return "The model refused the token (HTTP 401). Trying again with a new one…";
   const status = statusOf(error);
   const seconds = delayMs >= 1_000 ? ` in ${Math.round(delayMs / 1_000)} s` : "";
   const what = errorKindOf(error) === "timeout" && status === 0 ? "The model sent nothing for too long"
@@ -981,15 +1051,6 @@ type RunState = {
   failed?: { error: unknown; result: AskResult };
 };
 
-/** A document as an event names it. */
-const documentRef = (meta: DocumentMeta): DocumentRef => ({
-  id: meta.id,
-  name: meta.name,
-  format: meta.format,
-  estimatedTokens: meta.estimatedTokens,
-  ...(meta.pages !== undefined ? { pages: meta.pages } : {}),
-});
-
 /** Which model a chat request goes to, and why. */
 type RequestKind = { role: RequestRole; purpose: RequestPurpose };
 
@@ -1031,26 +1092,6 @@ export async function askWithFiles(options: AskOptions): Promise<AskResult> {
     }
     throw error;
   }
-}
-
-/**
- * A result as `run.finish` and `run.error` carry it: a copy, so that a listener cannot change the
- * caller's, without the tool rounds and with the plan naming documents only (both hold text of
- * the documents: tool results, outline headings, the commonest lines of a log) unless `withTurns`.
- * Its plan never holds the owner, scope, SHA-256 or original of a document.
- */
-function eventResultOf(result: AskResult, withTurns: boolean): EventResult {
-  const { toolTurns, plan, ...rest } = result;
-  // The full metadata only with `withTurns`, and never what is to stay on the server: who owns a
-  // document, its scope, the SHA-256 and the ref of its original.
-  if (withTurns) return { ...rest, toolTurns, plan: { inline: plan.inline.map(withoutServerFields), searchable: plan.searchable.map(withoutServerFields) } };
-  return { ...rest, plan: { inline: plan.inline.map(documentRef), searchable: plan.searchable.map(documentRef) } };
-}
-
-/** A document's metadata without what is to stay on the server, for an event (since 0.10.0). */
-function withoutServerFields(meta: DocumentMeta): Omit<DocumentMeta, "owner" | "scope" | "sha256" | "original" | "metaVersion"> {
-  const { owner: _owner, scope: _scope, sha256: _sha256, original: _original, metaVersion: _metaVersion, ...rest } = meta;
-  return rest;
 }
 
 /**
@@ -1123,6 +1164,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   checkRemovedOptions(options);
   checkNativeDocuments(options.nativeDocuments);
   checkShowCitations(options.showCitations);
+  checkTouchOnUse(options.touchOnUse);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
 
@@ -1187,6 +1229,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...(sharedNative ? { nativeDocuments: { ...sharedNative, pageTokens } } : {}),
   }), signal));
   const { prepared, documentIds } = planned;
+  // The documents the question uses are kept, when they near their end (since 0.99.13).
+  if (options.touchOnUse === true) await until(touchPlanned(files, [...prepared.plan.inline, ...prepared.plan.searchable], access), signal);
   /** The documents left out of the question ("drop"), by this try and by the first. */
   const missing = [...carried?.missing ?? [], ...planned.dropped];
   // Tools are needed for a file that is too large to send whole, for a PDF whose pages can be
@@ -1336,6 +1380,32 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   };
   /** A notice that earlier versions did not show. */
   const notice = (code: NoticeCode, message: string, documentIds?: string[]) => events.emit({ type: "notice", code, message, display: "none", ...(documentIds ? { documentIds } : {}) });
+  /** The question's last turn of the user, for the language of the words below. */
+  const question = [...options.messages].reverse().find((message): message is ChatTurn => message.role === "user" && typeof (message as Partial<ChatTurn>).text === "string")?.text;
+  /** "citations_only" is told once a question. */
+  let citationsOnlySaid = false;
+  /**
+   * An answer of a request made only of citations, which the hider took out (LOOP-10, since
+   * 0.99.13): what was shown of it (`shownFrom` on) has no letter, digit or symbol. The lines it
+   * cited are shown in words after it ("line 8", "שורה 8"), and a "citations_only" notice says so.
+   * `written` is what the model wrote in the request: its citations are read from it, as
+   * `AskResult.citations` reads them from the whole text, which is unchanged.
+   */
+  const citationsOnly = (written: string, shownFrom: number, requestId: string) => {
+    const before = shownText.slice(shownFrom);
+    if (!hider || signal?.aborted || !showsNothing(before)) return;
+    const names = Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name]));
+    // A citation with no file found names a workbook when every file of the question is one.
+    const workbooks = new Set(citedFiles.filter((meta) => meta.format === "xlsx").map((meta) => meta.id));
+    const inWorkbook = ({ documentId }: LineCitation) => (documentId !== undefined ? workbooks.has(documentId) : citedFiles.length > 0 && workbooks.size === citedFiles.length);
+    const words = linesInWords(checkCitations(written, [], names).cited ?? [], hebrewWords(written, question, citedFiles.map((meta) => meta.name)), inWorkbook);
+    if (!words) return;
+    // Not glued to what the hider left of the request ("." of "(contract.txt L2)."): a space between.
+    show(before && !/\s$/u.test(before) ? ` ${words}` : words, requestId);
+    if (citationsOnlySaid) return;
+    citationsOnlySaid = true;
+    notice("citations_only", "The answer was only line citations, which are not shown: the lines it cited are shown in words.");
+  };
   const budgetReached = () => {
     if (state.budgetSaid) return;
     state.budgetSaid = true;
@@ -1391,6 +1461,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const began = Date.now();
     let separated = text.length === 0;
     let got = "";
+    /** Where the text this request shows starts, in `shownText`. */
+    const shownFrom = shownText.length;
     const write = (delta: string) => {
       // Nothing more is shown once the question was stopped, by an adapter that goes on regardless.
       if (!delta || signal?.aborted) return;
@@ -1414,6 +1486,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           // The adapter streams only when the text is asked for as it is written: a listener of
           // the events alone does not change how the model is asked.
           ...(shown && streamText ? { onText: write } : {}),
+          // A 401 that the adapter sends again with a new token (0.99.13): told as a retry with no
+          // wait. Not to `onActivity`, which is told of waits.
+          ...(events.active ? { onRefresh: (refused: unknown) => events.emit({ type: "retry", requestId, ...AUTH_REFRESH, error: eventErrorOf(refused), message: retryMessage({ error: refused, ...AUTH_REFRESH }) }) } : {}),
         });
         // The question stops when the signal aborts, whether the adapter does or not: one that does
         // not look at it would hold the question, and the user, until its request ends, if it ever
@@ -1432,6 +1507,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       });
     } catch (error) {
       if (got) release(requestId);
+      // Told as the model's, in this event and in `run.error`, even with no kind of its own (0.99.13).
+      if (!signal?.aborted) noteModelFailure(error);
       if (events.active) events.emit({ type: "request.end", requestId, ms: Date.now() - began, outcome: "error", error: eventErrorOf(error) });
       throw error;
     }
@@ -1439,6 +1516,8 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     // the text of a reply a filter stopped, when such an answer is dropped: it was not shown yet.
     if (shown && reply.text.length > got.length && reply.text.startsWith(got) && !(dropFiltered && reply.finish === "filtered")) write(reply.text.slice(got.length));
     if (got) release(requestId);
+    // What the request showed was nothing but citations: they are shown in words.
+    if (got) citationsOnly(got, shownFrom, requestId);
     answeredRequests++;
     lastReply = reply;
     // A reply without its input tokens is counted by the estimate, in the model's own tokens.
@@ -1490,6 +1569,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   };
   const result = (answered: boolean): AskResult => ({
     text: hider ? shownText : text,
+    modelText: text,
     answered,
     ...(blockReason ? { blockReason } : {}),
     steps,
@@ -2237,8 +2317,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           round,
         });
       };
-      /** `sent`: the result as the model gets it. `line`: the step, as `onStep` got it. */
-      const endTool = (index: number, outcome: ToolOutcome, sent: ToolResult, line?: string, shown?: Evidence) => {
+      /**
+       * `sent`: the result as the model gets it. `line`: the step, as `onStep` got it. `told`: what
+       * the event says of an error that quotes the document, in place of `sent.error` (since 0.99.13).
+       */
+      const endTool = (index: number, outcome: ToolOutcome, sent: ToolResult, line?: string, shown?: Evidence, told?: string) => {
         const open = openCalls.get(index);
         openCalls.delete(index);
         // A request of a whole-file read that its read left behind ends before its call does.
@@ -2252,7 +2335,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           ...(line !== undefined ? { step: line } : {}),
           ...(shown ? { evidence: { ...shown, callId: callIds[index]! } } : {}),
           resultCharacters: JSON.stringify(sent).length,
-          ...(typeof sent.error === "string" ? { error: sent.error } : {}),
+          ...(typeof sent.error === "string" ? { error: told ?? sent.error } : {}),
           ...(options.eventResults === true ? { result: sent } : {}),
         });
       };
@@ -2295,9 +2378,16 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         tell(() => events.emit({ type: "request.start", requestId, role: "reader", purpose: start.purpose, model: toolModel.id, callId: callIds[index]!, detail: start.detail }));
         return {
           retry: (retried) => {
-            if (!ended && events.active) tell(() => events.emit({ type: "retry", requestId, attempt: retried.attempt, delayMs: retried.delayMs, error: eventErrorOf(retried.error), message: retryMessage(retried) }));
+            if (!ended && events.active) tell(() => events.emit({ type: "retry", requestId, attempt: retried.attempt, delayMs: retried.delayMs, ...(retried.reason ? { reason: retried.reason } : {}), error: eventErrorOf(retried.error), message: retryMessage(retried) }));
           },
-          end,
+          end: (last) => {
+            // The read's own request failed: told as the model's, even with no kind of its own (0.99.13).
+            // Not when it ended with why the turn's calls were stopped (a hook or a listener that
+            // threw, another call that failed): that error is not the model's.
+            const stopped = halt.signal.aborted && last.error === halt.signal.reason;
+            if (last.error !== undefined && !signal?.aborted && !stopped) noteModelFailure(last.error);
+            end(last);
+          },
         };
       };
       /** A look of this turn waited `pageLookWaitMs` and was told the server is busy: the others do not wait (`maxWaitMs`). */
@@ -2468,8 +2558,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           return left - took - others;
         };
 
+        /**
+         * What the step and the events of each call say of an error that quotes the document (the
+         * column names of a table, the sheet names of a workbook), by index: the library's words,
+         * while the model gets the error whole (since 0.99.13).
+         */
+        const toldErrors: Array<string | undefined> = [];
         // The answers in call order. Each call's `tool.end` goes out here, in the same order.
-        for (const [index, { call, label, late, refusal, pointer }] of planned.entries()) {
+        for (const [index, { call, label, late, refusal, pointer, twinOf }] of planned.entries()) {
           const { raw, output: judgedOutput, judged, copied } = await judgedOutputs[index]!;
           if (listenerError) throw listenerError.error;
           // A hook of a later call failed: nothing more of the turn reaches the model.
@@ -2479,6 +2575,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           if (!refusal && !pointer && sentParts(call, raw.result)) {
             const id = String(call.args.document_id);
             readsSent.set(id, (readsSent.get(id) ?? 0) + 1);
+            // A read that could not read some of its parts, after their retries, tells the page so
+            // (since 0.99.13): read from what the tool returned, whatever the hook made of it.
+            const failed = raw.result.parts_that_failed ?? raw.result.parts_failed;
+            const parts = raw.result.parts_read;
+            if (!copied && typeof failed === "number" && failed > 0 && typeof parts === "number") {
+              const name = nameOf(id) ?? "a file";
+              events.emit({ type: "notice", code: "read_incomplete", message: `${failed} of the ${parts} parts of ${name} could not be read, so the answer may miss what they hold.`, display: "none", documentIds: [id], counts: { failed, parts } });
+            }
           }
           let output = judgedOutput;
           if (late) {
@@ -2513,7 +2617,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
               failing = undefined;
             }
           }
-          const line = step(`${label}${toolResultSummary(label, output.result)}`);
+          // Read from the result the tool returned, or the first call's for a copy of its verdict: also
+          // when the hook kept the error, or sent a copy of it. Not when the hook refused the call,
+          // whose reason is the application's own words.
+          const told = typeof output.result.error === "string" && judged !== "refused"
+            ? (copied && twinOf !== undefined ? toldErrors[twinOf] : eventErrorTextOf(raw.result))
+            : undefined;
+          toldErrors[index] = told;
+          const line = step(`${label}${toolResultSummary(label, told !== undefined ? { ...output.result, error: told } : output.result)}`);
           // A copy of the first call's verdict shows nothing that the first did not. Nor does a
           // look at pages whose pages the hook kept back: the model saw none of them.
           const withheld = raw.files.length > 0 && output.files.length === 0;
@@ -2522,7 +2633,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           const sent = { ...output.result, tool_turns_left: turnsLeft };
           answers.push({ call, result: sent, files: output.files });
           const outcome: ToolOutcome = judged ?? (call.problem ? "error" : refusal ? "refused" : typeof output.result.error === "string" ? "error" : "ok");
-          endTool(index, outcome, sent, line, shown);
+          endTool(index, outcome, sent, line, shown, told);
         }
         // A listener of a read that went on after its call returned (its progress).
         if (listenerError) throw listenerError.error;

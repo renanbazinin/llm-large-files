@@ -18,6 +18,10 @@
     {
      "fact": "number 22",
      "status": "pass"
+    },
+    {
+     "fact": "names only rows 53, 106, 159 … 1166 (22 rows) of sales-1",
+     "status": "pass"
     }
    ],
    "passed": true,
@@ -32,7 +36,57 @@
     "checked": 6,
     "supported": 6,
     "unchecked": 0,
-    "unsupported": []
+    "unsupported": [],
+    "cited": [
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 55,
+      "to": 55,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 108,
+      "to": 108,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 161,
+      "to": 161,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 55,
+      "to": 55,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 108,
+      "to": 108,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 1168,
+      "to": 1168,
+      "form": "line",
+      "status": "supported"
+     }
+    ]
    },
    "tools": [
     "aggregate_table",

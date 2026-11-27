@@ -73,7 +73,9 @@ API](./guides/vertex-and-gemini.md), [OpenAI-compatible endpoints](./guides/open
 
 The token counts of the two files are the estimate of 0.1.0, four characters a token. That rule
 counted logs low, and the estimate of today counts a log as far more tokens
-([Token estimates](#token-estimates-020)). For prose it was close, as the novel shows.
+([Token estimates](#token-estimates-020)): a generated service log of 60,000 lines and 5,236,281
+bytes, the one the landing page records, is estimated at 3,260,485 tokens, 1.6 characters a token,
+inside the 1.4 to 2.8 that Gemini counts for logs. It is not the log of the run. For prose the old rule was close, as the novel shows.
 
 Live testing of 0.1.0 (model not recorded) also showed that Gemini can ignore
 `functionCallingConfig: { mode: "NONE" }`: it kept calling tools on the turn meant to force an
@@ -1138,6 +1140,18 @@ the fix ships in 0.6.0.
   an error result of 200,047 that went back to the model.
 - **0.6.0.** A question whose adapter never ended its request, and ignored the signal, hung for
   good after an abort at 300 ms. It now throws the signal's reason at 310 ms.
+- **0.99.13.** A Vertex AI token function that threw once on a connection that failed (a
+  metadata server that reset) ended the question, not retried; with a `syscall`, its event said
+  the file "could not be read from storage". Of 54 streamed failure cases of token functions, 36
+  carried the token client's words to events and SSE, and 9 the metadata server's address.
+- **0.99.13.** With `eventResults` off, planted column names of a table reached events or SSE,
+  through `aggregate_table`'s column errors, in 33 of 42 synthetic runs. In the replay of the
+  recorded answers, 3 of 124 tool calls had such an error.
+- **0.99.13.** `read_document` at `start_line: 400` in a sparse workbook returned the
+  last row of its hidden sheet, with no error.
+- **0.99.13.** With `showCitations: false`, 4 of 4 answers made only of citations were shown empty
+  and reported as answered and complete. A chat that stored `result.text` as history sent other
+  requests than with citations shown in 9 of 16 recorded follow-ups.
 
 ## Checks of 0.5.0
 
@@ -1159,6 +1173,7 @@ These compare the requests or the tool results of a release with those of an ear
 | 0.4.0 | 0.3.6 | The API, the tools and their results: call by call. |
 | 0.4.1 | 0.3.6 | Tool results, call by call, over 40 documents: the same but for three changes that the 0.4.1 changelog lists. |
 | 0.5.0 | 0.3.6 and 0.4.1 | Tool results, call by call with 0.3.6 over 40 documents: the same, except that a repeated whole-file read is refused. The requests of `askGemini` are those of 0.4.1: its 44 tests pass unchanged, but for one that now turns the retry off. |
+| 0.99.13 | 0.99.12 | The eval replay: 96 of 96 cassettes, byte for byte for Gemini. Whole-file reads: 0 of 32 request bodies change when every part is read, and exactly 2 of 38 when 2 of 29 parts fail. SSE of the 112 replayed answers: the same but for 6 lines, the 3 column errors now told without the columns. `modelText` equals the model's text in 112 of 112, and a history built from it replays 16 of 16 follow-ups with citations hidden. Masked canaries in events, SSE or the result: 0 of 4,497, as before. Offline: no network, no live model. |
 
 ## Measuring your own setup
 

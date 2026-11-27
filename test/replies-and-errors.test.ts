@@ -544,7 +544,8 @@ describe("part reads, since the 0.6 review", () => {
       return `Requests handled (L${/lines (\d+)-/.exec(prompt)![1]}).`;
     };
     const result = await files.tools([meta], { generate: mixed, retry: { retries: 0 } }).execute("analyze_whole_document", { document_id: meta.id, task: "Summarize." });
-    expect(result.note).toBe("The last step of this read, which writes one answer from the notes of the parts, failed (The model failed on its side (HTTP 503).). The answer is those notes: answer from them.");
+    // Since 0.99.13 the part that failed is told after it (LOOP-5).
+    expect(result.note).toBe("The last step of this read, which writes one answer from the notes of the parts, failed (The model failed on its side (HTTP 503).). The answer is those notes: answer from them. Incomplete: 1 of the 7 parts could not be read, so this answer misses what they hold. Tell the user it is incomplete.");
     expect(JSON.stringify(result)).not.toContain("acme");
     expect(prompts.join("\n")).not.toContain("acme");
     // A last step that was too large is no part: its words fit any request.
@@ -583,9 +584,10 @@ describe("part reads, since the 0.6 review", () => {
       const result = await files.tools([meta], { generate: failing, retry: { retries: 0 } }).execute("analyze_whole_document", { document_id: meta.id, task: "Summarize." });
       expect(result, String(error)).toEqual({ error: `Could not read any part of app.log: ${reason}` });
     }
-    // The built-in Gemini part reader, whose token could not be renewed during the read.
+    // The built-in Gemini part reader, whose token could not be renewed during the read: since
+    // 0.99.13 a token function that fails on anything but a connection is an "auth" error (ADAPT-3).
     const vertex = gemini(vertexAi({ project: "p", model: "gemini-test", accessToken: () => { throw new Error(`impersonation of sa@acme-prod-4471.iam.gserviceaccount.com failed`); } }), { fetch: (async () => json({})) as typeof globalThis.fetch });
-    expect(await files.tools([meta], { generate: vertex.generateText!, retry: { retries: 0 } }).execute("analyze_whole_document", { document_id: meta.id, task: "Summarize." })).toEqual({ error: "Could not read any part of app.log: The model request failed." });
+    expect(await files.tools([meta], { generate: vertex.generateText!, retry: { retries: 0 } }).execute("analyze_whole_document", { document_id: meta.id, task: "Summarize." })).toEqual({ error: "Could not read any part of app.log: The model refused the key or token it was sent." });
     // A part that failed among others that were read, and a last step that failed: the model is
     // told neither in the notes it writes the answer from, nor in the result.
     let part = 0;
@@ -596,7 +598,8 @@ describe("part reads, since the 0.6 review", () => {
       return `Requests handled (L${/lines (\d+)-/.exec(prompt)![1]}).`;
     };
     const result = await files.tools([meta], { generate: mixed, retry: { retries: 0 } }).execute("analyze_whole_document", { document_id: meta.id, task: "Summarize." });
-    expect(result.note).toBe("The last step of this read, which writes one answer from the notes of the parts, failed (The model request failed.). The answer is those notes: answer from them.");
+    // Since 0.99.13 the part that failed is told after it (LOOP-5).
+    expect(result.note).toBe("The last step of this read, which writes one answer from the notes of the parts, failed (The model request failed.). The answer is those notes: answer from them. Incomplete: 1 of the 7 parts could not be read, so this answer misses what they hold. Tell the user it is incomplete.");
     expect(result.answer).toContain("[This part could not be read: The model request failed.]");
     expect(JSON.stringify(result)).not.toContain("acme");
     expect(prompts.join("\n")).not.toContain("acme");

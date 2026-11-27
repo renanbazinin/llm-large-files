@@ -499,6 +499,12 @@ there and the plan is made again. ([`askWithFiles`](./ask.md#askwithfilesoptions
 [`DocumentsNotFoundError`](./ask.md#documentsnotfounderror) for them instead.) Throws
 `DocumentStoreError` when the store cannot be read, and an `Error` for a `budget` that cannot work.
 
+Since 0.99.13 the documents are looked up, and their blocks read, 8 at a time, and taken in the
+order of `ids`: the plan and the request are the same as when they were read one after another.
+Before the first model request of a question over 20 files, that is 6 store round trips instead
+of 40, and 3 instead of 20 on a follow-up. When a lookup fails, no other starts, and the error of the first
+document that failed is thrown, as before.
+
 ```ts
 import { estimateTokens, jsonBytes, type GenerateText, type LargeFiles } from "llm-large-files";
 
@@ -648,6 +654,15 @@ late, nothing is written. A store without `patchMeta` is a
 valid. A `touch` and an `update` at once both stay. A store that fails
 is a `DocumentStoreError`. Call it when a question uses a document, for example after
 `askWithFiles`, for each of its `documentIds`.
+
+Since 0.99.13, [`AskOptions.touchOnUse: true`](./ask.md#askoptions) does it for you: each question
+touches the documents it plans that have less than half of `ttlMs` left, by the library's own
+clock (`now`), before its first model request. The others get no store call. A touch costs 2 store
+calls (the metadata read, then written), and up to 8 documents are touched at once. With
+`ttlMs: Infinity` nothing is touched. A library of your own (not made by `createLargeFiles`) is
+taken to have the default `ttlMs` of 72 hours, by `Date.now()`, and its `touch` is called for each
+document with less than 36 hours left: with another time to live, touch after the question as
+above instead.
 
 #### `files.update(id, changes, access?)`
 
@@ -2355,7 +2370,7 @@ One step of a whole-document read (`analyze_whole_document`), for a status displ
 | Field | Type | What it holds |
 |---|---|---|
 | `kind` | `"map" \| "reduce"` | `"map"`: a part of the file was read. `"reduce"`: notes were combined, or the answer is being written. |
-| `message` | `string` | A line to show: `Reading app.log: part 3 of 12`, `Combining notes on app.log (round 1): 2 of 4`, `Writing the answer from 9 relevant parts of app.log`. |
+| `message` | `string` | A line to show: `Reading app.log: part 3 of 12`, `Combining notes on app.log (round 1): 2 of 4`, `Writing the answer from 9 relevant parts of app.log` (`1 relevant part` for one, since 0.99.13). |
 | `done` | `number` | The steps of this kind done so far (0 for the step that writes the answer). |
 | `total` | `number` | The steps of this kind (1 for the step that writes the answer). |
 
@@ -2436,7 +2451,7 @@ async function run(call: ToolCall, index: number) {
 
 ```ts
 type ToolRequestHandle = {
-  retry(notice: { attempt: number; delayMs: number; error: unknown }): void;
+  retry(notice: { attempt: number; delayMs: number; error: unknown; reason?: "auth_refresh" }): void; // reason: new in 0.99.13
   end(end: ToolRequestEnd): void;
 };
 ```
@@ -2445,7 +2460,7 @@ New in 0.7.0. One model request of a tool call, as `ToolCallHooks.onRequest` ret
 
 | Member | What it is told |
 |---|---|
-| `retry(notice)` | The request failed and is sent again after `delayMs`, as a [`RetryNotice`](./errors-and-retries.md#retrynotice): `attempt` is 1 for the first retry, and `error` is the error as it was thrown. The retry of an error without a status, which has no wait, is not told. |
+| `retry(notice)` | The request failed and is sent again after `delayMs`, as a [`RetryNotice`](./errors-and-retries.md#retrynotice): `attempt` is 1 for the first retry, and `error` is the error as it was thrown. The retry of an error without a status, which has no wait, is not told. Since 0.99.13 a request refused with HTTP 401 and sent again at once with a new token is told too, with `reason: "auth_refresh"`, `attempt: 1` and `delayMs: 0` (the part reader calls `onRefresh`, [`GenerateText`](./ask.md#generatetext)). |
 | `end(end)` | The request ended, after any retries ([`ToolRequestEnd`](#toolrequestend)). Called once. |
 
 ### `ToolRequestStart`

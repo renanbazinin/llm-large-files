@@ -256,7 +256,7 @@ A gateway that speaks the Messages API takes the same adapter:
 |---|---|---|
 | `baseUrl` | `https://api.anthropic.com` | The base of the API: `/v1/messages` is added to it. |
 | `url` | `baseUrl` + `/v1/messages` | The whole Messages URL, when it is not that. |
-| `authToken` | none | Sent as `Authorization: Bearer …`. A function is called for each request. |
+| `authToken` | none | Sent as `Authorization: Bearer …`. A function is called for each request. One that throws fails the request with status 0 (since 0.99.13: [Errors](#errors-anthropicrequesterror)). |
 | `headers` | none | More headers, or a function that returns them for each request. Added last, so they can replace the adapter's own. |
 | `version` | `ANTHROPIC_VERSION` (`"2026-10-21"`) | The `anthropic-version` header. |
 | `betas` | none | Values of the `anthropic-beta` header, joined with commas. |
@@ -436,12 +436,15 @@ API's own word for the error in `type`. Its fields, and every case the adapter t
 [`AnthropicRequestError`](../reference/anthropic.md#anthropicrequesterror). Which errors inside a
 stream are sent again: [A stream cut off](./errors-and-reliability.md#a-stream-cut-off).
 
-Two failures of a chat request are not an `AnthropicRequestError`, and have no status or kind: an
-error thrown by your `apiKey`, `authToken` or `headers` function, as it was thrown and not sent
-again; and the abort of your own `signal`, thrown as it came. A part read of a whole-file read
-differs in the first: an error of your `apiKey`, `authToken` or `headers` function becomes an
-`AnthropicRequestError` with `status` 0 and `kind: "unreachable"` ("Claude could not be reached
-(…)."), and the part read is sent again, as after a connection that failed.
+One failure is not an `AnthropicRequestError`, and has no status or kind: the abort of your own
+`signal`, thrown as it came. An error thrown by your `apiKey`, `authToken` or `headers` function is
+an `AnthropicRequestError` of status 0 since 0.99.13, in chat requests and part reads alike, with
+what the function threw as its `cause`: kind `"unreachable"` when a connection failed on the way
+("Claude could not be reached: its key or token could not be fetched (ECONNRESET)."), sent again;
+kind `"auth"` otherwise ("Claude was sent no key or token: the function that gives it failed."),
+not sent again ([A key or token function that fails](./errors-and-reliability.md#a-key-or-token-function-that-fails)).
+Until 0.99.12 a chat request threw such an error as it came, and a part read made every one
+`"unreachable"`.
 
 What else the adapter reads from a reply:
 
@@ -523,7 +526,7 @@ async function ask(question: string): Promise<string> {
   });
   // Convert the tool rounds once, and keep what you got: a call without an ID gets a new random one each time.
   history.push({ role: "user", content: question }, ...anthropicToolTurns(result.toolTurns));
-  if (result.answered) history.push({ role: "assistant", content: result.text });
+  if (result.answered) history.push({ role: "assistant", content: result.modelText }); // the model's own words, citations included (0.99.13)
   return result.text;
 }
 ```

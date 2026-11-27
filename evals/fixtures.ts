@@ -262,13 +262,15 @@ const REGIONS = ["North", "South", "West", "Center"];
 
 async function sales() {
   const rows = [`<row r="1">${inline("A1", "Region")}${inline("B1", "Customer")}${inline("C1", "Revenue")}</row>`];
-  const byRegion: Record<string, { n: number; sum: number }> = {};
+  // Each region's count, sum and Excel rows (East: every 53rd row, for the `rows` fact).
+  const byRegion: Record<string, { n: number; sum: number; rows: number[] }> = {};
   for (let r = 2; r <= 1200; r++) {
     const region = r % 53 === 0 ? "East" : REGIONS[r % 4]!;
     const revenue = 1000 + ((r * 37) % 900);
-    const totals = (byRegion[region] ??= { n: 0, sum: 0 });
+    const totals = (byRegion[region] ??= { n: 0, sum: 0, rows: [] });
     totals.n++;
     totals.sum += revenue;
+    totals.rows.push(r);
     rows.push(`<row r="${r}">${inline(`A${r}`, region)}${inline(`B${r}`, `Customer ${r}`)}${number(`C${r}`, revenue)}</row>`);
   }
   const averages = Object.fromEntries(Object.entries(byRegion).map(([region, { n, sum }]) => [region, sum / n]));

@@ -3,7 +3,9 @@
 This page takes an application from 0.10.x to 0.99.9. Read [Requirements](#requirements),
 [Does my code compile?](#does-my-code-compile) and
 [Owner checks are on by default](#owner-checks-are-on-by-default) first: most applications change
-one line, or none. Every change is in the [changelog](../CHANGELOG.md).
+one line, or none. Every change is in the [changelog](../CHANGELOG.md). Later 0.99 versions are at
+the end: [From 0.99.12 to 0.99.13](#from-09912-to-09913). For 0.99.10 to 0.99.12, the
+**Upgrading** part of each version in the changelog says what to change.
 
 0.99.9 is the candidate for 1.0, without a promise yet that the API stays as it is. Versions 0.99.x
 keep the rules of 0.x versions: a minor version may need changes in your code, and its
@@ -21,6 +23,7 @@ kept for one version in 0.10.0 are removed. Everything else is new and optional.
 - [Behavior to check](#behavior-to-check)
 - [Rolling deploys](#rolling-deploys)
 - [New and optional](#new-and-optional)
+- [From 0.99.12 to 0.99.13](#from-09912-to-09913)
 
 ## Requirements
 
@@ -397,3 +400,100 @@ const after = openAiResponses({ apiKey, model: "gpt-5.5", contextTokens: 1_050_0
   or an Entra ID token as `apiKey`, and `model` is the deployment name.
 - It has not been run live. Try it on a staging deployment before you move traffic to it
   ([OpenAI's Responses API](./guides/openai-compatible.md#openais-responses-api)).
+
+## From 0.99.12 to 0.99.13
+
+Most applications change nothing, or add one field to their mocks. What is stored does not change:
+`DocumentMeta` keeps `metaVersion: 1` and `ToolTurn` keeps `version: 1`, so servers of 0.99.12 and
+0.99.13 share a store and chats. Every change is in the [changelog](../CHANGELOG.md).
+
+### Types that changed
+
+| Code of yours | The error | What to write |
+|---|---|---|
+| An `AskResult` built by hand (a mock, a fixture), a `run.finish` event or a `run.error` `partial` built by hand, or a `Record<keyof AskResult, …>` | TS2741: `modelText` is missing. It is required since 0.99.13 | Add `modelText`. It equals `text` unless citations were hidden |
+| A switch over every `NoticeCode` that ends in a `never` check (TS2322), or a `Record<NoticeCode, …>` (TS2739) | Two new codes, `"read_incomplete"` and `"citations_only"` | Add both cases ([`NoticeCode`](./reference/events.md#noticecode-and-noticedisplay)) |
+
+```ts
+import type { AskResult } from "llm-large-files";
+
+declare const recorded: AskResult;
+// 0.99.12 compiled without modelText.
+const mock: AskResult = { ...recorded, text: "The fee is 5%.", modelText: "The fee is 5% (contract.txt L12)." };
+```
+
+Everything else in the types is new and optional (below).
+
+### Behavior to check in 0.99.13
+
+- **JSON error bodies.** Each JSON refusal of the Node handlers is now
+  `{ error, code?, category, retryAfterMs? }`, with the same `error` and status as before. **Who:**
+  tests that compare a body whole, such as `toEqual({ error: "Sign in first." })`, which is now
+  `{ error: "Sign in first.", category: "unknown" }`. **What to do:** compare the fields you mean.
+  A page can choose its words by `code` ([`ErrorBody`](./reference/node.md#errorbody)):
+
+  ```ts
+  import type { ErrorBody } from "llm-large-files/node";
+
+  declare const response: Response;
+  const body = (await response.json()) as ErrorBody;
+  const shown = body.code === "legacy_office" ? "קובץ Word ישן: שמרו אותו כ-docx ונסו שוב." : body.error;
+  ```
+
+- **Tool errors in events.** `tool.end.error` and the steps say "No such column …" or "Ambiguous column …" with a count
+  for a column error of `aggregate_table`, and "start_line N is past the end of the file, which
+  has M lines." for a read past the end of a workbook. The model still gets the whole message.
+  **Who:** apps or tests that show or pin these texts
+  ([Tool errors that quote the document](./reference/events.md#tool-errors-that-quote-the-document)).
+- **`read_document` past the end.** A `start_line` past the last line is refused, where it read
+  the last line. **Who:** tool sets or tests of your own that relied on the clamp
+  ([`read_document`](./reference/tools.md#read_document)).
+- **Key, token and header functions that throw.** A connection that failed is retried, so the
+  function can be called up to 4 times for one request. Any other failure is kind `"auth"`, status
+  0, not retried, and told "The model refused the key or token it was sent.". The thrown error's
+  message is the library's, and the function's own error is its `cause`. A whole-file read that
+  fails this way sends the model that sentence in place of "The model request failed." (Gemini) or
+  "The model could not be reached." (OpenAI and Claude). **Who:**
+  apps that log `error.message` to see why a token could not be had. **What to do:** log
+  `error.cause` ([A key or token function that fails](./guides/errors-and-reliability.md#a-key-or-token-function-that-fails)).
+- **Node's 300 s limits.** A model request that Node's `fetch` cuts after 300 s without headers or
+  body data is now a timeout, sent again once, not "could not be reached" sent again 3 times.
+  **What to do:** to wait the adapters' full 600 s, give `fetch` longer limits
+  ([Node's own time limits](./reference/errors-and-retries.md#nodes-own-time-limits)).
+- **A raw socket error from an adapter of your own.** When your adapter or `generateText` fails
+  with an error that has a connection code (`ECONNRESET`…) and no `kind`, `request.end` and
+  `run.error` now say "The model could not be reached." (kind `"unreachable"`), never "could not
+  be read from storage". `errorInfoOf` on the thrown error is unchanged. **Who:** pages that match
+  the old words.
+- **A Vertex token refresh after a 401** is now one `retry` event with `reason: "auth_refresh"`.
+  **Who:** pages or metrics that count `retry` events as failures. **What to do:** skip those with
+  a `reason`.
+- **Whole-file reads that lose parts** say so: in the read's last request, in a note of the tool
+  result, in a step that ends ", incomplete", and in a `read_incomplete` notice. The stand-in of
+  any incomplete read (cut short, notes left out, notes only, or parts failed), sent when room is
+  made or through `compactToolTurns`, keeps the fields and the note that say so. When every part is
+  read and the read is complete, what is sent is byte for byte as before
+  ([A read that lost parts](./reference/tools.md#a-read-that-lost-parts)).
+- **Answers made only of citations**, under `showCitations: false`, are shown with the cited lines
+  in words ("line 8", "שורה 8"), with a `citations_only` notice. They were shown empty. **Who:**
+  pages that treat an empty `text` as no answer
+  ([Citations the user does not see](./reference/ask.md#citations-the-user-does-not-see)).
+- **Parallel reads before the first request.** A question reads the metadata and text of its
+  documents up to 8 at a time. **Who:** a store of your own that cannot take calls in parallel.
+
+### New and optional in 0.99.13
+
+- **`AskResult.modelText`**: send it back as the assistant turn, and show `text`. With
+  `showCitations: false`, 16 of 16 recorded follow-ups send their recorded requests from a history
+  built with it, against 7 of 16 with `text`
+  ([Conversations](./guides/conversations.md#storing-a-conversation-and-asking-the-next-question)).
+- **`touchOnUse: true`** keeps a chat's files while the chat still uses them: with the default 72
+  hours, a file used at 47 hours is still there at 73. A touch that fails is let go: the question
+  goes on, and that file keeps the expiry it had
+  ([Missing documents](./reference/ask.md#missing-documents)).
+- **`refuseCrossSite: true`** on `createDocumentHandlers` refuses uploads and deletes that another
+  site's page made a browser send. It becomes the default in 1.0
+  ([Uploads from another site's page](./security.md#uploads-from-another-sites-page)).
+- **The chatbot guide** turns on all three, names the files that are gone, and keeps the history
+  small: the first request of question 15 of a chat drops from 276,271 to 66,086 estimated tokens
+  ([A chatbot in one page](./guides/chatbot.md)).

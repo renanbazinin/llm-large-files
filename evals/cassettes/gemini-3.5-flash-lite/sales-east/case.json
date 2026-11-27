@@ -18,6 +18,10 @@
     {
      "fact": "number 22",
      "status": "pass"
+    },
+    {
+     "fact": "names only rows 53, 106, 159 … 1166 (22 rows) of sales-1",
+     "status": "pass"
     }
    ],
    "passed": true,
@@ -32,7 +36,185 @@
     "checked": 22,
     "supported": 22,
     "unchecked": 0,
-    "unsupported": []
+    "unsupported": [],
+    "cited": [
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 55,
+      "to": 55,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 108,
+      "to": 108,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 161,
+      "to": 161,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 214,
+      "to": 214,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 267,
+      "to": 267,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 320,
+      "to": 320,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 373,
+      "to": 373,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 424,
+      "to": 424,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 477,
+      "to": 477,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 532,
+      "to": 532,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 585,
+      "to": 585,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 638,
+      "to": 638,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 691,
+      "to": 691,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 744,
+      "to": 744,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 797,
+      "to": 797,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 850,
+      "to": 850,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 903,
+      "to": 903,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 956,
+      "to": 956,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 1009,
+      "to": 1009,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 1062,
+      "to": 1062,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 1113,
+      "to": 1113,
+      "form": "line",
+      "status": "supported"
+     },
+     {
+      "document": "sales-2026.xlsx",
+      "documentId": "sales-1",
+      "from": 1166,
+      "to": 1166,
+      "form": "line",
+      "status": "supported"
+     }
+    ]
    },
    "tools": [
     "aggregate_table"

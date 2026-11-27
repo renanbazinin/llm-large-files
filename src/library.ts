@@ -667,6 +667,18 @@ function defaultMaxStuck(): number {
   return Math.max(1, Math.floor(pool / 2));
 }
 
+/**
+ * What `askWithFiles` calls for `AskOptions.touchOnUse` on a library that `createLargeFiles` made
+ * (since 0.99.13): it touches each document given that has less than half of the library's `ttlMs`
+ * left, by the library's clock (`now`), and leaves the others alone, with no store call. A
+ * registered symbol, so that another copy of the package knows it too, and a copy of the library
+ * made with spread keeps it. It is not part of the public types.
+ */
+export const TOUCH_ON_USE = Symbol.for("llm-large-files.touchOnUse");
+export type TouchOnUse = (documents: readonly DocumentMeta[], access?: AccessOptions) => Promise<void>;
+/** Documents touched at once for `touchOnUse`: each touch reads the metadata, then writes it. */
+const TOUCHES_AT_ONCE = 8;
+
 /** Looks at pages that run at once in a library, unless `maxConcurrentPageLooks` says otherwise. */
 const DEFAULT_PAGE_LOOKS = 1;
 /** How long a look at pages waits for its turn, unless `pageLookWaitMs` says otherwise. */
@@ -1103,7 +1115,33 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
     });
   }
 
-  return {
+  /**
+   * `TOUCH_ON_USE`: a document with less than half of `ttlMs` left is touched, as `touch` does; one
+   * that never expires, or has more left, is not. A store without `patchMeta` is a TypeError, as
+   * for `touch`, on every question, whether a document is due or not: otherwise it would show only
+   * once a file has passed half of its time to live, 36 hours after its upload by the default.
+   * The touches themselves are best effort: one that fails (a store write error, a document deleted
+   * meanwhile) leaves that document's expiry as it was and fails nothing.
+   */
+  const touchOnUse: TouchOnUse = async (documents, access) => {
+    if (!Number.isFinite(ttlMs) || ttlMs <= 0) return;
+    if (!usableStoreMethod(store, "patchMeta")) throw new TypeError("touchOnUse needs a store with patchMeta(): MemoryDocumentStore and FileDocumentStore have it (a subclass of one, or one whose put, get, getMeta or delete was replaced, needs its own patchMeta).");
+    const at = now().getTime();
+    const due = documents.filter((meta) => Date.parse(meta.expiresAt) - at < ttlMs / 2);
+    if (due.length === 0) return;
+    const caller = callerOf(access, rules);
+    let next = 0;
+    const worker = async () => {
+      while (next < due.length) {
+        const meta = due[next++]!;
+        // Best effort: a touch that fails leaves the document's expiry as it was, and the question goes on.
+        await changeMeta(meta.id, caller, "touch", { expiresAt: expiryAfter(now(), ttlMs) }).catch(() => undefined);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(TOUCHES_AT_ONCE, due.length) }, worker));
+  };
+
+  const created: CreatedLargeFiles = {
     budget,
     budgetFor,
     maxUploadBytes,
@@ -1237,6 +1275,7 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       return changeMeta(id, caller, "update", { appData });
     },
   };
+  return Object.assign(created, { [TOUCH_ON_USE]: touchOnUse });
 
   /**
    * The caller a document was handed to `tools` for (without `access`): its owner and scope, and the

@@ -9,6 +9,7 @@ import {
   createLargeFiles,
   resolveBudget,
   type AccessOptions,
+  type AskEvent,
   type AskResult,
   type Budget,
   type ChatTurn,
@@ -129,8 +130,12 @@ export async function askedWithOwn(): Promise<AskResult> {
   return askWithFiles({ files: new FilesOf09(), model: adapterOf09, documentIds: [], messages: [turn, round, { role: "assistant", text: "3." }, turn] });
 }
 
-/** A result built by hand, as a test of 0.9 wrote it: `finish` and `citations` are optional. */
-export const resultOf09: AskResult = {
+/**
+ * A result built by hand, as a test of 0.9 wrote it: `finish` and `citations` are optional. Since
+ * 0.99.13 it needs `modelText`, which is required (decision D5): without it, it does not compile.
+ */
+// @ts-expect-error -- Property 'modelText' is missing (TS2741), since 0.99.13.
+export const resultOf09WithoutModelText: AskResult = {
   text: "3.",
   answered: true,
   steps: [],
@@ -140,6 +145,41 @@ export const resultOf09: AskResult = {
   budget: resolveBudget(),
   turns: 1,
   usage: { requests: 1, inputTokens: 10, cachedInputTokens: 0, outputTokens: 2, thoughtTokens: 0, byModel: {} },
+};
+export const resultOf09: AskResult = {
+  text: "3.",
+  modelText: "3.",
+  answered: true,
+  steps: [],
+  evidence: [],
+  toolTurns: [],
+  plan: { inline: [], searchable: [], inlineTokens: 0, inlineBytes: 0 },
+  budget: resolveBudget(),
+  turns: 1,
+  usage: { requests: 1, inputTokens: 10, cachedInputTokens: 0, outputTokens: 2, thoughtTokens: 0, byModel: {} },
+};
+
+/**
+ * A `run.finish` event built by hand, as an app's test of its SSE or UI code writes it: its result
+ * is an `EventResult`, an `AskResult` without `toolTurns`, so since 0.99.13 it needs `modelText`
+ * too (decision D5), and so does the `partial` of `run.error`.
+ */
+export const finishOf09WithoutModelText: AskEvent = {
+  type: "run.finish",
+  seq: 9,
+  runId: "run_1",
+  time: 0,
+  // @ts-expect-error -- Property 'modelText' is missing (TS2741), since 0.99.13.
+  result: {
+    text: "3.",
+    answered: true,
+    steps: [],
+    evidence: [],
+    plan: { inline: [], searchable: [] },
+    budget: resolveBudget(),
+    turns: 1,
+    usage: { requests: 1, inputTokens: 10, cachedInputTokens: 0, outputTokens: 2, thoughtTokens: 0, byModel: {} },
+  },
 };
 
 /** What createLargeFiles makes has `stats()` and `toolsFor()`: no `?.` under strict. */
@@ -185,7 +225,7 @@ export function noticeOf09(code: NoticeCode): string {
   }
 }
 
-/** The same switch with the codes of 0.10.0. */
+/** The same switch with the codes of 0.10.0: the two codes of 0.99.13 are not handled. */
 export function noticeOf010(code: NoticeCode): string {
   switch (code) {
     case "searching_instead":
@@ -204,6 +244,36 @@ export function noticeOf010(code: NoticeCode): string {
     case "page_looks_busy":
     case "answer_filtered":
     case "answer_cut":
+      return code;
+    default: {
+      // @ts-expect-error -- "read_incomplete" | "citations_only" is not assignable to 'never' (TS2322).
+      const unhandled: never = code;
+      return unhandled;
+    }
+  }
+}
+
+/** The same switch with the codes of 0.99.13. */
+export function noticeOf09913(code: NoticeCode): string {
+  switch (code) {
+    case "searching_instead":
+    case "writing_answer":
+    case "replanned":
+    case "room_made":
+    case "nudged":
+    case "results_shortened":
+    case "answer_again":
+    case "calls_not_run":
+    case "budget_reached":
+    case "no_room":
+    case "blocked":
+    case "documents_missing":
+    case "document_gone":
+    case "page_looks_busy":
+    case "answer_filtered":
+    case "answer_cut":
+    case "read_incomplete":
+    case "citations_only":
       return code;
     default: {
       const unhandled: never = code;

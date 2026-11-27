@@ -95,7 +95,7 @@ describe("prepareUpload's appData", () => {
     const base = await serve(served, { getOwner: userOf, prepareUpload: () => ({ appData }) as PreparedUpload });
     for (const wrong of [["row-7"], "row-7", 7, true, { big: "x".repeat(MAX_APP_DATA_BYTES) }, { id: 1n }]) {
       appData = wrong;
-      expect(await unfinished(base), JSON.stringify(wrong, (_key, value: unknown) => (typeof value === "bigint" ? "1n" : value)).slice(0, 40)).toEqual({ status: 500, body: JSON.stringify({ error: "Upload failed." }) });
+      expect(await unfinished(base), JSON.stringify(wrong, (_key, value: unknown) => (typeof value === "bigint" ? "1n" : value)).slice(0, 40)).toEqual({ status: 500, body: JSON.stringify({ error: "Upload failed.", category: "input" }) });
     }
     expect(ingest).not.toHaveBeenCalled();
     // Null is none, as a database gives a field that was left out.
@@ -112,7 +112,7 @@ describe("prepareUpload's dedupe", () => {
     const base = await serve(served, { getOwner: userOf, prepareUpload: () => prepared as PreparedUpload });
     for (const wrong of [{ dedupe: "yes" }, { dedupe: 1 }, { id: "upload-1", dedupe: true }]) {
       prepared = wrong;
-      expect(await unfinished(base), JSON.stringify(wrong)).toEqual({ status: 500, body: JSON.stringify({ error: "Upload failed." }) });
+      expect(await unfinished(base), JSON.stringify(wrong)).toEqual({ status: 500, body: JSON.stringify({ error: "Upload failed.", category: "input" }) });
     }
     expect(ingest).not.toHaveBeenCalled();
     // false, or null, is no dedupe: with an ID too.
@@ -166,7 +166,7 @@ describe("prepareUpload's dedupe", () => {
     refuse = true;
     const json = await upload(base, "The meeting is on Tuesday.");
     expect(json.status).toBe(409);
-    expect(await json.json()).toEqual({ error: "This chat has too many files." });
+    expect(await json.json()).toEqual({ error: "This chat has too many files.", category: "unknown" });
     const streamed = await (await upload(base, "The meeting is on Tuesday.", "notes.txt", true)).text();
     expect(streamed).toContain('"type":"ingest.error"');
     expect(streamed).toContain("This chat has too many files.");
@@ -213,7 +213,7 @@ describe("prepareUpload's dedupe", () => {
         expect(streamed).toContain(failed);
       } else {
         expect(answer.status).toBe(409);
-        expect(await answer.json()).toEqual({ error: failed });
+        expect(await answer.json()).toEqual({ error: failed, category: "unknown" });
       }
       // Its onUploaded never ran for the deleted document, and nothing is left stored.
       expect(contexts).toHaveLength(1);
@@ -346,7 +346,7 @@ describe("prepareUpload's dedupe", () => {
     const base = await serve(createLargeFiles({ store: bare }), { getOwner: userOf, prepareUpload: () => ({ dedupe: true }) });
     const response = await upload(base, "The meeting is on Tuesday.");
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: "Upload failed." });
+    expect(await response.json()).toEqual({ error: "Upload failed.", category: "input" });
     expect(await memory.list()).toEqual([]);
   });
 });

@@ -16,7 +16,7 @@ guide [web app](../guides/web-app.md).
 ```ts
 import { createDocumentHandlers, createIsolatedExtractors, fileOriginals, sseMessageOf, uploadAnswerOf, writeSseEvents } from "llm-large-files/node";
 import type {
-  DocumentHandlerOptions, DocumentHandlers, IsolatedExtractorOptions, IsolatedExtractors, PreparedUpload, PrepareUploadInfo,
+  DocumentHandlerOptions, DocumentHandlers, ErrorBody, IsolatedExtractorOptions, IsolatedExtractors, PreparedUpload, PrepareUploadInfo,
   RemovedContext, SseMessage, SseWriteOptions, UploadAnswer, UploadedContext, UploadedResult, UploadSpoolOptions,
 } from "llm-large-files/node";
 // What the signatures below use:
@@ -29,13 +29,14 @@ import type { DocumentFormat, DocumentMeta, DocumentScope, Extractor, IngestErro
 - [`createDocumentHandlers()`](#createdocumenthandlersfiles-options)
 - [`DocumentHandlerOptions`](#documenthandleroptions), with
   [`getScope`](#what-getscope-returns), [the hooks](#the-hooks-onuploaded-and-onremoved),
-  [saving the body: `prepareUpload`](#saving-the-body-prepareupload) and
-  [spooling: `uploadSpool`](#spooling-uploadspool)
+  [saving the body: `prepareUpload`](#saving-the-body-prepareupload),
+  [spooling: `uploadSpool`](#spooling-uploadspool) and
+  [cross-site requests: `refuseCrossSite`](#cross-site-requests-refusecrosssite)
 - [`DocumentHandlers`](#documenthandlers): [`upload()`](#uploadrequest-response) and
   [its progress as events](#upload-with-progress-accept-textevent-stream),
   [`list()`](#listrequest-response), [`get()`](#getrequest-response-id),
   [`remove()`](#removerequest-response-id)
-- [How errors are answered](#how-errors-are-answered):
+- [How errors are answered](#how-errors-are-answered): [`ErrorBody`](#errorbody),
   [`uploadAnswerOf()`](#uploadansweroferror), [`UploadAnswer`](#uploadanswer)
 - [Isolated ingest](#isolated-ingest): [`createIsolatedExtractors()`](#createisolatedextractorsoptions),
   [`IsolatedExtractorOptions`](#isolatedextractoroptions), [`IsolatedExtractors`](#isolatedextractors)
@@ -80,7 +81,10 @@ store. It throws:
   a function (new in 0.9.0);
 - a `TypeError` for an `uploadSpool` that is not `true`, `false` or an object, a
   `uploadSpool.directory` that is not a string with something in it, or an `uploadFileMode` that is
-  not a whole number from 0 to `0o777` (new in 0.9.0).
+  not a whole number from 0 to `0o777` (new in 0.9.0);
+- a `TypeError` for a `refuseCrossSite` that is not true or false, an `allowedOrigins` that is not
+  an array of http(s) origins, or an `allowedOrigins` without `refuseCrossSite: true` (new in
+  0.99.13).
 
 The handlers do not check the method or the path of a request: route each request to the one you
 mean. Every response they write has the header `Content-Type: application/json; charset=utf-8`
@@ -131,6 +135,8 @@ type DocumentHandlerOptions = {
   uploadFileMode?: number;
   maxPendingUploadBytes?: number;
   uploadIdleTimeoutMs?: number;
+  refuseCrossSite?: boolean; // new in 0.99.13
+  allowedOrigins?: readonly string[]; // new in 0.99.13
 };
 ```
 
@@ -148,6 +154,8 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 | `uploadFileMode` | `number` | `0o600` | New in 0.9.0. The mode of the files saved to the `path` of `prepareUpload`, minus the umask of the process. `0o640` lets a group read them: pods of another user that share the volume through a group (`fsGroup`). The spool's files are always `0o600`. |
 | `maxPendingUploadBytes` | `number` | twice `files.maxUploadBytes` (200 MB by default) | The most bytes of uploads these handlers hold in memory at once. Since 0.9.0 a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`) does not count. An upload is held whole in memory from the moment its body is read until its ingest ends (on the event-stream path too, also after its client went away). Since 0.9.0 its room is given back, and the body the handler read is freed, before `onUploaded` runs: a hook that waits on your database holds neither. Its room is taken before its body is read: its `Content-Length`, or, when it declares none, `maxUploadBytes` (at most this limit) until the body is read, then its size. One that would bring the uploads held past the limit, while another is held, is answered `503` with `Retry-After: 5` before its body is read (the body is drained as for a `413`); one upload alone is always taken. A client that sends its headers and then nothing holds its room until `uploadIdleTimeoutMs` ends it. `Infinity` for no limit, as before 0.8.2. A value that is not a number above 0 throws a `RangeError` when the handlers are made. New in 0.8.2. |
 | `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. Since 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`), it also bounds each call to the disk: the check of its folders for a link (a `path` with a ref), the opening of the file, each write, and its closing. A volume that stops answering then fails the upload with `503` `{ "error": "Upload failed (ETIMEDOUT)." }` and `Retry-After: 5` (since 0.10.0; a `500` before), and its room is given back. A call to the disk past this time counts as stuck in the process until it ends, as a store call past `storeTimeoutMs` does ([`files.stats().stuckStoreCalls`](./library.md#largefilesstats), new in 0.10.0). The removal of the file is waited for no longer either: past it, the removal goes on alone, and the upload is answered all the same. Since 0.99.10 it also bounds the rest of a body that is read and dropped after an answer sent before the body was read to its end ([upload](#uploadrequest-response), step 6): when nothing comes for this long, the answer ends and the connection is closed. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
+| `refuseCrossSite` | `boolean` | `false` | New in 0.99.13. Refuses, with a `403`, an upload or a delete that a page of another site made a browser send. Without it, a page anywhere can make a signed-in user's browser upload a file into their chat. See [cross-site requests](#cross-site-requests-refusecrosssite). A value that is not true or false throws a `TypeError`. It becomes the default in 1.0. |
+| `allowedOrigins` | `readonly string[]` | none | New in 0.99.13. The origins of other sites whose pages may upload and delete under `refuseCrossSite`, such as `["https://app.example.com"]`: a scheme (http or https), a host, and a port when it is not the scheme's own, with no path (a trailing `/` is taken). Only with `refuseCrossSite: true`: given without it, even as `[]`, it throws a `TypeError`, and so does an entry that is not such an origin. |
 
 What `getOwner` returns decides what each handler does:
 
@@ -514,6 +522,53 @@ type UploadSpoolOptions = { directory?: string; minBytes?: number; sweepAfterMs?
 | `minBytes` | 1 MiB (1,048,576) | Bodies whose `Content-Length` is this many bytes or fewer are held in memory. Larger ones, and those without a `Content-Length`, are spooled. `0` spools every body with bytes; `Infinity` only those without a `Content-Length`. |
 | `sweepAfterMs` | 24 hours (86,400,000) | The spool's files in `directory` (`llf-upload-` and a UUID) last written more than this many milliseconds ago are removed when the handlers are made, and at most once an hour after that, when an upload is spooled: what a server killed in the middle of an upload left, and what could not be removed. Keep it longer than any upload takes. A folder, a link, a file of another name, and (on Linux and macOS) a file of another user are never removed. `0` or `Infinity` removes none; a value below 0 throws a `RangeError`. New in 0.99.10. |
 
+#### Cross-site requests: `refuseCrossSite`
+
+New in 0.99.13. The upload route takes a "simple" request, which a browser sends with no
+preflight: a form of another site with `enctype="text/plain"`, posted to the route with `?name=`,
+reaches it with the signed-in user's cookie, and plants a file in their chat. `refuseCrossSite: true`
+refuses such requests on `upload` and `remove`, the two routes that change what is stored. `get`
+and `list` change nothing, and a browser does not let another site read their answers, so they are
+not checked.
+
+A request is checked first, before `getOwner`, any hook, or its body is read, so nothing is stored.
+In this order:
+
+1. An `Origin` listed in `allowedOrigins` is allowed.
+2. A `Sec-Fetch-Site` that says `cross-site` is refused.
+3. A `Sec-Fetch-Site` of `same-origin` is allowed: the browser sets it, and no page can.
+4. Otherwise an `Origin` must be the request's own origin, or the request is refused. An `Origin`
+   of `null`, or one with a path, is refused.
+5. A request with neither `Sec-Fetch-Site` nor `Origin` is allowed: a server or `curl` sends
+   neither, and carries no user's cookie unless it was given one. A browser sends at least one with
+   every such request.
+
+A refused request is answered `403`
+`{ "error": "This request came from a page of another site, and was refused.", "category": "unknown" }`.
+
+The request's own origin is read as the browser wrote the URL: the scheme of the first
+`X-Forwarded-Proto`, else `https` on a TLS connection and `http` otherwise, and the host of the
+first `X-Forwarded-Host`, else of `Host`. It matters only for a browser that sends no
+`Sec-Fetch-Site`. Behind a proxy that changes `Host` or ends TLS without saying so in these
+headers, list your site's own origin in `allowedOrigins`, or such a browser's uploads are refused.
+
+```ts
+import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
+import { createDocumentHandlers } from "llm-large-files/node";
+
+const files = createLargeFiles({ store: new MemoryDocumentStore() });
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => signedInUser(request), // your sign-in: the user's ID, or undefined
+  refuseCrossSite: true,
+  // Only for pages of another origin that upload on purpose, such as an admin app.
+  allowedOrigins: ["https://admin.example.com"],
+});
+```
+
+Turn it on for any route a browser with a cookie can reach. An app that turns it on from a flag must
+leave `allowedOrigins` out when the flag is off: given without `refuseCrossSite: true`, it throws.
+Tested with the headers browsers send, not in a real browser.
+
 ### `DocumentHandlers`
 
 ```ts
@@ -565,7 +620,9 @@ from the name's extension first, then from the MIME type
 
 What it does, in order:
 
-1. Reads the name. Without one, it answers `400`.
+1. With `refuseCrossSite`, answers `403` a request from a page of another site
+   ([cross-site requests](#cross-site-requests-refusecrosssite); new in 0.99.13). Then reads the
+   name. Without one, it answers `400`.
 2. Calls `getOwner`, and checks what it returned: `""`, spaces only or `null`, or from JavaScript
    a value that is neither a string nor a finite number, is answered `500` (see
    [`DocumentHandlerOptions`](#documenthandleroptions)). Under `requireOwner`, `undefined` is
@@ -624,11 +681,13 @@ What it does, in order:
    `Accept: text/event-stream`, steps 7 to 9 are a stream of events instead
    ([below](#upload-with-progress-accept-textevent-stream)).
 
-The responses:
+The responses (each error body is an [`ErrorBody`](#errorbody) since 0.99.13: the table shows its
+`error`, and it also has `code`, `category` and `retryAfterMs` as that section says):
 
 | Status | Body | When |
 |---|---|---|
 | `201` | The [`DocumentSummary`](./library.md#documentsummary) of the new document, with the fields of `onUploaded`'s `answer` (the summary's win) | It was ingested, and `onUploaded`, when there is one, did not throw. |
+| `403` | `{ "error": "This request came from a page of another site, and was refused.", "category": "unknown" }` | `refuseCrossSite` is on, and a page of another site sent it ([cross-site requests](#cross-site-requests-refusecrosssite)). The body is not read. New in 0.99.13. |
 | `401` | `{ "error": "Sign in first." }` | The library has `requireOwner` (the default since 0.99.9), and `getOwner` returned `undefined` (or `null`). The body is not read. New in 0.9.0. |
 | `404` | `{ "error": "This chat no longer exists." }` | The store threw a [`DocumentScopeError`](./library.md#documentscopeerror) of code `"scope_missing"`: the scope's folder is gone (a scoped `FileDocumentStore` whose session folder your app removed). New in 0.9.0: it was `422` with the error's message. |
 | `400` | `{ "error": "Name the file with an X-File-Name header or a ?name= query parameter." }` | No name. |
@@ -760,7 +819,7 @@ taken from your route. Nothing else is read but what `getOwner` and `getScope` r
 | Status | Body | When |
 |---|---|---|
 | `200` | The [`DocumentSummary`](./library.md#documentsummary) | The document is there, has not expired, has the owner `getOwner` returned (or no owner, under `requireOwner: false`), and has no scope or the scope `getScope` returned. |
-| `404` | `{ "error": "This file is no longer available." }` | `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner or another scope; or, under `requireOwner`, has no owner. |
+| `404` | `{ "error": "This file is no longer available.", "code": "documents_missing", "category": "missing" }` (`code` and `category` since 0.99.13) | `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner or another scope; or, under `requireOwner`, has no owner. |
 | `401` | `{ "error": "Sign in first." }` | The library has `requireOwner` (the default since 0.99.9), and `getOwner` returned `undefined` (or `null`). New in 0.9.0. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner` or `getScope` threw an error with that `status` or `statusCode`. |
 | `503` | `{ "error": "The document store could not be read (EIO). Try again." }`, with `Retry-After: 5` | The store could not be read: the message of its [`DocumentStoreError`](./library.md#documentstoreerror), with the code of the system error behind it, when there is one. Since 0.9.0, the status of that error; before, `500` "The file could not be looked up (EIO).". `Retry-After` is new in 0.9.0. |
@@ -779,6 +838,7 @@ which removes it from the store: its text, its index and any kept original, as f
 |---|---|---|
 | `200` | `{ "deleted": true }` | The document was deleted, and `onRemoved`, when there is one, did not throw. |
 | `200` | `{ "deleted": false }` | This owner has no such document in this scope: `id` is not a document ID, was never uploaded, has expired or been deleted, or belongs to another owner or another scope. Also when the store's `delete` returned `false`. It never answers `404`. `onRemoved` is not called. |
+| `403` | `{ "error": "This request came from a page of another site, and was refused.", "category": "unknown" }` | `refuseCrossSite` is on, and a page of another site sent it. `getOwner` and `files.delete` are not called. New in 0.99.13. |
 | `401` | `{ "error": "Sign in first." }` | The library has `requireOwner` (the default since 0.99.9), and `getOwner` returned `undefined` (or `null`). New in 0.9.0. |
 | 400 to 599 | `{ "error": <the error's message> }` | `getOwner`, `getScope` or `onRemoved` threw an error with that `status` or `statusCode`. When `onRemoved` threw, the document is deleted all the same. |
 | `503` | `{ "error": "The document store could not be read (EIO). Try again." }`, with `Retry-After: 5` | The look-up before the delete could not read the store, as for `get`. Since 0.9.0. |
@@ -858,6 +918,38 @@ message, as a file that could not be read. A `LargeFiles` of your own whose `ing
 database driver's error sent its host to the browser (S12). A store that failed was answered
 without `Retry-After`.
 
+### `ErrorBody`
+
+```ts
+type ErrorBody = { error: string; code?: string; category: ErrorCategory; retryAfterMs?: number };
+```
+
+New in 0.99.13, a type from `llm-large-files/node`. The JSON body of every error the handlers
+answer (a status of 400 or more), on every route. Before 0.99.13 the body was `{ error }` alone, in
+English, so a page in another language could not tell a legacy `.doc` from an empty file. The
+`error` words and every status are as they were: a client that reads only `error` is not affected.
+
+| Field | What it holds |
+|---|---|
+| `error` | The words of the answer, as in the tables above. |
+| `code` | The `code` that [`errorInfoOf`](./errors-and-retries.md#errorinfooferror) gives the same error: an `IngestErrorCode` (`"legacy_office"`, `"empty"`, `"unreadable"`, `"too_large"`…), a `ModelErrorKind` for a model's error, `"documents_missing"`, a store's code. Left out when `errorInfoOf` has none. |
+| `category` | The `category` of `errorInfoOf`: `"ingest"`, `"store"`, `"missing"`, `"model"`, `"unknown"`… |
+| `retryAfterMs` | How long to wait before trying again, when the answer sets `Retry-After`: 5000 for a store that failed, with `Retry-After: 5`. |
+
+Two kinds of answer are not read by `errorInfoOf` of the error, which would take their status for a
+model's (a `403` would read as a key the model refused): the handlers' own refusals ("Sign in
+first.", a file with no name, a body that stopped arriving, a cross-site request), and an error
+with a `status` that a hook of yours threw (`http-errors`). They get `category: "unknown"` and no
+`code`, as the upload's `ingest.error` event tells them. A file over `maxUploadBytes` is
+`"ingest"` and `"too_large"`, whether the handler or `ingest` refused it.
+
+```text
+{ "error": "This is a Word, Excel or PowerPoint file of before 2007 (.doc, .xls, .ppt), … attach that.", "code": "legacy_office", "category": "ingest" }
+{ "error": "The document could not be stored (EIO). Try again.", "code": "EIO", "category": "store", "retryAfterMs": 5000 }
+```
+
+Map `code`, then `category`, to your own words, and fall back on `error`.
+
 ### uploadAnswerOf(error)
 
 ```ts
@@ -867,7 +959,9 @@ declare function uploadAnswerOf(error: unknown): UploadAnswer;
 New in 0.9.0. The answer the upload handler gives an error, by the table above, for a route of your
 own that ingests files: a multipart form, the Fetch API's `Request`, a job in the background. It
 never throws, and reads the errors of every copy of the package. The upload limit's own message of
-a `413` is not in it: say it yourself, or keep the error's.
+a `413` is not in it: say it yourself, or keep the error's. It gives no `category`: for a body like
+the handlers' [`ErrorBody`](#errorbody), add `errorInfoOf(error).category`, and its `code` for an
+error that is not an `IngestError`.
 
 ```ts
 import type { ServerResponse } from "node:http";
@@ -892,7 +986,7 @@ type UploadAnswer = { status: number; error: string; code?: IngestErrorCode; ret
 | Field | What it holds |
 |---|---|
 | `status` | The HTTP status: 400 to 599. |
-| `error` | The message of the JSON body, `{ "error": … }`. Safe to show: it never holds a path, a host or a provider's words. An `"unreadable"` file is told in fixed words, as `errorInfoOf` tells it (new in 0.9.0). What it does hold is the message of an error that has a `status` (one your hooks threw) and of an `IngestError` of another code: keep hosts out of those. Since 0.99.10 the message of an error with a `status` of its own goes without the user name and password of a URL in it (`https://…`), and without the value of a URL parameter named as a key, a token, a secret, a password or a signature: an SDK's error that escapes a hook can hold them. |
+| `error` | The `error` of the JSON body ([`ErrorBody`](#errorbody)). Safe to show: it never holds a path, a host or a provider's words. An `"unreadable"` file is told in fixed words, as `errorInfoOf` tells it (new in 0.9.0). What it does hold is the message of an error that has a `status` (one your hooks threw) and of an `IngestError` of another code: keep hosts out of those. Since 0.99.10 the message of an error with a `status` of its own goes without the user name and password of a URL in it (`https://…`), and without the value of a URL parameter named as a key, a token, a secret, a password or a signature: an SDK's error that escapes a hook can hold them. |
 | `code` | For an `IngestError`: its code (`"too_large"`, `"busy"`…). |
 | `retryAfterMs` | How long to wait before trying again, for the `Retry-After` header: 5,000 for a store that failed or a transient system error (30,000 for a full disk, since 0.10.0), an `IngestError`'s own for `"busy"`, a model's for a rate limit. |
 
@@ -1289,7 +1383,7 @@ It returns `{ event: <type>, id: <seq>, data }`. The `data` is the event itself,
 
 | Event | `data` |
 |---|---|
-| `run.finish` | `{ type, seq, runId, questionId, time, result }`, where `result` holds only `answered`, `text`, `finish`, `finishReason`, `blockReason`, `citations`, `steps`, `evidence`, `turns`, `usage`, `missing` and `questionId`. Not `toolTurns`, `plan`, `budget` or `lastUsage`. |
+| `run.finish` | `{ type, seq, runId, questionId, time, result }`, where `result` holds only `answered`, `text`, `finish`, `finishReason`, `blockReason`, `citations`, `steps`, `evidence`, `turns`, `usage`, `missing` and `questionId`. Not `toolTurns`, `plan`, `budget`, `lastUsage` or `modelText` (new in 0.99.13: it holds the citations that `showCitations: false` hid). |
 | `run.error` | `{ type, seq, runId, questionId, time, error, partial }`, where `error` is the event's [`EventError`](./events.md#errors-eventerror) and `partial` holds only `steps`, `evidence`, `usage` and `missing` of the partial result. Without a partial result, `partial` is left out of the JSON. |
 | Any other event, ingest events included | The event as it is: a notice's `documentIds` and `ingest.finish`'s `app` included. |
 
@@ -1297,7 +1391,11 @@ A field that is `undefined`, such as `finishReason`, `blockReason` or `missing`,
 JSON. `missing` lists the documents a question answered without (`onMissingDocuments: "drop"`); it
 is sent since 0.9.0, as `AskResult.missing` is new in 0.9.0. `questionId`
 ([`AskOptions.questionId`](./ask.md#question-ids)) is kept in both events and in the result of
-`run.finish` since 0.99.9; it is there only for a question that has one.
+`run.finish` since 0.99.9; it is there only for a question that has one. Since 0.99.13 the keys of
+both results come from the library's table of where each key of `AskResult` goes
+([`EventResult`](./events.md#documents-eventresults-and-eventresult)): a key with no place in it is
+never sent. A `retry`, `request.end` or `run.error` error is the library's words, never a token
+client's or a metadata server's address ([`EventError`](./events.md#errors-eventerror)).
 
 `toolTurns` are left out even when the question ran with `eventResults: true`: keep them on the
 server, from the stream's `result` or from `partialResultOf(error)`
