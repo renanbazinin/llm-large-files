@@ -154,6 +154,38 @@ const sum = (sizes: Iterable<Size>): Size => {
 const MOST_EXTRA_PLANS = 6;
 
 /**
+ * How many documents of a request are looked up, or read, at once (since 0.99.13): one after
+ * another, 20 files took 40 store round trips before the first model request.
+ */
+const READS_AT_ONCE = 8;
+
+/**
+ * `read` for each index from 0 to `count`, `READS_AT_ONCE` at a time, with the results in index
+ * order, whatever order they come in: what is planned, and so the request, is the same as when they
+ * were read one after another. A read that throws starts no other: the reads under way are waited
+ * for, and the error of the first document that failed is thrown, the one that failed the reads one
+ * after another.
+ */
+async function inOrder<T>(count: number, read: (index: number) => Promise<T>): Promise<T[]> {
+  const results = new Array<T>(count);
+  const errors = new Map<number, unknown>();
+  let next = 0;
+  const worker = async () => {
+    while (next < count && errors.size === 0) {
+      const index = next++;
+      try {
+        results[index] = await read(index);
+      } catch (error) {
+        errors.set(index, error);
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(READS_AT_ONCE, count) }, worker));
+  if (errors.size > 0) throw errors.get(Math.min(...errors.keys()));
+  return results;
+}
+
+/**
  * A plan and what goes with it. With `nativeDocuments`, also what choosing the files sent as they
  * are needs, which the result leaves out: the documents sent whole that are visual, the size of the
  * cards, and whether the instruction names a whole-file read.
@@ -178,12 +210,12 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
   const unique = [...new Set(ids)];
   let documents: DocumentMeta[] = [];
   const missing: string[] = [];
-  for (const id of unique) {
-    // A document of another owner or scope is reported as missing, not as forbidden, and is
-    // not read at all.
-    const meta = await context.metaFor(id, caller);
+  // A document of another owner or scope is reported as missing, not as forbidden, and is not
+  // read at all. Looked up a few at a time since 0.99.13, and taken in the order asked for.
+  const looked = await inOrder(unique.length, (index) => context.metaFor(unique[index]!, caller));
+  for (const [index, meta] of looked.entries()) {
     if (meta) documents.push(meta);
-    else missing.push(id);
+    else missing.push(unique[index]!);
   }
   // Pages can be shown for a PDF whose file is kept, whether its text is in the prompt or searched.
   const viewableOf = () => (options?.viewPages ? documents.filter((meta) => context.viewableMeta(meta)) : []);
@@ -268,9 +300,11 @@ export async function prepareDocuments(context: PrepareContext, ids: string[], b
     const visual = new Set<string>();
     const cards: Size = { tokens: 0, bytes: 0 };
     const gone: string[] = [];
-    for (const meta of documents) {
+    // The blocks are read a few at a time since 0.99.13, and taken in the order of the documents.
+    const renders = await inOrder(documents.length, (index) => render(documents[index]!, inline.has(documents[index]!.id), shown.has(documents[index]!.id)));
+    for (const [index, meta] of documents.entries()) {
       const whole = inline.has(meta.id);
-      const rendered = await render(meta, whole, shown.has(meta.id));
+      const rendered = renders[index];
       if (rendered === undefined) {
         gone.push(meta.id);
         continue;
