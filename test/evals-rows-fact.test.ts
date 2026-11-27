@@ -2,9 +2,10 @@
 // recorded sales-hebrew answer gave East's sum and count right, and named its rows as 55, 108 and
 // 161, the text lines of Excel rows 53, 106 and 159: no fact caught it, since a number fact matches
 // any number of the answer. And `failsOn`, the models whose recorded answer is known to fail a case.
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { createLargeFiles, MemoryDocumentStore } from "llm-large-files";
 import { fakeFetch, sse, utf8 } from "llm-large-files/testing";
@@ -86,6 +87,32 @@ describe("the rows fact", () => {
       "budget-units": ["gemini-3.5-flash-lite"],
     });
   });
+
+  it("fails exactly the recorded answers that failsOn lists on its cases, of every model in evals/cassettes", async () => {
+    const cassettes = path.join(fileURLToPath(new URL("..", import.meta.url)), "evals", "cassettes");
+    const models = readdirSync(cassettes, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    const cases = evalCases((await buildFixtures()).facts as EvalFacts);
+    const failing: string[] = [];
+    const listed: string[] = [];
+    for (const one of cases) {
+      const facts = one.turns.map((turn) => turn.facts.filter((fact) => "rows" in fact));
+      if (!facts.some((turnFacts) => turnFacts.length)) continue;
+      for (const model of models) if (one.failsOn && Object.hasOwn(one.failsOn, model)) listed.push(`${model}/${one.id}`);
+      for (const model of models) {
+        const recorded = JSON.parse(readFileSync(path.join(cassettes, model, one.id, "case.json"), "utf8")) as { questions: Array<{ answer: string; facts: Array<{ fact: string; status: string }> }> };
+        recorded.questions.forEach((question, at) => {
+          for (const fact of facts[at] ?? []) {
+            // Its status does not depend on the lines the text has, only on the rows the answer names.
+            const now = checkFact(fact, question.answer, { ...context, linesWith: () => [] });
+            expect(question.facts.find((kept) => kept.fact === now.fact)?.status, `${model}/${one.id}`).toBe(now.status);
+            if (now.status === "fail") failing.push(`${model}/${one.id}`);
+          }
+        });
+      }
+    }
+    expect(failing.sort()).toEqual(["gemini-3.5-flash-lite/budget-units", "gemini-3.8-flash/sales-hebrew"]);
+    expect(listed.sort()).toEqual(failing);
+  }, 60_000);
 });
 
 describe("failsOn", () => {

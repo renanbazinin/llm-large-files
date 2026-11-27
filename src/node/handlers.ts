@@ -312,7 +312,7 @@ export type DocumentHandlerOptions = {
    * and `list` change nothing, and a browser does not let another site read their answers.
    *
    * A request is refused, with a 403 `{"error":"This request came from a page of another site, and
-   * was refused."}`, before `getOwner` or any hook is called and before its body is read (nothing is
+   * was refused.","category":"unknown"}`, before `getOwner` or any hook is called and before its body is read (nothing is
    * stored), when:
    * - its `Sec-Fetch-Site` header says "cross-site", or
    * - its `Origin` header is not the request's own origin, unless `Sec-Fetch-Site` says
