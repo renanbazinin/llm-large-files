@@ -161,6 +161,7 @@ type LargeFilesOptions = {
 | `storeTimeoutMs` | `number` | 30,000 | The most time one store call may take, in milliseconds: `getMeta`, `get`, `readTextRange`, `getIndex` and `putIndex` when a document is opened, `getOriginal` (and `originals.read`), and `delete`. Past it, the call fails with a [`DocumentStoreError`](#documentstoreerror) of code `"ETIMEDOUT"` (status 503, `cause`: `The store did not answer within 30 s.`). The call itself goes on, since nothing can stop it, and counts as stuck until it ends (`maxStuckStoreCalls`). In a question, a tool call that meets it ends the question with `run.error`. `ingest` keeps its own limits (`ingestTimeoutMs`), past which its store calls, and since 0.10.2 its own reads of a path upload, count as stuck too, and `sweep` has `sweepTimeoutMs`. Keep it above your store's slowest healthy call, such as a `get` of a text of `wholeDocumentBytes`. 0 sets no limit, and so does a time past what a timer can wait. Before 0.10.0 a store call that never settled held its caller forever. New in 0.10.0. [Storage](../guides/storage.md#time-limits). |
 | `maxStuckStoreCalls` | `number` | half of `UV_THREADPOOL_SIZE` (4 when it is not set), at least 1: 2 by default, 16 with 32 threads | While this many calls of the process are stuck (past their time limit, and not ended), every new store call of this library fails at once, without calling the store, with a `DocumentStoreError` of code `"STORE_STUCK"` (status 503): an `ingest` fails at its first store call (operation `"write"`, or `"read"` for the look-up of an application's ID). The removal of what an ingest wrote, once writes that began under the limit end (its caller left, or they failed), still runs. The count is the process's, shared by every library: store calls past `storeTimeoutMs`, whether their caller timed out or left, the store calls of `ingest` past the time it gives them (`ingestTimeoutMs`, 2 minutes when it is 0), since 0.10.2 its own reads of a path upload (its `lstat` and format reads past that time, and the read of the file when `ingestTimeoutMs` is a time limit), and the upload handlers' calls to the disk past `uploadIdleTimeoutMs`. A call that ends within its limit never counts. `UV_THREADPOOL_SIZE` is read when the library is made, as libuv reads it: an empty value, 0, or one that does not start with digits is a pool of 1 thread, so a limit of 1. `Infinity` refuses nothing. New in 0.10.0. [Deployment](../guides/deployment.md#a-store-that-stops-answering). |
 | `sweepTimeoutMs` | `number` | 0 (no limit) | The most time one `sweep` may take, in milliseconds. Past it, `sweep` fails with a `DocumentStoreError` of operation `"sweep"` and code `"ETIMEDOUT"`, and the sweep goes on. A sweep never counts as a stuck call; while `maxStuckStoreCalls` calls are stuck, it is refused at once, as other store calls are. New in 0.10.0. |
+| `onPreview` | `PreviewHook` | none | What [`files.readLines`](#filesreadlinesid-range-access-options) shows when its call names no hook of its own: the same verdicts as `onToolResult`, so pass the function your questions pass there. It fails closed. Without it, the stored text is shown. New in 0.99.14. |
 | `now` | `() => Date` | `() => new Date()` | The clock, for tests. It dates `createdAt` and `expiresAt`, decides whether a document has expired, and is passed to the store's `sweep`. |
 
 Since 0.7.1, `ttlMs`, `maxUploadBytes`, `scannedPdfPages`, `cacheBytes`, `cacheSize`,
@@ -236,6 +237,7 @@ and since 0.99.9 they are required on its type, [`CreatedLargeFiles`](#createdla
 |---|---|---|
 | `list` | `(access?: AccessOptions) => Promise<DocumentMeta[]>` | The documents of a scope the caller may use ([`files.list()`](#fileslistaccess)). |
 | `touch` | `(id: string, access?: AccessOptions) => Promise<DocumentMeta \| undefined>` | Counts a document's expiry again from now ([`files.touch()`](#filestouchid-access)). |
+| `readLines` | `(id: string, range: readonly [number, number], access?: AccessOptions, options?: ReadLinesOptions) => Promise<ReadLinesResult \| undefined>` | The lines a source cites, for a hover card, through `onPreview` ([`files.readLines()`](#filesreadlinesid-range-access-options)). New in 0.99.14. |
 | `update` | `(id: string, changes: { appData?: object \| null }, access?: AccessOptions) => Promise<DocumentMeta \| undefined>` | Changes the application's own data about a document ([`files.update()`](#filesupdateid-changes-access)). |
 
 #### `files.access`
@@ -663,6 +665,49 @@ calls (the metadata read, then written), and up to 8 documents are touched at on
 taken to have the default `ttlMs` of 72 hours, by `Date.now()`, and its `touch` is called for each
 document with less than 36 hours left: with another time to live, touch after the question as
 above instead.
+
+#### `files.readLines(id, range, access?, options?)`
+
+`readLines(id: string, range: readonly [number, number], access?: AccessOptions, options?: ReadLinesOptions): Promise<ReadLinesResult | undefined>`
+
+New in 0.99.14. Lines `range[0]` to `range[1]` of a document, as they are stored, for the hover
+card of a source ([`CitedSource`](./ask.md#citedsource)): its `documentId`, `from`, `to` and
+`version`. Optional on `LargeFiles`, there on what `createLargeFiles` returns.
+
+```ts
+import type { CitedSource, CreatedLargeFiles, PreviewHook } from "llm-large-files";
+
+declare const files: CreatedLargeFiles;
+declare const source: CitedSource;
+declare const maskIds: PreviewHook; // the function your questions pass to onToolResult
+
+const found = await files.readLines(source.documentId!, [source.from, source.to], { owner: "user-1", scope: ["user-1", "chat-1"] }, { version: source.version, onPreview: maskIds });
+if (found === undefined) console.log("file removed");
+else if ("changed" in found) console.log("the file was replaced since this answer");
+else if ("rejected" in found) console.log("not shown");
+else for (const line of found.lines) console.log(line.n, line.text);
+```
+
+- **`undefined`, alike, for every document the caller may not read:** never stored, deleted,
+  expired, another owner's, another scope's, or no scope given where one is needed. Nothing says
+  which.
+- **`{ changed: true }`** when `options.version` is not the document's version: it was replaced
+  since, or stored again. No text. Access is checked first: a caller who may not read the document
+  gets `undefined`, never this.
+- **At most 50 lines and 8 KB** (`MAX_PREVIEW_LINES`, `MAX_PREVIEW_BYTES`): `truncated` says that
+  lines were left out, or that a first line wider than 8 KB was cut.
+- **`onPreview`** sees the lines before they are given: `options.onPreview`, else
+  `LargeFilesOptions.onPreview`; `null` for none. It gets a context shaped like `onToolResult`'s
+  (a `read_document` call, `result.text` with "12| text" lines, the document, owner, scope,
+  signal, and `preview: true`), so pass the function your questions pass to `onToolResult`: a
+  preview then never shows what the hook masked for the model. `{ result }` shows the "N| text"
+  lines of its `text`; `{ reject }` gives `{ rejected: true }`; a hook that throws or returns
+  another shape makes `readLines` throw, with no word of the lines in the error. Without a hook,
+  the stored text is shown.
+- A range that is not two whole numbers of 1 or more is a `TypeError`; a `to` below `from` is taken
+  as `from`.
+- The HTTP route for it is the preview route of
+  [`createDocumentHandlers`](./node.md#previewrequest-response-id).
 
 #### `files.update(id, changes, access?)`
 

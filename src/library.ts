@@ -12,14 +12,17 @@ import { Limiter } from "./limiter.js";
 import { canBeReadWhole, TABLE_FORMATS } from "./plan.js";
 import { prepareDocuments, type PrepareContext } from "./prepare.js";
 import { openRangedDocument, pieceKey, RangedDocument, type CachedPiece, type RangeStore, type ScanSettings } from "./ranged.js";
-import { SearchableDocument, type DocumentSource } from "./search.js";
+import { numberLines, SearchableDocument, type DocumentSource } from "./search.js";
 import { TimeSlicer } from "./pause.js";
 import { checkScope } from "./scope.js";
 import { isSha256, sha256InSlices } from "./source.js";
 import { APP_DOCUMENT_ID_PATTERN, usableStoreMethod } from "./stores.js";
-import { wellFormed } from "./text.js";
+import { utf8Bytes, wellFormed } from "./text.js";
 import type { RetryOptions } from "./retry.js";
-import { createDocumentTools, type PageLookTurns } from "./tools.js";
+import type { ToolResultVerdict } from "./ask.js";
+import type { ToolCall } from "./model.js";
+import { versionToken } from "./version-token.js";
+import { createDocumentTools, TOOL_NAMES, type PageLookTurns } from "./tools.js";
 import type {
   AppData,
   Budget,
@@ -36,6 +39,7 @@ import type {
   PreparedContext,
   ProgressListener,
   ToolName,
+  ToolResult,
   ToolSet,
 } from "./types.js";
 
@@ -204,8 +208,73 @@ export type LargeFilesOptions = {
    * call. Defaults to 0: no limit. New in 0.10.0.
    */
   sweepTimeoutMs?: number;
+  /**
+   * What `readLines` shows of a document, when its call names no `onPreview` of its own: the same
+   * verdicts as `AskOptions.onToolResult` (`{ result }` in place of the lines, `{ reject }` to show
+   * nothing), so pass the function you pass there, and a preview never shows what a question's
+   * hook masked. It fails closed. Without it, `readLines` shows the stored text. New in 0.99.14.
+   */
+  onPreview?: PreviewHook;
   /** Clock override, for tests. */
   now?: () => Date;
+};
+
+/** The most lines one `readLines` call gives. New in 0.99.14. */
+export const MAX_PREVIEW_LINES = 50;
+/** The most bytes of text (UTF-8) one `readLines` call gives. New in 0.99.14. */
+export const MAX_PREVIEW_BYTES = 8 * 1024;
+
+/**
+ * What a preview hook (`LargeFilesOptions.onPreview`, `readLines`'s `onPreview`, the preview
+ * route's) is given: the lines as a `read_document` call of them would return them (`result.text`
+ * holds "12| text" lines), the document, who asks, and a signal. It has the shape of
+ * `ToolResultContext`, so the `onToolResult` of your questions takes it as it is; `preview` tells
+ * them apart. New in 0.99.14.
+ */
+export type PreviewContext = {
+  call: ToolCall;
+  result: ToolResult;
+  documentId: string;
+  owner?: string;
+  scope?: DocumentScope;
+  signal: AbortSignal;
+  preview: true;
+};
+
+/**
+ * A preview hook: undefined shows the lines as they are, `{ result }` shows the "N| text" lines of
+ * `result.text` in their place (a line whose number prefix the hook took out is left out), and
+ * `{ reject }` shows nothing. A hook that throws, or returns anything else, shows nothing either:
+ * `readLines` throws (fails closed). New in 0.99.14.
+ */
+export type PreviewHook = (context: PreviewContext) => ToolResultVerdict | undefined | Promise<ToolResultVerdict | undefined>;
+
+/** The lines `readLines` gives, for a hover card. New in 0.99.14. */
+export type PreviewLines = {
+  document: { id: string; name: string };
+  /** The version they were read from (`CitedSource.version`): opaque, the same as `versionToken(meta)`. */
+  version: string;
+  /** Each line, with its number in the stored text. */
+  lines: Array<{ n: number; text: string }>;
+  /** True when lines asked for were left out: past 50 lines or 8 KB, or a line cut to 8 KB. */
+  truncated: boolean;
+};
+
+/**
+ * What `readLines` answers for a document the caller may read: its lines; `{ changed: true }`
+ * when the version asked for is no longer the document's (it was replaced since, or stored
+ * again), with no text; `{ rejected: true }` when the preview hook rejected them. New in 0.99.14.
+ */
+export type ReadLinesResult = PreviewLines | { changed: true } | { rejected: true };
+
+/** `readLines`'s options. New in 0.99.14. */
+export type ReadLinesOptions = {
+  /** The version a source names (`CitedSource.version`): another one answers `{ changed: true }`. */
+  version?: string;
+  /** The hook for this call, in place of `LargeFilesOptions.onPreview`; null for none. */
+  onPreview?: PreviewHook | null;
+  /** Stops the reads, and is the hook's signal. */
+  signal?: AbortSignal;
 };
 
 /**
@@ -546,6 +615,18 @@ export interface LargeFiles {
    * is, and required on `CreatedLargeFiles` since 0.99.9. New in 0.10.2.
    */
   update?(id: string, changes: { appData?: object | null }, access?: AccessOptions): Promise<DocumentMeta | undefined>;
+  /**
+   * Lines `from` to `to` of a document's stored text, for the hover card of a source: at most 50
+   * lines and 8 KB (`truncated` says when lines were left out), through the preview hook
+   * (`options.onPreview`, else `LargeFilesOptions.onPreview`). Undefined, alike, for a document
+   * that is missing for this caller: never stored, deleted, expired, of another owner or scope.
+   * Access is checked first, then `options.version`: a document stored again since that version
+   * answers `{ changed: true }`, with no text. A hook that rejects answers `{ rejected: true }`; a
+   * hook that throws or returns another shape makes it throw, with no text. A range that is not two
+   * whole numbers of 1 or more is a TypeError. Optional, as `list` is, and required on
+   * `CreatedLargeFiles`. New in 0.99.14.
+   */
+  readLines?(id: string, range: readonly [number, number], access?: AccessOptions, options?: ReadLinesOptions): Promise<ReadLinesResult | undefined>;
 }
 
 /** What `files.stats()` counts: plain numbers, for metrics and alerts. New in 0.10.0. */
@@ -589,6 +670,8 @@ export type CreatedLargeFiles = LargeFiles & {
   touch: NonNullable<LargeFiles["touch"]>;
   /** `LargeFiles.update`, always there. Required since 0.99.9. */
   update: NonNullable<LargeFiles["update"]>;
+  /** `LargeFiles.readLines`, always there. New in 0.99.14. */
+  readLines: NonNullable<LargeFiles["readLines"]>;
 };
 
 /**
@@ -1274,6 +1357,76 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
       }
       return changeMeta(id, caller, "update", { appData });
     },
+
+    async readLines(id, range, access, readOptions) {
+      const [from, to] = previewRange(range);
+      const given: unknown = readOptions?.onPreview !== undefined ? readOptions.onPreview : options.onPreview;
+      if (given !== undefined && given !== null && typeof given !== "function") throw new TypeError(`onPreview must be a function or null, and is ${typeof given}.`);
+      const hook = typeof given === "function" ? (given as PreviewHook) : undefined;
+      const signal = readOptions?.signal ?? access?.signal;
+      const caller = withSignal(callerOf(access, rules), signal);
+      // Access first: someone who may not read the document is told it is missing, never that it changed.
+      const meta = await metaFor(id, caller);
+      if (!meta) return undefined;
+      const version = versionToken(meta);
+      if (readOptions?.version !== undefined && readOptions.version !== version) return { changed: true };
+      const document = await load(id, caller, meta);
+      if (!document) return undefined;
+      const last = Math.min(to, from + MAX_PREVIEW_LINES - 1, document.lineCount);
+      const read = from <= last ? await document.readLines(from, last) : [];
+      // A document read by range may have been stored again while it was read: then it is missing.
+      if (!(await stillOpened(document, caller))) return undefined;
+      let text = numberLines(read, from);
+      if (hook) {
+        const call: ToolCall = { id: "preview", name: TOOL_NAMES.read, args: { document_id: id, start_line: from, end_line: last } };
+        const result: ToolResult = { document: meta.name, lines: `${from}-${last}`, total_lines: document.lineCount, text };
+        let verdict: unknown;
+        try {
+          verdict = await hook({
+            call,
+            result,
+            documentId: id,
+            ...(caller.owner !== undefined ? { owner: caller.owner } : {}),
+            ...(caller.scope !== undefined ? { scope: caller.scope } : {}),
+            signal: signal ?? new AbortController().signal,
+            preview: true,
+          });
+        } catch {
+          // Fails closed: nothing of the lines, and nothing of the hook's error, which may quote them.
+          throw new Error(PREVIEW_FAILED);
+        }
+        if (verdict !== undefined) {
+          const record = isRecord(verdict) ? verdict : undefined;
+          if (record && Object.hasOwn(record, "reject") && typeof record.reject === "string") return { rejected: true };
+          if (!record || !Object.hasOwn(record, "result") || !isRecord(record.result)) throw new Error(PREVIEW_FAILED);
+          text = typeof record.result.text === "string" ? record.result.text : "";
+        }
+      }
+      const lines: PreviewLines["lines"] = [];
+      let bytes = 0;
+      let cut = false;
+      for (const line of text.split("\n")) {
+        const match = /^(\d+)\| ?(.*)$/su.exec(line);
+        if (!match) continue;
+        const n = Number(match[1]);
+        // Only the lines asked for: a hook does not widen a preview.
+        if (n < from || n > last) continue;
+        let shown = match[2]!;
+        const size = utf8Bytes(shown);
+        if (bytes + size > MAX_PREVIEW_BYTES) {
+          cut = true;
+          // The first line alone too wide: its start, so that a wide row still shows something.
+          if (lines.length === 0) {
+            shown = utf8Prefix(shown, MAX_PREVIEW_BYTES);
+            lines.push({ n, text: shown });
+          }
+          break;
+        }
+        bytes += size;
+        lines.push({ n, text: shown });
+      }
+      return { document: { id: meta.id, name: meta.name }, version, lines, truncated: cut || last < Math.min(to, document.lineCount) };
+    },
   };
   return Object.assign(created, { [TOUCH_ON_USE]: touchOnUse });
 
@@ -1290,6 +1443,33 @@ export function createLargeFiles(options: LargeFilesOptions): CreatedLargeFiles 
     }
     return withSignal(caller, signal);
   }
+}
+
+/** What `readLines` throws when its preview hook throws or returns another shape: no word of the lines or the hook. */
+const PREVIEW_FAILED = "The preview hook failed, so nothing is shown.";
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+/** `readLines`'s range, checked: two whole numbers of 1 or more, the second taken as the first when it is smaller. */
+function previewRange(range: unknown): [number, number] {
+  if (!Array.isArray(range) || range.length !== 2 || !range.every((value) => Number.isSafeInteger(value) && (value as number) >= 1)) {
+    throw new TypeError("readLines needs the lines as [from, to]: two whole numbers of 1 or more.");
+  }
+  const [from, to] = range as [number, number];
+  return [from, Math.max(from, to)];
+}
+
+/** The longest start of `text` of at most `bytes` UTF-8 bytes, cut between two code points. */
+function utf8Prefix(text: string, bytes: number): string {
+  let used = 0;
+  let end = 0;
+  for (const point of text) {
+    const size = utf8Bytes(point);
+    if (used + size > bytes) break;
+    used += size;
+    end += point.length;
+  }
+  return text.slice(0, end);
 }
 
 /** `caller`, whose waits for the store end when `signal` aborts. */

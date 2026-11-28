@@ -2,7 +2,7 @@
 // your own by, in any language. New in 0.9.0.
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, QuestionConflictError, type DocumentScopeErrorCode, type IngestErrorCode } from "./errors.js";
 import { eventErrorOf, isPlainData } from "./events.js";
-import { modelFailureReason } from "./map-reduce.js";
+import { modelFailureReason } from "./model-failure.js";
 import { classifyModelError, DocumentsNotFoundError, isModelStatus, ModelRequestError, type ModelErrorKind } from "./model.js";
 
 /**

@@ -336,6 +336,7 @@ Reference, one page per module:
 - [`llm-large-files/anthropic`](docs/reference/anthropic.md): `anthropic()` and its options.
 - [`llm-large-files/node`](docs/reference/node.md): `createDocumentHandlers`, its routes and responses, `createIsolatedExtractors`.
 - [`llm-large-files/testing`](docs/reference/testing.md): `fakeModel` and `fakeFetch`, for your tests (new in 0.9.0).
+- `llm-large-files/client`: what a page in the browser needs, with no Node import: `readEvents`, `insertCitationTokens`, `describeLocator`, `answerInfoOf`, `errorInfoOf` (new in 0.99.14, [sources and chips](docs/reference/ask.md#sources-and-chips)).
 
 [Changelog](CHANGELOG.md): what each version changed, and what to change in your code when you upgrade.
 [Upgrading to 0.99](docs/upgrading-0.99.md) takes an application from 0.10.x step by step, and

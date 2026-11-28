@@ -28,6 +28,7 @@ export default defineConfig({
       { find: /^llm-large-files\/anthropic$/, replacement: source("./src/anthropic/index.ts") },
       { find: /^llm-large-files\/node$/, replacement: source("./src/node/index.ts") },
       { find: /^llm-large-files\/testing$/, replacement: source("./src/testing/index.ts") },
+      { find: /^llm-large-files\/client$/, replacement: source("./src/client/index.ts") },
       { find: /^llm-large-files$/, replacement: source("./src/index.ts") },
     ],
   },

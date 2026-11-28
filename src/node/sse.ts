@@ -71,7 +71,9 @@ const oneLine = (value: string | number) => String(value).replace(/[\r\n]+/g, " 
  * `run.finish`, since 0.99.9. Since 0.99.13 the keys of both results come from the library's table
  * of where each key of `AskResult` goes (the same keys as before), so a key with no place in it is
  * never sent; `modelText`, which holds the citations that `showCitations: false` hides, is not sent
- * either.
+ * either. Since 0.99.14 the result of `run.finish` also has `anchors` and `sources`, each source
+ * without its `quote` whatever `eventResults` says, and never `lineTalk`; the partial of `run.error`
+ * has neither.
  */
 export function sseMessageOf<E extends { type: string; seq: number }>(event: E): SseMessage {
   const ask = event as unknown as AskEvent;

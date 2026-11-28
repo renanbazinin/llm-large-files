@@ -13,6 +13,7 @@ explain each task are listed in the [documentation index](./README.md).
 | `llm-large-files/anthropic` | [Claude: `anthropic()`](./reference/anthropic.md) |
 | `llm-large-files/node` | [Node HTTP handlers: `createDocumentHandlers`](./reference/node.md) |
 | `llm-large-files/testing` | [Testing: `fakeModel`, `fakeFetch`, `documentStoreChecks`](./reference/testing.md) |
+| `llm-large-files/client` | For the browser, with no Node import (new in 0.99.14): `readEvents`, `insertCitationTokens`, `describeLocator`, `answerInfoOf`, `errorInfoOf` and the source types ([sources and chips](./reference/ask.md#sources-and-chips), [reading the events in the browser](./guides/web-app.md#reading-the-events-in-the-browser)) |
 
 ## `llm-large-files`
 

@@ -35,11 +35,18 @@ async function asked(documentId: string, answer: string, options: { showCitation
 
 describe("an answer made only of citations, shown without them", () => {
   const CASES: Array<{ label: string; documentId: string; answer: string; words: string }> = [
-    { label: "a list of citations", documentId: "contract-1", answer: "- (contract.txt L2)\n- (L3)", words: "lines 2 and 3" },
     { label: "one citation", documentId: "contract-1", answer: "(contract.txt L2)", words: "line 2" },
     { label: "one citation of a Hebrew file", documentId: "customers-1", answer: "(לקוחות.txt L8)", words: "שורה 8" },
     { label: "two citations of a Hebrew file", documentId: "customers-1", answer: "(לקוחות.txt L3, L8)", words: "שורות 3 ו-8" },
   ];
+
+  it("puts a list of citations into words item by item, in place (0.99.14: each item is a place the answer needs), with a chip each", async () => {
+    const hidden = await asked("contract-1", "- (contract.txt L2)\n- (L3)", { showCitations: false });
+    expect(hidden.result.text).toBe("- line 2\n- line 3");
+    expect(hidden.shown).toBe("- line 2\n- line 3");
+    expect(hidden.notices).toHaveLength(0);
+    expect(hidden.result.anchors?.map((anchor) => anchor.kind)).toEqual(["converted", "converted"]);
+  });
 
   for (const { label, documentId, answer, words } of CASES) {
     it(`is shown as the lines it cited, in words: ${label}`, async () => {
@@ -70,7 +77,7 @@ describe("an answer made only of citations, shown without them", () => {
     expect((await asked("contract-1", "(L3-L4)", { showCitations: false, question: "?" })).result.text).toBe("lines 3–4");
     // A Hebrew chat about a file with a Latin name is still a Hebrew chat.
     expect((await asked("contract-1", "(contract.txt L2)", { showCitations: false, question: "איפה כתוב על הקנס?" })).result.text).toBe("שורה 2");
-    expect((await asked("contract-1", "- (contract.txt L2)\n- (L3)", { showCitations: false, question: "איפה?" })).result.text).toBe("שורות 2 ו-3");
+    expect((await asked("contract-1", "- (contract.txt L2)\n- (L3)", { showCitations: false, question: "איפה?" })).result.text).toBe("- שורה 2\n- שורה 3");
   });
 
   it("says of a workbook's line, in Hebrew, that it is a line of the text, not a row of the sheet", async () => {

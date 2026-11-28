@@ -3,7 +3,11 @@
 import { eventErrorOf, EventEmitter, eventStream, newRunId, noteModelFailure, type AskEvent, type EventStream, type NoticeCode, type RequestPurpose, type RequestRole, type ToolOutcome } from "./events.js";
 import { CitationHider, checkCitations, type CitationCheck, type LineCitation } from "./citations.js";
 import { hebrewWords, linesInWords, showsNothing } from "./citations-only.js";
-import { documentRef, eventResultOf } from "./event-visibility.js";
+import { documentRef, eventResultOf, withoutQuotes } from "./event-visibility.js";
+import { TOKEN_CLOSE, TOKEN_OPEN } from "./citation-tokens.js";
+import { SourceTracker } from "./source-tracker.js";
+import { locatorTextOf, readLinesOf } from "./locator-text.js";
+import type { CitationAnchor, CitationMarkers, CitedSource, LineTalk, SourcesMode } from "./sources.js";
 import { evidenceOf, stubResult, type Evidence } from "./evidence.js";
 import { isCutReply, until } from "./http.js";
 import { TOUCH_ON_USE, type AccessOptions, type LargeFiles, type TouchOnUse } from "./library.js";
@@ -248,6 +252,32 @@ export type AskOptions = {
    * value that is not true or false is a `TypeError` before any request. New in 0.99.12.
    */
   showCitations?: boolean;
+  /**
+   * How the citations of the answer are shown (CIT-3), in `onText`, the `text` events and
+   * `AskResult.text`:
+   * - "keep" (the default): as the model wrote them, as before 0.99.14. No anchors, no sources and
+   *   no `citation` events.
+   * - "remove": taken out, as `showCitations: false` did, with more forms (lead-ins, square
+   *   brackets, lists, a citation run at the end of a parenthesis), and a citation the answer needs
+   *   ("באיזו שורה?" → "(שורה 8)") put into words where it stood. Each one leaves a chip:
+   *   `AskResult.anchors` and `AskResult.sources`, and a `citation` event.
+   * - "token": as "remove", with `⟦n⟧` at each chip's place (`insertCitationTokens`), for apps that
+   *   render Markdown, where an offset breaks once the text is trimmed.
+   * `showCitations: false` is "remove", and `showCitations: true` is "keep": given both, they must
+   * agree (`showCitations: false` with "token" agrees). `AskResult.modelText` keeps the model's own
+   * text in every mode. Another value is a `TypeError` before any request. New in 0.99.14.
+   */
+  citationMarkers?: CitationMarkers;
+  /**
+   * "off" for a chat that shows no chips and no previews, such as a group chat with files as
+   * knowledge (CIT-17): the text is as with `citationMarkers: "remove"`, no `citation` event is
+   * sent, and `AskResult.anchors` and `AskResult.sources` are empty, so no event, `run.finish`,
+   * `run.error` or SSE message carries a file name, locator or quote of a source. `citations` keeps
+   * its meaning, for checks on your server, and nothing sent to the model changes. With "off",
+   * `citationMarkers` defaults to "remove"; "keep" or "token" (or `showCitations: true`) is a
+   * `TypeError` before any request. Defaults to "on". New in 0.99.14.
+   */
+  sources?: SourcesMode;
   /** Answer text as it arrives. The adapter streams when this is set and it can (see `streamText`). */
   onText?: (delta: string) => void;
   /**
@@ -394,6 +424,26 @@ export type AskResult = {
    * 0.99.9.
    */
   questionId?: string;
+  /**
+   * Where each chip goes in `text`, in order (CIT-2): one for each citation `citationMarkers`
+   * "remove" or "token" took out or put in words. Empty with `sources: "off"`, and absent with
+   * "keep". Also in `run.finish`, in `run.error`'s partial for `onEvent`, and in what `sseMessageOf`
+   * sends for `run.finish`. New in 0.99.14.
+   */
+  anchors?: CitationAnchor[];
+  /**
+   * What each chip opens (CIT-2): the file and where the cited lines are in it, one entry per
+   * distinct citation, in the order first cited. A `quote` only from what the model was sent. Empty
+   * with `sources: "off"`, absent with "keep". In events without quotes unless `eventResults` is
+   * true; never with quotes in what `sseMessageOf` sends. New in 0.99.14.
+   */
+  sources?: CitedSource[];
+  /**
+   * What talk of lines is left in `text` after the citations were taken out (CIT-6): counts and
+   * hashes for your logs. With "remove" or "token" only. In `run.finish` and `run.error` for
+   * `onEvent`, never in what `sseMessageOf` sends. New in 0.99.14.
+   */
+  lineTalk?: LineTalk;
 };
 
 /**
@@ -472,6 +522,24 @@ function quotesIn(value: unknown, found: string[] = []): string[] {
 function checkShowCitations(given: unknown): void {
   if (given === undefined || typeof given === "boolean") return;
   throw new TypeError(`showCitations must be true or false, and is ${shownValue(given)}.`);
+}
+
+/**
+ * The way citations are shown, from `citationMarkers`, `sources` and `showCitations`, checked
+ * (0.99.14): each a value it may take, and none against another.
+ */
+function markersOf(options: Pick<AskOptions, "citationMarkers" | "sources" | "showCitations">): { markers: CitationMarkers; sourcesOn: boolean } {
+  const { citationMarkers: markers, sources, showCitations } = options;
+  if (markers !== undefined && markers !== "keep" && markers !== "remove" && markers !== "token") throw new TypeError(`citationMarkers must be "keep", "remove" or "token", and is ${shownValue(markers)}.`);
+  if (sources !== undefined && sources !== "on" && sources !== "off") throw new TypeError(`sources must be "on" or "off", and is ${shownValue(sources)}.`);
+  if (markers !== undefined && showCitations !== undefined && (showCitations ? markers !== "keep" : markers === "keep")) {
+    throw new TypeError(`citationMarkers "${markers}" and showCitations ${String(showCitations)} disagree: give one of them.`);
+  }
+  if (sources === "off") {
+    if (markers === "keep" || markers === "token" || showCitations === true) throw new TypeError(`sources "off" shows no chips: it cannot go with ${markers !== undefined ? `citationMarkers "${markers}"` : "showCitations true"}, which ${markers === "token" ? "puts a token at each chip" : "shows the citations"}.`);
+    return { markers: "remove", sourcesOn: false };
+  }
+  return { markers: markers ?? (showCitations === false ? "remove" : "keep"), sourcesOn: true };
 }
 
 /** `touchOnUse` checked: true, false or nothing (0.99.13). */
@@ -1164,6 +1232,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   checkRemovedOptions(options);
   checkNativeDocuments(options.nativeDocuments);
   checkShowCitations(options.showCitations);
+  markersOf(options);
   checkTouchOnUse(options.touchOnUse);
   // A question planned again goes on counting what its first try paid for.
   const usage = carried?.usage ?? new UsageMeter();
@@ -1321,15 +1390,36 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const meta = inlineById.get(id);
     return meta ? [sentWhole(meta), ...(sentById.has(id) ? [sentAsFile(meta)] : [])] : [];
   });
-  // With `showCitations: false`, what is shown is the text without its citations in parentheses:
-  // `text` is what the model wrote, which the citations are read from, and `shownText` what the
-  // user saw. A question without documents has none to hide.
+  // With `citationMarkers` "remove" or "token" (`showCitations: false`), what is shown is the text
+  // without its citations: `text` is what the model wrote, which the citations are read from, and
+  // `shownText` what the user saw. A question without documents has none to hide. With sources on,
+  // each citation taken out leaves a chip (`tracker`, since 0.99.14).
   const citedFiles = [...prepared.plan.inline, ...prepared.plan.searchable];
-  const hider = options.showCitations === false && citedFiles.length > 0 ? new CitationHider(Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name]))) : undefined;
+  const { markers, sourcesOn } = markersOf(options);
+  const hides = markers !== "keep" && citedFiles.length > 0;
+  /**
+   * Whether the words the hider adds are in Hebrew: by the answer so far and the question, as the
+   * words of an answer of citations only are (LOOP-10), so that a Hebrew chat about "contract.txt"
+   * gets "שורה 8".
+   */
+  const lastQuestion = [...options.messages].reverse().find((message): message is ChatTurn => message.role === "user" && typeof (message as Partial<ChatTurn>).text === "string")?.text;
+  const hebrewAnswer = () => hebrewWords(text.slice(-2_000), lastQuestion, citedFiles.map((meta) => meta.name));
+  const tracker = hides
+    ? new SourceTracker({
+      documents: citedFiles,
+      evidence,
+      hebrew: hebrewAnswer,
+      ...(sourcesOn && events.active ? { onCitation: (anchor: CitationAnchor, sources: CitedSource[]) => events.emit({ type: "citation", requestId: anchor.requestId, anchor, sources: (options.eventResults === true ? sources : withoutQuotes(sources)) as CitedSource[] }) } : {}),
+      shownLength: () => shownText.length,
+      ...(signal ? { signal } : {}),
+    })
+    : undefined;
+  const hider = hides ? new CitationHider(Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name])), [], { describe: tracker!.describe, wholeAnswer: false }) : undefined;
   /**
    * What the model read of the files, for the hider: a citation form written there ("L4-L5" of a
    * medical report) is a word of the file, and stays. The results of a round, but a whole-file
-   * read's notes, which hold the model's own citations: only the quotes of its items.
+   * read's notes, which hold the model's own citations: only the quotes of its items. The tracker
+   * keeps the lines of the round, for quotes, and what `aggregate_table` computed.
    */
   const readByModel = (round: ModelToolRound) => {
     if (!hider) return;
@@ -1337,12 +1427,14 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       if (call.name !== TOOL_NAMES.analyze) hider.addToolResult(result);
       else hider.addToolResult(quotesIn(result));
     }
+    tracker?.addRound(round);
   };
   if (hider) {
     // A file sent whole, without its frame lines, which hold its name and maybe its document_id.
     for (const meta of prepared.plan.inline) {
       const block = prepared.blocks.get(meta.id) ?? "";
       hider.addContent(block.slice(block.indexOf("\n") + 1, Math.max(block.indexOf("\n") + 1, block.lastIndexOf("\n"))));
+      if (numbered) tracker?.addWhole(meta, block);
     }
     for (const message of messages) if (isRound(message)) readByModel(message);
   }
@@ -1353,14 +1445,62 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     options.onText?.(delta);
     events.emit({ type: "text", requestId, delta });
   };
+  /** Characters shown that the hider did not give: tokens, and the words of a request that was only citations. */
+  let added = 0;
+  /** The chips of the answer so far: the last one's number. */
+  let labels = 0;
+  /** Characters the hider gave so far (the text of "remove" mode). */
+  let hidden = 0;
+  /** "token": the line breaks at the end of what the hider gave, held so that a chip at the end of the line before can take its token. */
+  let heldBreaks = "";
+  /** The hider's text `piece`, shown with a token at each chip ("token"), and its chips given to the tracker. */
+  const fromHider = (piece: string, requestId: string, last: boolean) => {
+    const entries = hider!.drainEntries();
+    const base = hidden - heldBreaks.length;
+    hidden += piece.length;
+    let out = heldBreaks + piece;
+    heldBreaks = "";
+    const chips: Array<{ entry: (typeof entries)[number]; at: number; label: number }> = [];
+    if (markers === "token") {
+      // Each token at its chip's place in what is shown now, or at its start when that place was shown already.
+      const placed = entries.filter((entry) => entry.kind !== "kept" && entry.at !== undefined && entry.numbers.length > 0).map((entry) => ({ entry, local: Math.max(0, Math.min(out.length, entry.at! - base)) }));
+      let built = "";
+      let from = 0;
+      for (const { entry, local } of placed) {
+        built += out.slice(from, local);
+        from = local;
+        const at = shownText.length + built.length;
+        const label = ++labels;
+        const token = `${TOKEN_OPEN}${label}${TOKEN_CLOSE}`;
+        built += token;
+        added += token.length;
+        chips.push({ entry, at, label });
+      }
+      out = built + out.slice(from);
+      if (!last) {
+        const breaks = /\n+$/u.exec(out)?.[0] ?? "";
+        heldBreaks = breaks;
+        out = out.slice(0, out.length - breaks.length);
+      }
+    } else {
+      for (const entry of entries) if (entry.kind !== "kept" && entry.at !== undefined && entry.numbers.length > 0) chips.push({ entry, at: entry.at + added, label: ++labels });
+    }
+    show(out, requestId);
+    tracker?.addAnchors(chips, requestId);
+    tracker?.settle();
+  };
   const emit = (delta: string, requestId: string) => {
     text += delta;
-    show(hider ? hider.push(delta) : delta, requestId);
+    if (!hider) return show(delta, requestId);
+    tracker?.pushRaw(delta);
+    fromHider(hider.push(delta), requestId, false);
   };
   /** The end of a request's text: what the hider held back is shown, unless the question was stopped. */
   const release = (requestId: string) => {
-    const rest = hider?.flush();
-    if (rest && !signal?.aborted) show(rest, requestId);
+    if (!hider) return;
+    const rest = hider.flush();
+    if (signal?.aborted) return;
+    fromHider(rest, requestId, true);
   };
   /**
    * A step can quote what the model sent: it is made one line of plain text before anyone sees it.
@@ -1401,7 +1541,9 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     const words = linesInWords(checkCitations(written, [], names).cited ?? [], hebrewWords(written, question, citedFiles.map((meta) => meta.name)), inWorkbook);
     if (!words) return;
     // Not glued to what the hider left of the request ("." of "(contract.txt L2)."): a space between.
-    show(before && !/\s$/u.test(before) ? ` ${words}` : words, requestId);
+    const shown = before && !/\s$/u.test(before) ? ` ${words}` : words;
+    added += shown.length;
+    show(shown, requestId);
     if (citationsOnlySaid) return;
     citationsOnlySaid = true;
     notice("citations_only", "The answer was only line citations, which are not shown: the lines it cited are shown in words.");
@@ -1506,7 +1648,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         },
       });
     } catch (error) {
-      if (got) release(requestId);
+      if (got) {
+        release(requestId);
+        // The request failed: its text ends here, so its chips are told before `run.error`.
+        if (!signal?.aborted) tracker?.settle(true);
+      }
       // Told as the model's, in this event and in `run.error`, even with no kind of its own (0.99.13).
       if (!signal?.aborted) noteModelFailure(error);
       if (events.active) events.emit({ type: "request.end", requestId, ms: Date.now() - began, outcome: "error", error: eventErrorOf(error) });
@@ -1593,13 +1739,29 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
     ...(lastUsage ? { lastUsage } : {}),
     ...(lastReply?.finish !== undefined ? { finish: lastReply.finish } : {}),
     ...(documents.length > 0 ? { citations: citationsOf() } : {}),
+    ...(markers !== "keep" ? sourcesOf() : {}),
   });
+  /**
+   * The chips of the answer and what they open, and the talk of lines left (0.99.14): with sources
+   * "off", none. An anchor still waiting for the end of its line is settled with what is in hand,
+   * and told in no event: a result made before the end (a partial one) carries what was made.
+   */
+  const sourcesOf = (): Pick<AskResult, "anchors" | "sources" | "lineTalk"> => {
+    tracker?.settle(true, true);
+    return {
+      anchors: sourcesOn && tracker ? tracker.anchors.map((anchor) => ({ ...anchor, sources: [...anchor.sources] })) : [],
+      sources: sourcesOn && tracker ? [...tracker.sources.values()].map((source) => structuredClone(source)) : [],
+      ...(tracker && hider ? { lineTalk: tracker.lineTalk(shownText, hider.held()) } : {}),
+    };
+  };
   /**
    * The result of a question that ends with an answer: one that a filter stopped, or that was cut
    * at the output limit, says so in a notice, before `run.finish`. A filtered answer is dropped
    * when `filteredAnswer` says so; text of it already sent is to be taken away (`discardText`).
    */
-  const answer = (answered: boolean): AskResult => {
+  const answer = async (answered: boolean): Promise<AskResult> => {
+    // The chips whose documents were not read yet: read within a second, then told (0.99.14).
+    if (tracker && !signal?.aborted) await tracker.finish();
     const finish = lastReply?.finish;
     if (finish === "filtered") {
       const sent = shownText.length > 0;
@@ -1612,6 +1774,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       if (dropFiltered) {
         text = "";
         shownText = "";
+        tracker?.clear();
         return result(false);
       }
     } else if (finish === "cut") {
@@ -1919,6 +2082,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       budget,
       ...declare,
     });
+    tracker?.read(locatorTextOf(tools));
     const declarations = tools.declarations;
     /** The documents a tool call found gone, told once each ("document_gone"). */
     const gone = new Set<string>();
@@ -2628,7 +2792,16 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
           // A copy of the first call's verdict shows nothing that the first did not. Nor does a
           // look at pages whose pages the hook kept back: the model saw none of them.
           const withheld = raw.files.length > 0 && output.files.length === 0;
-          const shown = copied || withheld ? undefined : evidenceOf(call, output.result);
+          let shown = copied || withheld ? undefined : evidenceOf(call, output.result);
+          // A whole-file read read every line, from 1 to the last (CIT-9, 0.99.14): its entry says so,
+          // so that `checkCitations` given this evidence marks a line past the end unsupported, as
+          // `AskResult.citations` does. What its notes cite, and its parts that failed, go to the
+          // chips: from the read's own result, unless the hook replaced it.
+          if (shown?.whole === true && call.name === TOOL_NAMES.analyze) {
+            const lines = metaOf(shown.documentId)?.lines;
+            if (typeof lines === "number" && Number.isFinite(lines) && lines >= 1) shown = { ...shown, lines: [[1, Math.trunc(lines)]] };
+            if (!judged) tracker?.noteWholeRead(shown.documentId, readLinesOf(raw.result));
+          }
           if (shown) evidence.push({ ...shown, callId: callIds[index]! });
           const sent = { ...output.result, tool_turns_left: turnsLeft };
           answers.push({ call, result: sent, files: output.files });

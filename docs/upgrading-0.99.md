@@ -24,6 +24,7 @@ kept for one version in 0.10.0 are removed. Everything else is new and optional.
 - [Rolling deploys](#rolling-deploys)
 - [New and optional](#new-and-optional)
 - [From 0.99.12 to 0.99.13](#from-09912-to-09913)
+- [From 0.99.13 to 0.99.14](#from-09913-to-09914)
 
 ## Requirements
 
@@ -497,3 +498,41 @@ Everything else in the types is new and optional (below).
 - **The chatbot guide** turns on all three, names the files that are gone, and keeps the history
   small: the first request of question 15 of a chat drops from 276,271 to 66,086 estimated tokens
   ([A chatbot in one page](./guides/chatbot.md)).
+
+## From 0.99.13 to 0.99.14
+
+An application that does not ask for `citationMarkers` changes nothing: what it sends a model, what
+it shows and what its SSE route sends a browser are those of 0.99.13. What is stored does not
+change either: `DocumentMeta` keeps `metaVersion: 1` (its new `textVersion`, `lineSplits` and
+`notesLines` are optional, and 0.99.13 ignores them), and `ToolTurn` keeps `version: 1`. Every
+change is in the [changelog](../CHANGELOG.md).
+
+### Types that changed
+
+| Code of yours | The error | What to write |
+|---|---|---|
+| A `Record<keyof AskResult, …>` | TS2739: `anchors`, `sources` and `lineTalk` are missing | Add the three keys. An `AskResult` built by hand needs none of them: they are optional |
+| A switch over every `AskEvent` type that ends in a `never` check | TS2322: `"citation"` is not handled | Add the case ([`citation`](./reference/events.md#citation)) |
+
+### Behavior to check in 0.99.14
+
+- **`showCitations: false` is `citationMarkers: "remove"`**, which hides more forms (lead-ins,
+  square brackets, lists, a run at the end of a parenthesis) and puts a citation the answer needs
+  into words where it stood ("שורה 8 בגיליון לקוחות") instead of deleting it. A list item made of
+  citations alone is now put into words in place ("- line 2"), where 0.99.13 left the answer to the
+  "citations only" rule. It also sends `citation` events, which the default SSE map passes to the
+  browser with each source's file name and locator. **Who:** apps that pin the shown text in tests,
+  and apps that must keep file names out of the browser: ask with `sources: "off"`
+  ([A chat with files as knowledge](./guides/chatbot.md#a-chat-with-files-as-knowledge-and-no-chips)).
+- **The evidence of a whole-file read has `lines: [[1, N]]`.** A test that compares
+  `result.evidence` whole needs it.
+
+### New and optional in 0.99.14
+
+- **Chips:** `citationMarkers: "remove"` or `"token"`, `result.anchors`, `result.sources`, and
+  the `citation` event ([Sources and chips](./reference/ask.md#sources-and-chips)).
+- **Hover cards:** `files.readLines` and the preview route, `preview: { onPreview }`
+  ([Quotes and previews](./security.md#quotes-and-previews)).
+- **`llm-large-files/client`** for the browser, and **`result.lineTalk`** for your logs.
+- **The chatbot guide** stores chips per turn, mounts the preview route, and has a recipe for a
+  group chat with no sources ([A chatbot in one page](./guides/chatbot.md#chips)).

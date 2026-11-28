@@ -155,6 +155,7 @@ The options of [`createDocumentHandlers()`](#createdocumenthandlersfiles-options
 | `maxPendingUploadBytes` | `number` | twice `files.maxUploadBytes` (200 MB by default) | The most bytes of uploads these handlers hold in memory at once. Since 0.9.0 a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`) does not count. An upload is held whole in memory from the moment its body is read until its ingest ends (on the event-stream path too, also after its client went away). Since 0.9.0 its room is given back, and the body the handler read is freed, before `onUploaded` runs: a hook that waits on your database holds neither. Its room is taken before its body is read: its `Content-Length`, or, when it declares none, `maxUploadBytes` (at most this limit) until the body is read, then its size. One that would bring the uploads held past the limit, while another is held, is answered `503` with `Retry-After: 5` before its body is read (the body is drained as for a `413`); one upload alone is always taken. A client that sends its headers and then nothing holds its room until `uploadIdleTimeoutMs` ends it. `Infinity` for no limit, as before 0.8.2. A value that is not a number above 0 throws a `RangeError` when the handlers are made. New in 0.8.2. |
 | `uploadIdleTimeoutMs` | `number` | 30,000 | How long the body of an upload may stop arriving. Past it, the upload is answered `408` `{ "error": "The upload stopped arriving: nothing came for 30 s. Send it again." }` with `Connection: close`, the connection is closed, and the upload's room is given back. It bounds the wait for each piece of the body, not the whole upload: Node's `server.requestTimeout` (300 s by default) bounds that. Since 0.9.0, for a body written to a file (the `path` of `prepareUpload`, or `uploadSpool`), it also bounds each call to the disk: the check of its folders for a link (a `path` with a ref), the opening of the file, each write, and its closing. A volume that stops answering then fails the upload with `503` `{ "error": "Upload failed (ETIMEDOUT)." }` and `Retry-After: 5` (since 0.10.0; a `500` before), and its room is given back. A call to the disk past this time counts as stuck in the process until it ends, as a store call past `storeTimeoutMs` does ([`files.stats().stuckStoreCalls`](./library.md#largefilesstats), new in 0.10.0). The removal of the file is waited for no longer either: past it, the removal goes on alone, and the upload is answered all the same. Since 0.99.10 it also bounds the rest of a body that is read and dropped after an answer sent before the body was read to its end ([upload](#uploadrequest-response), step 6): when nothing comes for this long, the answer ends and the connection is closed. 0 or `Infinity` for no limit. A value below 0 throws a `RangeError`. New in 0.8.2. |
 | `refuseCrossSite` | `boolean` | `false` | New in 0.99.13. Refuses, with a `403`, an upload or a delete that a page of another site made a browser send. Without it, a page anywhere can make a signed-in user's browser upload a file into their chat. See [cross-site requests](#cross-site-requests-refusecrosssite). A value that is not true or false throws a `TypeError`. It becomes the default in 1.0. |
+| `preview` | `{ onPreview: PreviewHook \| null }` | none | New in 0.99.14. Turns on [`preview`](#previewrequest-response-id), the route of a chip's hover card. `onPreview` is required: the function you pass to `onToolResult`, so a preview shows what the model was shown, or `null` for the stored text. `true` or any other shape is a `TypeError`. |
 | `allowedOrigins` | `readonly string[]` | none | New in 0.99.13. The origins of other sites whose pages may upload and delete under `refuseCrossSite`, such as `["https://app.example.com"]`: a scheme (http or https), a host, and a port when it is not the scheme's own, with no path (a trailing `/` is taken). Only with `refuseCrossSite: true`: given without it, even as `[]`, it throws a `TypeError`, and so does an entry that is not such an origin. |
 
 What `getOwner` returns decides what each handler does:
@@ -854,6 +855,40 @@ together, so that the answer comes within it. A store that does not answer withi
 store could not be read (ETIMEDOUT). Try again." for the look-up), with `Retry-After: 5`; the
 delete goes on alone. While the process has `maxStuckStoreCalls` calls stuck, the answer is the same `503`,
 with code `STORE_STUCK`, at once. Before, a store that never answered left the request unanswered.
+
+#### preview(request, response, id)
+
+New in 0.99.14. Only with `preview: { onPreview }` in the options: the cited lines of a document,
+for a chip's hover card, through [`files.readLines`](./library.md#filesreadlinesid-range-access-options).
+Route `GET` to it, such as `GET /api/documents/:id/lines?from=12&to=14&version=…`; `to` defaults to
+`from`, and `version` is the source's (`CitedSource.version`).
+
+```ts
+import { createDocumentHandlers } from "llm-large-files/node";
+
+// `files`, `currentUserId`, `scopeOf` and `maskIds` (the function you pass to onToolResult) are yours.
+const documents = createDocumentHandlers(files, {
+  getOwner: (request) => currentUserId(request),
+  getScope: (request) => scopeOf(request),
+  preview: { onPreview: maskIds }, // or null: the lines as stored
+});
+app.get("/api/documents/:id/lines", (req, res) => documents.preview!(req, res, req.params.id));
+```
+
+`preview: true`, `{}`, an `onPreview` left out, or a `files` without `readLines` is a `TypeError`
+when the handlers are made: a preview goes through a hook you chose, or through none because you
+said so. Every answer has `Cache-Control: private, no-store`.
+
+| Status | Body | When |
+|---|---|---|
+| `200` | `{ document: { id, name }, version, lines: [{ n, text }], truncated }` | The lines, at most 50 and 8 KB. |
+| `404` | the body of `get` for a missing document | Never stored, deleted, expired, another owner's or another scope's: one answer, byte for byte. |
+| `409` | `{ "error": …, "code": "changed", "category": "missing" }` | `version` is not the document's: it was replaced since the answer. No text. |
+| `403` | `{ "error": …, "code": "preview_refused" }` | `onPreview` rejected the lines. No text. |
+| `500` | `{ "error": "The preview could not be made.", "category": "unknown" }` | `onPreview` threw, or returned another shape. No text. |
+| `400` | `{ "error": … }` | `from` or `to` is not a whole number of 1 or more. |
+| `401` | `{ "error": "Sign in first." }` | No owner, under `requireOwner`. |
+| `503` | as for `get`, with `Retry-After: 5` | The store could not be read. |
 
 #### list(request, response)
 

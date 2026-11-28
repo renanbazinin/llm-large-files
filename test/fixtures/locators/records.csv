@@ -1,0 +1,14 @@
+id,name,comment,amount
+1,Avi,plain,100
+2,Bat,"has, a comma",200
+3,Gal,"says ""hi""",300
+4,Dana,"first line of comment
+second line of comment",400
+5,Eli,plain,500
+6,Fay,plain,600
+7,Gil,plain,700
+8,Hod,plain,800
+
+9,Ido,after the blank line,900
+10,Yael,plain,1000
+11,Zev,last,1100

@@ -424,11 +424,16 @@ export function wellFormedJson<T>(value: T): T {
   return value;
 }
 
+/** The most pieces of split lines `wrapLongLines` lists (`continued`): past it, none are listed. */
+export const MAX_LINE_SPLITS = 4_096;
+
 /**
  * Splits lines longer than `limit`, preferring a break after whitespace or punctuation near the
- * end of each piece. Minified JSON or a PDF paragraph becomes many addressable lines.
+ * end of each piece. Minified JSON or a PDF paragraph becomes many addressable lines. `continued`
+ * lists the lines of the result, from 1, that continue a line split (every piece after the first),
+ * when there are some and no more than `MAX_LINE_SPLITS` (since 0.99.14).
  */
-export function wrapLongLines(text: string, limit = MAX_LINE_CHARACTERS): { text: string; wrapped: number } {
+export function wrapLongLines(text: string, limit = MAX_LINE_CHARACTERS): { text: string; wrapped: number; continued?: number[] } {
   // Most files have no long line: then the text is used as it is, without splitting and joining it.
   let longest = 0;
   let start = 0;
@@ -442,6 +447,13 @@ export function wrapLongLines(text: string, limit = MAX_LINE_CHARACTERS): { text
   let wrapped = 0;
   const lines = text.split("\n");
   const out: string[] = [];
+  let continued: number[] | undefined = [];
+  const piece = (part: string, first: boolean) => {
+    out.push(part);
+    if (first || !continued) return;
+    if (continued.length < MAX_LINE_SPLITS) continued.push(out.length);
+    else continued = undefined;
+  };
   for (const line of lines) {
     if (line.length <= limit) {
       out.push(line);
@@ -449,6 +461,7 @@ export function wrapLongLines(text: string, limit = MAX_LINE_CHARACTERS): { text
     }
     wrapped++;
     let rest = line;
+    let first = true;
     while (rest.length > limit) {
       const window = rest.slice(0, limit);
       const soft = Math.max(window.lastIndexOf(" "), window.lastIndexOf(","), window.lastIndexOf(";"), window.lastIndexOf("}"));
@@ -456,12 +469,13 @@ export function wrapLongLines(text: string, limit = MAX_LINE_CHARACTERS): { text
       // Never between the two halves of a character outside the basic plane (an emoji): each half
       // alone is stored as a replacement character.
       if (isHighSurrogate(rest.charCodeAt(cut - 1)) && isLowSurrogate(rest.charCodeAt(cut))) cut--;
-      out.push(rest.slice(0, cut));
+      piece(rest.slice(0, cut), first);
+      first = false;
       rest = rest.slice(cut);
     }
-    out.push(rest);
+    piece(rest, false);
   }
-  return { text: out.join("\n"), wrapped };
+  return { text: out.join("\n"), wrapped, ...(continued && continued.length > 0 ? { continued } : {}) };
 }
 
 // Token cost of each kind of character, fitted to Gemini's countTokens on 60 texts (prose in
@@ -667,7 +681,8 @@ export async function prepareText(
   raw: string,
   slicer: TimeSlicer,
   onProgress?: (done: number, total: number) => void,
-): Promise<{ text: string; wrapped: number; lines: string[] }> {
+  options: { keepsLines?: boolean } = {},
+): Promise<{ text: string; wrapped: number; lines: string[]; continued?: number[]; keptLines?: boolean }> {
   const start = raw.charCodeAt(0) === 0xfeff ? 1 : 0;
   const body = start === 1 ? raw.slice(1) : raw;
   const nextLines = breaksAtNextLine(body);
@@ -682,7 +697,11 @@ export async function prepareText(
     onProgress?.(start + to, raw.length);
     await slicer.maybePause();
   }
-  const { text, wrapped } = wrapLongLines(!changed ? body : parts.length === 1 ? parts[0]! : parts.join(""));
+  const cleaned = !changed ? body : parts.length === 1 ? parts[0]! : parts.join("");
+  // Whether cleaning kept the lines of the text as extracted, each where it was (asked for a deck,
+  // whose notes markers the extractor numbered): as many line breaks before as after.
+  const keptLines = options.keepsLines ? (!changed || lineBreaks(cleaned) === lineBreaks(body)) : undefined;
+  const { text, wrapped, continued } = wrapLongLines(cleaned);
   parts.length = 0;
   await slicer.maybePause();
   const lines: string[] = [];
@@ -693,7 +712,14 @@ export async function prepareText(
     for (const line of piece) lines.push(line);
     await slicer.maybePause();
   }
-  return { text, wrapped, lines };
+  return { text, wrapped, lines, ...(continued ? { continued } : {}), ...(keptLines !== undefined ? { keptLines } : {}) };
+}
+
+/** How many line breaks a text has. */
+function lineBreaks(text: string): number {
+  let count = 0;
+  for (let at = text.indexOf("\n"); at !== -1; at = text.indexOf("\n", at + 1)) count++;
+  return count;
 }
 
 /** UTF-8 byte length without allocating an encoded copy. */

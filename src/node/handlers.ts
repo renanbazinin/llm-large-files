@@ -5,7 +5,7 @@ import { errorInfoOf, retryAfterOfCode, STORE_RETRY_AFTER_MS, UNREADABLE_MESSAGE
 import { DocumentScopeError, DocumentStoreError, IngestError, isErrorCode, type IngestErrorCode } from "../errors.js";
 import { eventStream, newRunId, withoutCredentials, type EventError, type IngestEvent } from "../events.js";
 import { checkAppData, reusedHere } from "../ingest.js";
-import { checkOwner, cleanFileName, toDocumentSummary, type AccessOptions, type IngestInput, type LargeFiles } from "../library.js";
+import { checkOwner, cleanFileName, toDocumentSummary, type AccessOptions, type IngestInput, type LargeFiles, type PreviewHook } from "../library.js";
 import { DocumentsNotFoundError, errorKindOf, ModelRequestError, type ModelErrorKind } from "../model.js";
 import { formatBytes } from "../plan.js";
 import { checkScope } from "../scope.js";
@@ -340,6 +340,14 @@ export type DocumentHandlerOptions = {
    * New in 0.99.13.
    */
   allowedOrigins?: readonly string[];
+  /**
+   * Turns on the preview route (`handlers.preview`), which reads the cited lines of a source for its
+   * hover card through `files.readLines`. Its hook must be said explicitly: `{ onPreview }` with the
+   * function you pass to `onToolResult`, so a preview never shows what a question's hook masked, or
+   * `{ onPreview: null }` for no mask. Anything else (`preview: true` included) is a TypeError when
+   * the handlers are made. Off when left out. New in 0.99.14.
+   */
+  preview?: { onPreview: PreviewHook | null };
 };
 
 /**
@@ -386,6 +394,24 @@ export type DocumentHandlers = {
    * `list`, a 500 "The files could not be listed.". New in 0.99.9.
    */
   list(request: IncomingMessage, response: ServerResponse): Promise<void>;
+  /**
+   * GET: lines of a document's stored text, for the hover card of a source (`files.readLines`),
+   * only with `options.preview`. Route it as you route `get`, such as `GET
+   * /documents/:id/lines?from=12&to=14&version=…`: the query's `from` and `to` (whole numbers of 1
+   * or more; `to` defaults to `from`) and `version` (`CitedSource.version`) are read, nothing else.
+   * Every answer has `Cache-Control: private, no-store`:
+   * - 200: `PreviewLines` (`{ document, version, lines: [{ n, text }], truncated }`), at most 50
+   *   lines and 8 KB, through `preview.onPreview`;
+   * - 404: the same answer, byte for byte, for a document that was never stored, was deleted, has
+   *   expired, or is of another owner or scope (as `get` answers a missing document);
+   * - 409 `{ error, code: "changed" }`, with no text: the document was stored again since `version`;
+   * - 403 `{ error, code: "preview_refused" }`, with no text: `onPreview` rejected the lines;
+   * - 500, with no text: `onPreview` threw or returned another shape (it fails closed);
+   * - 400: `from` or `to` is not a whole number of 1 or more; 401 without a signed-in owner.
+   * A store that fails is a 503 with `Retry-After`, as for `get`. Undefined unless `options.preview`
+   * is given. New in 0.99.14.
+   */
+  preview?: (request: IncomingMessage, response: ServerResponse, id: string) => Promise<void>;
   /** Counters of the uploads these handlers hold, for metrics and alerts: read without waiting. New in 0.10.0. */
   stats(): DocumentHandlerStats;
 };
@@ -748,6 +774,21 @@ function header(request: IncomingMessage, name: string): string {
   }
 }
 
+/**
+ * `preview`, checked (decision 15, 0.99.14): left out, or an object whose `onPreview` is said
+ * explicitly, a function or null. `preview: true`, `{}` or any other shape is a TypeError: a route
+ * that shows stored text needs its mask decided. A `LargeFiles` without `readLines` cannot serve it.
+ */
+function previewOf(given: unknown, files: LargeFiles): { onPreview: PreviewHook | null } | undefined {
+  if (given === undefined) return undefined;
+  const hook = typeof given === "object" && given !== null && Object.hasOwn(given, "onPreview") ? (given as { onPreview: unknown }).onPreview : undefined;
+  if (hook !== null && typeof hook !== "function") {
+    throw new TypeError("preview needs its hook said explicitly: { onPreview } with the function you pass to onToolResult, or { onPreview: null } for no mask.");
+  }
+  if (typeof files.readLines !== "function") throw new TypeError("The preview route needs files.readLines(), as createLargeFiles makes it.");
+  return { onPreview: hook as PreviewHook | null };
+}
+
 /** `uploadIdleTimeoutMs`, checked: a number of 0 or more (0 and Infinity for no limit). */
 function idleLimit(value: unknown): number {
   if (value === undefined) return 30_000;
@@ -997,6 +1038,7 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
   if (requireScope && typeof options.getScope !== "function") {
     throw new TypeError("createDocumentHandlers needs getScope: the library requires a scope on every call (requireScope).");
   }
+  const preview = previewOf(options.preview, files);
   const idleMs = idleLimit(options.uploadIdleTimeoutMs);
   /** The origins allowed under `refuseCrossSite`, or undefined when it is off (0.99.13). */
   const allowedOrigins = crossSiteOf(options.refuseCrossSite, options.allowedOrigins);
@@ -1155,7 +1197,44 @@ export function createDocumentHandlers(files: LargeFiles, options: DocumentHandl
     stats() {
       return { memoryBytes: memoryRoom.used, spooledBytes: spoolRoom.used, uploadsInFlight };
     },
+
+    ...(preview ? { preview: answerPreview } : {}),
   };
+
+  /** Answers one request of the preview route (`preview`): never rejects. */
+  async function answerPreview(request: IncomingMessage, response: ServerResponse, id: string): Promise<void> {
+    // Every answer, errors included, is the caller's own and not to be kept by a cache.
+    if (!response.headersSent) response.setHeader("Cache-Control", "private, no-store");
+    try {
+      const caller = await callerOf(request, "The preview could not be made", false);
+      const query = new URL(request.url ?? "/", "http://localhost").searchParams;
+      const line = (name: string, fallback?: number): number | undefined => {
+        const given = query.get(name);
+        if (given === null || given === "") return fallback;
+        return /^\d{1,15}$/.test(given) && Number(given) >= 1 ? Number(given) : undefined;
+      };
+      const from = line("from");
+      const to = from === undefined ? undefined : line("to", from);
+      if (from === undefined || to === undefined) {
+        return send(response, 400, { error: "Give the lines as ?from=12&to=14: whole numbers of 1 or more.", category: "input" } satisfies ErrorBody);
+      }
+      const version = query.get("version") ?? undefined;
+      let found: Awaited<ReturnType<NonNullable<LargeFiles["readLines"]>>>;
+      try {
+        found = await files.readLines!(id, [from, Math.max(from, to)], caller, { ...(version !== undefined ? { version } : {}), onPreview: preview!.onPreview });
+      } catch (error) {
+        // A store's failure is answered as `get` answers it; anything else here is the hook's, and fails closed.
+        if (DocumentStoreError.is(error) || DocumentScopeError.is(error) || (error as { name?: unknown } | null)?.name === "AbortError") throw error;
+        return send(response, 500, { error: "The preview could not be made.", category: "unknown" } satisfies ErrorBody);
+      }
+      if (found === undefined) return send(response, 404, { error: "This file is no longer available.", ...kindOf(errorInfoOf(new DocumentsNotFoundError([id]))) } satisfies ErrorBody);
+      if ("changed" in found) return send(response, 409, { error: "This file was replaced since the answer was written.", code: "changed", category: "missing" } satisfies ErrorBody);
+      if ("rejected" in found) return send(response, 403, { error: "This preview is not available.", code: "preview_refused", category: "unknown" } satisfies ErrorBody);
+      send(response, 200, found);
+    } catch (error) {
+      fail(response, error, "The preview could not be made", tooLarge);
+    }
+  }
 
   /** Answers one upload (`upload`): never rejects. */
   async function answerUpload(request: IncomingMessage, response: ServerResponse): Promise<void> {

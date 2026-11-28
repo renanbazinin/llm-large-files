@@ -439,6 +439,41 @@ export function askWithDlp(options: AskOptions): Promise<AskResult> {
   Excel, mask the text in an extractor of your own (`extractors` of `createLargeFiles`). The hook
   then guards what is left.
 
+### Quotes and previews
+
+New in 0.99.14. With `citationMarkers: "remove"` or `"token"`, each citation of an answer leaves a
+source (`AskResult.sources`), and a page shows the cited lines in a hover card. Two rules keep that
+from showing what the model was not shown:
+
+- **A quote is cut only from what the model was sent:** a tool result after `onToolResult` and
+  after it was fitted to the room, or a file sent whole. Never the stored text, the original file,
+  a card, or the part a whole-file read sent its reader. A source whose lines were not sent has no
+  quote, and one cut from a result the hook replaced says `redacted: true`. A result the loop cut to
+  a fragment of JSON gives no quote.
+- **Quotes stay on the server unless you say otherwise.** The `citation` events and the `sources`
+  of `run.finish` and `run.error` carry no `quote` unless `eventResults: true`, and what
+  `sseMessageOf` sends a browser never does. `AskResult.sources` keeps them.
+- **Hover text comes from `files.readLines`, through `onPreview`.** The preview route of
+  `createDocumentHandlers` takes `preview: { onPreview }`: pass it the function you pass to
+  `onToolResult` (it gets the same context, with a `read_document` call), or `null` to show the
+  lines as stored. `preview: true` alone is a `TypeError`: the choice is yours to make. A hook that
+  rejects answers `403` with no text; one that throws, or returns another shape, `500` with no
+  text. Measured on the reference build, previews made without the question's hook showed text that
+  hook had masked in 184 of 380 cases.
+- **A preview answers alike for what a user may not read.** A file that is gone, of another user,
+  of another chat, or never stored is one `404`, byte for byte the same; a file replaced since the
+  answer is `409` with no text (the source's `version`, an opaque token that holds no owner, scope
+  or date). Access is checked before the version: a user who may not read the file never gets
+  `409`.
+- **A locator names sheets and headings.** A chip's locator ("גיליון לקוחות · שורה 8", a heading
+  path) is read from the stored text, as a card's head and the plan's outline are, and reaches
+  `citation` events and `run.finish` (SSE too) without `eventResults`. `onToolResult` does not see
+  it: a heading a hook masked in a tool result can still name a chip's place. It never holds a line
+  of the file. With DLP, mask at ingest, or ask with `sources: "off"`.
+- **A chat with no sources.** `sources: "off"` keeps every file name, locator and quote of a
+  source out of events and SSE; refuse previews for such a chat too
+  ([A chat with files as knowledge](./guides/chatbot.md#a-chat-with-files-as-knowledge-and-no-chips)).
+
 ## Prompt injection
 
 The model reads text you do not control: the content of the files, their names, the pages it looks

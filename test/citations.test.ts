@@ -160,8 +160,10 @@ describe("AskResult.citations", () => {
       { tool: "inline", documentId: note.id, document: "notes.md", lines: [[1, note.lines]], whole: true },
       expect.objectContaining({ tool: "analyze_whole_document", whole: true }),
     ]);
-    // The evidence of the read is as it was: its lines are the check's own.
-    expect(result.evidence[1]).not.toHaveProperty("lines");
+    // Since 0.99.14 the evidence of the read says it read every line (CIT-9), so checkCitations given
+    // this evidence agrees with result.citations: a line past the end is not supported.
+    expect(result.evidence[1]).toMatchObject({ lines: [[1, log.lines]], whole: true });
+    expect(checkCitations(result.modelText, result.evidence, { [note.id]: "notes.md", [log.id]: "app.log" }).unsupported).toEqual(result.citations!.unsupported);
     expect(result.citations).toEqual({ checked: 4, supported: 2, unchecked: 0, unsupported: [{ document: "notes.md", line: note.lines + 40 }, { document: "app.log", line: log.lines + 1 }], cited: [
       { document: "notes.md", documentId: note.id, from: 3, to: 3, form: "line", status: "supported" },
       { document: "notes.md", documentId: note.id, from: note.lines + 40, to: note.lines + 40, form: "line", status: "unsupported" },

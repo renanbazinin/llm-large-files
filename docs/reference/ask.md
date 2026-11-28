@@ -305,7 +305,9 @@ The options of `askWithFiles`.
 | `wholeDocumentAnalysis` | `boolean` | `true` | Offer `analyze_whole_document`, which reads a whole file in many model requests. It is offered only when the model that explores has `generateText` and a document reached through tools is small enough to be read in about `budget.maxMapChunks` parts or fewer. `false` withholds it. The tool guide names it only when it is offered, and a card offers it only for a file that is small enough. With `false`, or a model that explores without `generateText`, a card says that its file can be searched and read by line ranges, not that it can be analyzed whole or is too large for that. |
 | `viewPages` | `boolean` | `true` | Offer `view_pages` for PDFs whose original file is kept (`keepOriginals`). It is offered only when no model of the question has `capabilities.toolFiles: "none"`, and all of them take one kind of file (`capabilities.toolFileTypes`: one small PDF, or, since 0.99.9, each page drawn as an image). It changes nothing for a library that keeps no originals. |
 | `nativeDocuments` | `boolean` | `true` | Send small visual files sent whole (a PDF with a picture or a scanned page, a deck) as the files themselves too, before their text, when every model of the question declares `capabilities.documents` and their original is kept. It changes nothing unless an adapter declares `documents`; `false` sends text only. Another value is a `TypeError` before any request ([The file itself](../guides/pdfs.md#the-file-itself-for-small-visual-files)). New in 0.99.9. |
-| `showCitations` | `boolean` | `true` | Whether the user sees the answer's line citations. `false`: the model is asked for them all the same (the requests are those of `true`), and `result.citations` checks and lists them (`cited`), but the citations in parentheses, such as `(report.docx L188-L200)`, `(L12)` or `(חוזה.docx שורות 188-200)`, are taken out of `onText`, the `text` events and `result.text`, each with the space before it. Text from a `(` is held back until its `)`, the end of its line or 200 characters, so a citation never shows for a moment. A parenthesis with other words in it, code, a form written in the files the model read (`(L4-L5)` of a medical report), and a citation written into a sentence ("line 12 of the contract says") stay. Since 0.99.13 [`AskResult.modelText`](#askresult) keeps the answer as the model wrote it, citations included: send that back as the assistant turn. An answer made only of citations is not shown empty: the lines it cited are shown in words ("line 8", "שורה 8"), with a `citations_only` notice. Another value is a `TypeError` before any request ([Citations the user does not see](#citations-the-user-does-not-see)). New in 0.99.12. |
+| `showCitations` | `boolean` | `true` | Whether the user sees the answer's line citations. Since 0.99.14 `false` is `citationMarkers: "remove"`, and `true` is `"keep"`; given both, they must agree. `false`: the model is asked for them all the same (the requests are those of `true`), and `result.citations` checks and lists them (`cited`), but the citations in parentheses, such as `(report.docx L188-L200)`, `(L12)` or `(חוזה.docx שורות 188-200)`, are taken out of `onText`, the `text` events and `result.text`, each with the space before it. Text from a `(` is held back until its `)`, the end of its line or 200 characters, so a citation never shows for a moment. A parenthesis with other words in it, code, a form written in the files the model read (`(L4-L5)` of a medical report), and a citation written into a sentence ("line 12 of the contract says") stay. Since 0.99.13 [`AskResult.modelText`](#askresult) keeps the answer as the model wrote it, citations included: send that back as the assistant turn. An answer made only of citations is not shown empty: the lines it cited are shown in words ("line 8", "שורה 8"), with a `citations_only` notice. Another value is a `TypeError` before any request ([Citations the user does not see](#citations-the-user-does-not-see)). New in 0.99.12. |
+| `citationMarkers` | `"keep" \| "remove" \| "token"` | `"keep"` | How the answer's citations are shown in `onText`, the `text` events and `result.text`. `"keep"`: as the model wrote them, as before 0.99.14: no `anchors`, no `sources`, no `citation` events. `"remove"`: taken out, as `showCitations: false` did, with more forms (lead-ins such as "(מקור: x L4)", square and full-width brackets, lists such as "שורות 12, 15 ו-18", a citation run at the end of a parenthesis); a citation the answer needs ("באיזו שורה?" answered "(שורה 8)", one right after ":" or a location word) is put into words where it stood, naming the place in the file ("שורה 8 בגיליון לקוחות"). Each one leaves a chip: [`result.anchors`](#askresult), [`result.sources`](#askresult) and a [`citation` event](./events.md#citation). `"token"`: as `"remove"`, with `⟦n⟧` (U+27E6, U+27E7) at each chip's place, for a page that renders Markdown ([`insertCitationTokens`](#insertcitationtokenstext-anchors)). The model is asked the same in every mode, and `result.modelText` is its own text. Another value is a `TypeError` before any request ([Sources and chips](#sources-and-chips)). New in 0.99.14. |
+| `sources` | `"on" \| "off"` | `"on"` | `"off"` for a chat that shows no chips and no previews, such as a group chat with files as knowledge: the text is as with `citationMarkers: "remove"`, no `citation` event is sent, and `result.anchors` and `result.sources` are empty, so no event, `run.finish`, `run.error` or SSE message carries a file name, locator or quote of a source. `result.citations` keeps its meaning, and the model is asked as always. With `"off"`, `citationMarkers` defaults to `"remove"`; `"keep"`, `"token"` or `showCitations: true` is a `TypeError` before any request. New in 0.99.14. |
 | `onText` | `(delta: string) => void` | none | The answer's text as it arrives. With it, `streamText` defaults to `true`, and the adapter streams when it can; otherwise the text of each reply comes once the reply is in: in one piece, or from `gemini()`, one piece for each text part. A remark the model wrote before a tool call comes too, and the text of a later reply then starts with `"\n\n"`. With an explorer, only the answering model's text comes. |
 | `streamText` | `boolean` | `true` with `onText`, and in [`askStream`](#askstreamoptions); `false` otherwise | Whether to ask the model for the answer as it is written: the loop then passes `onText` to the adapter's `send` ([`SendHooks`](#sendhooks)), and an adapter that can stream does. A reply that fails after its first piece of text is not sent again: that text was shown. With `false`, the text of each reply comes once the reply is in, to `onText` and as `text` events, and a reply that fails can be sent again. A listener of the events alone (`onEvent` without `onText`) does not change how the model is asked. New in 0.7.0. |
 | `onActivity` | `(text: string) => void` | none | Short-lived status in English: each tool call as it starts ("Search app.log (exact) for “timeout”…"), "Too large to read at once: app.log. Searching instead…", the progress of a whole-file read, a retry of a chat request ("The model did not answer (HTTP 503). Trying again in 2 s…", "The model could not be reached. Trying again…", or, for a reply that began and was cut off on its way, "The model's reply was cut off on its way. Trying again…"), and "Writing the answer…" before the request for the answer. Show it as plain text: a tool call's line can quote the model's words. The retries of a whole-file read's requests are not told here: they come only as `retry` events. |
@@ -384,6 +386,9 @@ question that failed.
 | `finish` | `"complete" \| "cut" \| "filtered" \| "malformed_call" \| "other"`, optional | How the reply whose text is the answer ended (`ModelReply.finish`), or the last reply of the chat when none answered. Absent when the adapter does not say. `"filtered"` and `"cut"` come with an `answer_filtered` or `answer_cut` notice. New in 0.10.0. |
 | `citations` | [`CitationCheck`](#citationcheck), optional | The line citations of `text`, checked against the evidence of the question: a document sent whole, or read whole for an answer, counts as shown, every line it has; a read of items, the lines of its items. Set when the question had documents. With `showCitations: false`, read from the answer as the model wrote it, before its citations were taken out. New in 0.10.0. |
 | `questionId` | `string`, optional | `AskOptions.questionId`, when the question had one. Also in the result of `run.finish`, in the `partial` of `run.error`, and in what `partialResultOf` gives. New in 0.99.9. |
+| `anchors` | [`CitationAnchor[]`](#citationanchor), optional | Where each chip goes in `text`, in order: one for each citation `citationMarkers` `"remove"` or `"token"` took out or put in words. Empty with `sources: "off"`, absent with `"keep"`. In `run.finish`, in the `partial` of `run.error` for `onEvent`, and in what `sseMessageOf` sends for `run.finish` (not for `run.error`). New in 0.99.14. |
+| `sources` | [`CitedSource[]`](#citedsource), optional | What the chips open, one per distinct citation (a file and its lines), in the order first cited: the file, where the lines are in it ([`SourceLocator`](#sourcelocator)), its `version`, and a `quote` cut from what the model was sent. Empty with `sources: "off"`, absent with `"keep"`. In events without quotes unless `eventResults` is true; never with quotes in what `sseMessageOf` sends. New in 0.99.14. |
+| `lineTalk` | [`LineTalk`](#linetalk), optional | What talk of lines is left in `text` once the citations were taken out: counts and hashes, for your logs. With `"remove"` or `"token"`. In `run.finish` and the `partial` of `run.error` for `onEvent`; never in what `sseMessageOf` sends. New in 0.99.14. |
 
 Guides: [conversations](../guides/conversations.md) (`toolTurns`),
 [costs and limits](../guides/costs-and-limits.md) (`usage`),
@@ -707,19 +712,20 @@ A `LineCitation` (new in 0.99.12):
 
 #### Citations the user does not see
 
-With `showCitations: false` the model cites as it always does, and the library takes the
-citations out of what it shows. `result.citations.cited` keeps them, for a list of sources beside
-the answer or for checking it:
+With `showCitations: false` (since 0.99.14 `citationMarkers: "remove"`) the model cites as it
+always does, and the library takes the citations out of what it shows. `result.sources` says
+where each one points to in the file, as a person finds it there, for a list of sources beside the
+answer ([Sources and chips](#sources-and-chips)); `result.citations.cited` keeps the citations as
+written, for checking them:
 
 ```ts
-import { askWithFiles } from "llm-large-files";
+import { askWithFiles, describeLocator } from "llm-large-files";
 
 // files, model, documentIds and messages as in any question.
-const result = await askWithFiles({ files, model, documentIds, messages, showCitations: false });
+const result = await askWithFiles({ files, model, documentIds, messages, citationMarkers: "remove" });
 // "Payment is due in 30 days (contract.docx L188-L200)." was shown as "Payment is due in 30 days."
-const sources = (result.citations?.cited ?? [])
-  .filter((cited) => cited.status === "supported" && cited.document)
-  .map((cited) => (cited.from === cited.to ? `${cited.document}, line ${cited.from}` : `${cited.document}, lines ${cited.from}-${cited.to}`));
+const sources = (result.sources ?? []).map((source) => [source.name ?? "a file", ...source.locators.map((locator) => describeLocator(locator, "en"))].filter(Boolean).join(", "));
+// ["contract.docx, clause 12.1"]: the place, never the library's line numbers.
 ```
 
 Keep `result.modelText` for the history (since 0.99.13): it has the citations the user did not
@@ -790,6 +796,103 @@ whole. `names` gives each document ID's file name, as for `checkCitations`. `con
 result is read but its outline, its hint on how to cite, its notes and its errors. `askWithFiles`
 gives it the files sent whole and every tool result, but a whole-file read's own notes (only the
 quotes of its items). Both are new in 0.99.12.
+
+### Sources and chips
+
+New in 0.99.14. With `citationMarkers: "remove"` (or `"token"`), every citation the model writes
+and the library takes out leaves a chip: the place in `result.text` where it goes, and the source
+it opens, with where the cited lines are in the original file as a person finds them there: a
+workbook's sheet and Excel row, a CSV row as a spreadsheet shows it, a PDF page, a slide, a clause
+and its headings, or a log line. Nothing sent to the model changes: the sources come from the
+citations it already writes.
+
+```ts
+import { askWithFiles, describeLocator, type AskOptions } from "llm-large-files";
+
+declare const options: AskOptions;
+const result = await askWithFiles({ ...options, citationMarkers: "remove" });
+for (const anchor of result.anchors ?? []) {
+  const source = result.sources!.find((one) => one.key === anchor.sources[0])!;
+  // "after 'heron' → notes.md, # Notes · line 3" style labels, in Hebrew or English.
+  console.log(anchor.at, anchor.label, source.name, source.locators.map((locator) => describeLocator(locator, "en")).join(" + "));
+}
+```
+
+- **A locator says only what is certain.** When the row, page or clause is not certain, it is
+  coarser: the sheet for a total computed over the sheet, or a Hebrew "שורה N" that may be read as
+  the text line or as Excel's row; the file for a document line with no clause number of its own.
+  It never names a guessed row. `reason` says why, for your logs.
+- **`result.citations` keeps its meaning:** `cited[].from` and `to` stay text lines. Rows are in
+  `sources` only.
+- **A chip is told when its line is complete**, in a `citation` event after the text that holds its
+  place: the file of a citation may be named after it on its line. Chips whose file was not read
+  during the question are resolved within a second before `run.finish`; past that, a chip keeps a
+  coarse locator, `unresolved`.
+- **Documents uploaded before 0.99.14** get the same locators from their stored text, except where
+  only the upload knows: lines split at 2,000 characters in a CSV or log, and speaker notes. Those
+  stay coarse.
+
+#### `SourceLocator`
+
+```ts
+type SourceLocator =
+  | { kind: "row"; sheetIndex?: number; sheet?: string; row: number; toRow?: number } // a workbook's sheet and Excel row, or a CSV row
+  | { kind: "cell"; sheetIndex: number; sheet?: string; row: number; column: string } // reserved: not given in 0.99.14
+  | { kind: "sheet"; sheetIndex: number; sheet?: string }
+  | { kind: "page"; page: number; toPage?: number }
+  | { kind: "slide"; slide: number; toSlide?: number; notes?: true }
+  | { kind: "section"; headings?: string[]; numbering?: string } // DOCX, HTML, Markdown: "3.1", "5.", "(ב)"
+  | { kind: "line"; line?: number; toLine?: number; time?: string } // a log or text file
+  | { kind: "document" };
+```
+
+#### `CitedSource`
+
+| Field | Type | What it holds |
+|---|---|---|
+| `key` | `string` | `` `${documentId}:${from}-${to}` ``, the same in every event and the result; `"?:from-to"` when the file could not be decided. |
+| `documentId`, `name` | `string`, optional | The document and its file name. Absent when the citation names no file and the question has several, or two files share the name and the cited lines do not tell them apart. |
+| `version` | `string`, optional | The document's version, opaque (16 hex digits): pass it to [`files.readLines`](./library.md#filesreadlinesid-range-access-options) or the preview route, which answer "changed" for a file replaced since. Holds no owner, scope or date. |
+| `textVersion` | `number`, optional | The version of the extractor that wrote the document's text (1 until 0.99.15). |
+| `from`, `to`, `form` | `number`, `number`, `"line" \| "row"` | The citation as the model wrote it, as in `result.citations.cited`. |
+| `locators` | `SourceLocator[]` | Where the lines are: one part, or one per sheet for a range across sheets (at most 4). |
+| `basis` | `"text" \| "pages" \| "tool" \| "ingest" \| "outline" \| "none"` | What the place was decided from. |
+| `shown`, `seen` | `boolean`, `"shown" \| "noted" \| "part_failed" \| "not_noted" \| "past_end" \| "not_shown"` | Whether the model was shown the lines: by a tool or a file sent whole; through a whole-file read's notes (`noted`), a read whose part with them failed, or whose notes do not cite them; past the end of the file; or not at all. |
+| `reason` | `string`, optional | How the locator was found, or why it is no finer: `row_prefix`, `computed_over_sheet`, `l_number_contradicts_claim`, `hebrew_row_tie`, `no_heading_no_number`… |
+| `candidates` | `Array<{ documentId?, locator }>`, optional | The places it may be, for an `ambiguous` chip. |
+| `quote` | `string`, optional | The cited lines as the model was sent them, at most 300 characters. Not in events unless `eventResults`; never in SSE. |
+| `redacted` | `true`, optional | The quote is cut from a result `onToolResult` replaced. |
+
+#### `CitationAnchor`
+
+| Field | Type | What it holds |
+|---|---|---|
+| `at` | `number` | The place in `result.text`, in UTF-16 units, at most its length: the text of the `text` events joined. Never inside code or at the start of a line; with `"token"`, where its token starts. |
+| `requestId` | `string` | The request whose text holds it. |
+| `sources` | `string[]` | The `key` of each source it opens, in the order cited. |
+| `status` | `"resolved" \| "ambiguous" \| "unresolved"` | `ambiguous`: see `candidates`; `unresolved`: past the end of the file, or not read in time. (`"pending"` is reserved.) |
+| `label` | `number` | Its number in the answer, from 1: the label of `"token"`. |
+| `kind` | `"removed" \| "converted"` | Taken out of the text, or put into words there. |
+
+#### `LineTalk`
+
+Counts for your logs, never text: `verdict` (`"none"`, `"harmless"`, `"harmful"`); `left`, the line
+and row numbers still in the shown text (`mentions`, `numbers`, `harmfulMentions`, harmless ones
+by kind: true log lines, Excel rows whose cells the sentence names, CSV rows; harmful ones by
+kind; a 16-hex-digit hash of each); `kept`, citations put into words; `held`, the most characters
+the hider held back at once and how many times it held; `ambiguous`, chips that could not be told
+apart.
+
+#### insertCitationTokens(text, anchors)
+
+`text` with `⟦label⟧` at each anchor's `at`, in order: what `citationMarkers: "token"` shows, made
+from the text of `"remove"`. Also in `llm-large-files/client`. New in 0.99.14.
+
+#### describeLocator(locator, language)
+
+A locator as a short label, `"he"` or `"en"`: "גיליון לקוחות · שורה 8", "page 3", "slide 2 ·
+speaker notes", "4. Payments · clause 4.2". An empty string for `{ kind: "document" }`: show the
+file's name alone. Also in `llm-large-files/client`. New in 0.99.14.
 
 ### `AnswerInfo`
 
