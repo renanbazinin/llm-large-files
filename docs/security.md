@@ -465,6 +465,11 @@ from showing what the model was not shown:
   answer is `409` with no text (the source's `version`, an opaque token that holds no owner, scope
   or date). Access is checked before the version: a user who may not read the file never gets
   `409`.
+- **A locator names sheets and headings.** A chip's locator ("גיליון לקוחות · שורה 8", a heading
+  path) is read from the stored text, as a card's head and the plan's outline are, and reaches
+  `citation` events and `run.finish` (SSE too) without `eventResults`. `onToolResult` does not see
+  it: a heading a hook masked in a tool result can still name a chip's place. It never holds a line
+  of the file. With DLP, mask at ingest, or ask with `sources: "off"`.
 - **A chat with no sources.** `sources: "off"` keeps every file name, locator and quote of a
   source out of events and SSE; refuse previews for such a chat too
   ([A chat with files as knowledge](./guides/chatbot.md#a-chat-with-files-as-knowledge-and-no-chips)).

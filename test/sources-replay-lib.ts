@@ -1,13 +1,11 @@
-// 0.99.14 gates on the 112 recorded answers (specs/03-privacy-sse G7–G10, CIT-17, replay 96/96):
-// every request body is the recorded one in "remove", "token" and sources "off" (the replay misses
-// none); with eventResults off no event and no SSE message has a quote; every answer that cites has
-// anchors and sources, without quotes, in SSE run.finish, each anchor inside the text; every quote
-// is cut from what the model was sent; at least 215 sources have a quote; and with sources "off"
-// nothing of a source reaches an event or SSE. Follow-ups send modelText back, as the guide does.
+// The replay of the 112 recorded answers in one citationMarkers/sources mode, for the 0.99.14 gates
+// (test/sources-replay-*.test.ts, one file per mode: a whole-file read replays its recording only
+// once in a process). Follow-ups send modelText back, as the chatbot guide does.
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { askWithFiles, type AskEvent, type ChatMessage, type CitationMarkers } from "llm-large-files";
 import { gemini, geminiApi } from "llm-large-files/gemini";
 import { sseMessageOf } from "llm-large-files/node";
@@ -21,9 +19,9 @@ const MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
 /** Text as the coverage check compares it: no "N| " line prefixes, no "Row R: ", white space collapsed. */
 const normalized = (text: string) => text.replace(/^\s*\d{1,9}\| ?/gmu, "").replace(/\s+/gu, " ").trim();
 
-type Answer = { id: string; misses: number; error?: string; cites: boolean; text: string; anchors: number; sources: number; quotes: string[]; uncovered: string[]; sseFinish?: Record<string, unknown>; quoteKeys: number; citationEvents: number; leaks: string[] };
+export type Answer = { id: string; misses: number; error?: string; cites: boolean; text: string; anchors: number; sources: number; quotes: string[]; uncovered: string[]; sseFinish?: Record<string, unknown>; quoteKeys: number; citationEvents: number; leaks: string[] };
 
-async function replayAll(mode: { citationMarkers?: CitationMarkers; sources?: "on" | "off" }) {
+export async function replayAll(mode: { citationMarkers?: CitationMarkers; sources?: "on" | "off" }) {
   const library = await evalLibrary();
   const cases = evalCases(library.facts);
   const answers: Answer[] = [];
@@ -96,42 +94,6 @@ async function replayAll(mode: { citationMarkers?: CitationMarkers; sources?: "o
   return { recordings, answers };
 }
 
-describe("sources on the recorded answers", { timeout: 600_000 }, async () => {
-  const removed = await replayAll({ citationMarkers: "remove" });
-  const tokens = await replayAll({ citationMarkers: "token" });
-  const off = await replayAll({ sources: "off" });
-
-  it("replays the 96 recordings in every mode, with no request body changed (no miss) and no error", () => {
-    for (const run of [removed, tokens, off]) {
-      expect(run.recordings).toBe(96);
-      expect(run.answers).toHaveLength(112);
-      expect(run.answers.filter((answer) => answer.misses > 0 || answer.error).map((answer) => `${answer.id}: ${answer.error ?? `${answer.misses} misses`}`)).toEqual([]);
-    }
-  });
-
-  it("G7: no quote in any event or SSE message with eventResults off", () => {
-    for (const run of [removed, tokens, off]) expect(run.answers.reduce((sum, answer) => sum + answer.quoteKeys, 0)).toBe(0);
-  });
-
-  it("G8: every answer whose citations were taken out has anchors and sources, without quotes, in SSE run.finish, each anchor inside the text", () => {
-    const withChips = removed.answers.filter((answer) => answer.anchors > 0);
-    const missing = withChips.filter((answer) => !Array.isArray(answer.sseFinish?.anchors) || !(answer.sseFinish!.anchors as unknown[]).length || !Array.isArray(answer.sseFinish?.sources) || !(answer.sseFinish!.sources as unknown[]).length);
-    expect(missing.map((answer) => answer.id)).toEqual([]);
-    expect(removed.answers.flatMap((answer) => answer.leaks)).toEqual([]);
-    expect(tokens.answers.flatMap((answer) => answer.leaks)).toEqual([]);
-    console.log(`G8: ${withChips.length} answers with chips; ${removed.answers.filter((answer) => answer.cites).length} answers cite`);
-  });
-
-  it("G9 and G10: every quote is cut from what the model was sent, and at least 215 sources have one", () => {
-    expect(removed.answers.flatMap((answer) => answer.uncovered.map((key) => `${answer.id} ${key}`))).toEqual([]);
-    const quotes = removed.answers.reduce((sum, answer) => sum + answer.quotes.length, 0);
-    console.log(`G10: ${quotes} sources with a quote; ${removed.answers.reduce((sum, answer) => sum + answer.sources, 0)} sources; ${removed.answers.reduce((sum, answer) => sum + answer.anchors, 0)} anchors`);
-    expect(quotes).toBeGreaterThanOrEqual(215);
-  });
-
-  it("CIT-17: with sources off, no citation event, empty anchors and sources, and no locator or quote anywhere; the text is that of remove", () => {
-    expect(off.answers.reduce((sum, answer) => sum + answer.citationEvents + answer.anchors + answer.sources, 0)).toBe(0);
-    expect(off.answers.flatMap((answer) => answer.leaks)).toEqual([]);
-    expect(off.answers.map((answer) => answer.text)).toEqual(removed.answers.map((answer) => answer.text));
-  });
-});
+/** The sha256 of each shown text of "remove" (= showCitations: false), pinned by test/model-text.test.ts. */
+export const SHOWN = JSON.parse(readFileSync(new URL("./fixtures/shown-0.99.14.json", import.meta.url), "utf8")) as Record<string, string>;
+export const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");

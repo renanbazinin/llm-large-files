@@ -7,7 +7,7 @@ import type { Evidence } from "./evidence.js";
 import { lineTalkOf, type LineTalkFile } from "./line-talk.js";
 import { aggregateSideOf, claimAround, deriveLocatorTables, resolveCitation, type AggregateSide, type LocatorTables, type ResolvedLocation } from "./locators.js";
 import type { ModelToolRound } from "./model.js";
-import type { CitationAnchor, CitedSource, LineTalk, SourceSeen } from "./sources.js";
+import type { CitationAnchor, CitedSource, LineTalk, SourceLocator, SourceSeen } from "./sources.js";
 import { TOOL_NAMES } from "./tools.js";
 import type { DocumentMeta } from "./types.js";
 import { versionToken } from "./version-token.js";
@@ -45,7 +45,7 @@ export type SourceTrackerOptions = {
   documents: readonly DocumentMeta[];
   /** The evidence of the question, as it grows. */
   evidence: readonly Evidence[];
-  /** The question's text in the answer's language: Hebrew when it is. */
+  /** Whether words the hider adds are in Hebrew when the answer has no words of its own there: the chat's language. */
   hebrew: () => boolean;
   /** Sends a `citation` event (sources on, and an event listener). */
   onCitation?: (anchor: CitationAnchor, sources: CitedSource[]) => void;
@@ -191,14 +191,40 @@ export class SourceTracker {
     return pending;
   }
 
-  /** The words for a citation the answer needs, where it stood ("שורה 8 בגיליון לקוחות"), or undefined to let the hider use its own. */
-  describe = (place: { ids: string[]; numbers: Array<{ from: number; to: number; form: "line" | "row" }>; hebrew: boolean }): string | undefined => {
+  /**
+   * The words for a citation the answer needs, where it stood: its place in the file ("שורה 8
+   * בגיליון לקוחות") when one locator is certain from what is in hand, else its lines ("שורה 8",
+   * "lines 2–3"), in the answer's language, or the chat's when the answer has no words yet.
+   */
+  describe = (place: { ids: string[]; numbers: Array<{ from: number; to: number; form: "line" | "row" }>; hebrew: boolean; span?: [number, number] }): string | undefined => {
+    const hebrew = place.hebrew || this.options.hebrew();
+    const language = hebrew ? "he" : "en";
     const ids = place.ids.length > 0 ? place.ids : this.metas.size === 1 ? [...this.metas.keys()] : [];
-    if (ids.length !== 1 || place.numbers.length !== 1) return undefined;
-    const number = place.numbers[0]!;
-    const resolved = resolveCitation({ citation: { documentId: ids[0]!, ids, ...number }, claim: { before: "", after: "" }, group: [], tablesOf: (id) => this.tables.get(id), aggregates: [], evidence: [...this.options.evidence] });
-    if (resolved === "pending" || resolved.status !== "resolved" || resolved.locators.length !== 1) return undefined;
-    return locatorInWords(resolved.locators[0]!, place.hebrew ? "he" : "en");
+    if (place.numbers.length === 0) return undefined;
+    if (ids.length === 1) {
+      // The claim is the line before the citation: what follows it is not written yet.
+      const before = place.span ? this.raw.slice(this.raw.lastIndexOf("\n", place.span[0] - 1) + 1, place.span[0]) : "";
+      const group = place.numbers.map((number) => ({ documentId: ids[0]!, ids, ...number }));
+      const locators: SourceLocator[] = [];
+      for (const citation of group) {
+        const resolved = resolveCitation({ citation, claim: { before, after: "" }, group, tablesOf: (id) => this.tables.get(id), aggregates: this.aggregates, evidence: [...this.options.evidence] });
+        if (resolved === "pending" || resolved.status !== "resolved" || resolved.locators.length !== 1) {
+          locators.length = 0;
+          break;
+        }
+        locators.push(resolved.locators[0]!);
+      }
+      // A Markdown, text or HTML file's lines are its own: a section with no number reads better as its lines.
+      const ownLines = ["markdown", "text", "html", "log", "json"].includes(this.metas.get(ids[0]!)?.format ?? "") && locators.every((one) => one.kind === "section" && !one.numbering);
+      const words = locators.length === place.numbers.length && !ownLines ? joinedInWords(locators, language) : undefined;
+      if (words) return words;
+      // A workbook's lines are not its rows: no words that would read as rows.
+      if (this.metas.get(ids[0]!)?.format === "xlsx") return undefined;
+    }
+    const many = place.numbers.length > 1 || place.numbers.some((number) => number.to !== number.from);
+    const spans = place.numbers.map((number) => (number.to !== number.from ? `${number.from}\u2013${number.to}` : String(number.from)));
+    const list = spans.length > 1 ? `${spans.slice(0, -1).join(", ")}${hebrew ? " ו-" : " and "}${spans.at(-1)}` : spans[0]!;
+    return hebrew ? `${many ? "שורות" : "שורה"} ${list}` : `${many ? "lines" : "line"} ${list}`;
   };
 
   /** Text the model wrote, as it came (`modelText`). */
@@ -277,7 +303,7 @@ export class SourceTracker {
       if (this.sources.has(key)) continue;
       const meta = documentId ? this.metas.get(documentId) : undefined;
       const seen = this.seenOf(documentId, citation.from, citation.to, citation.form);
-      const quote = documentId && citation.form === "line" ? this.quoteOf(documentId, citation.from, citation.to) : undefined;
+      const quote = documentId ? this.quoteFor(documentId, citation, resolved) : undefined;
       const source: CitedSource = {
         key,
         ...(documentId ? { documentId } : {}),
@@ -330,6 +356,44 @@ export class SourceTracker {
     return "not_noted";
   }
 
+  /**
+   * The quote of a citation: its text lines, or for a row of a workbook the line of that Excel row,
+   * when the model was sent it (a "Row N" form, or a "שורה N" read as Excel's row).
+   */
+  private quoteFor(documentId: string, citation: { from: number; to: number; form: "line" | "row" }, resolved: ResolvedLocation): { text: string; redacted: boolean } | undefined {
+    const format = this.metas.get(documentId)?.format;
+    if (format !== "xlsx" || citation.form === "line") {
+      // A row form outside a workbook names text lines. A workbook line read as a line, by its locator.
+      const asRow = format === "xlsx" && resolved.locators.length === 1 && resolved.locators[0]!.kind === "row" && resolved.reason.startsWith("hebrew_row_cells_match_excel_row");
+      if (!asRow) return this.quoteOf(documentId, citation.from, citation.to);
+    }
+    const locator = resolved.locators.length === 1 ? resolved.locators[0]! : undefined;
+    if (!locator || locator.kind !== "row" || locator.toRow !== undefined) return undefined;
+    // The sent line of that row, in its sheet when the locator names one.
+    const prefix = `Row ${locator.row}: `;
+    const lines = this.lines.get(documentId);
+    for (const [line, sent] of this.sent.get(documentId) ?? []) {
+      if (!sent.text.startsWith(prefix)) continue;
+      if (lines && locator.sheetIndex !== undefined) {
+        const tables = this.tables.get(documentId);
+        if (tables && !sameSheet(this.lineSheet(documentId, line), locator.sheetIndex)) continue;
+      }
+      return this.quoteOf(documentId, line, line);
+    }
+    return undefined;
+  }
+
+  /** The sheet of a text line of a workbook, by the nearest "## Sheet N:" heading above it in the stored text. */
+  private lineSheet(documentId: string, line: number): number | undefined {
+    const lines = this.lines.get(documentId);
+    if (!lines) return undefined;
+    for (let index = line - 1; index >= 0; index--) {
+      const match = /^## Sheet (\d+): /.exec(lines[index] ?? "");
+      if (match) return Number(match[1]);
+    }
+    return undefined;
+  }
+
   /** The cited lines as the model was sent them, for people: no "N| " and no "Row R: ", at most 300 characters. */
   private quoteOf(documentId: string, from: number, to: number): { text: string; redacted: boolean } | undefined {
     const lines = this.sent.get(documentId);
@@ -340,7 +404,8 @@ export class SourceTracker {
       const found = lines.get(line);
       if (!found) return undefined;
       redacted ||= found.redacted;
-      const text = found.text.replace(ROW_PREFIX, "").trim();
+      // The first line without the library's "Row R: ": the quote stays a piece of what was sent.
+      const text = (line === from ? found.text.replace(ROW_PREFIX, "") : found.text).trim();
       if (text) parts.push(text);
     }
     const text = parts.join(" ").replace(/\s+/g, " ").trim();
@@ -391,3 +456,33 @@ function covered(ranges: ReadonlyArray<readonly [number, number]>, from: number,
   }
   return next > to;
 }
+
+/** Locators of one kind, and one sheet, in words: "שורות 6 ו-8 בגיליון לקוחות", "pages 3 and 5"; one locator as `locatorInWords` says it. */
+function joinedInWords(locators: readonly SourceLocator[], language: "he" | "en"): string | undefined {
+  const first = locators[0]!;
+  if (locators.length === 1) return locatorInWords(first, language);
+  const hebrew = language === "he";
+  const numberOf = (locator: SourceLocator): string | undefined => {
+    switch (locator.kind) {
+      case "row": return locator.toRow === undefined ? String(locator.row) : undefined;
+      case "page": return locator.toPage === undefined ? String(locator.page) : undefined;
+      case "slide": return locator.toSlide === undefined ? String(locator.slide) : undefined;
+      case "line": return locator.line !== undefined && locator.toLine === undefined ? String(locator.line) : undefined;
+      case "section": return locator.numbering;
+      default: return undefined;
+    }
+  };
+  const sheetOf = (locator: SourceLocator) => (locator.kind === "row" ? locator.sheet ?? locator.sheetIndex : undefined);
+  if (!locators.every((one) => one.kind === first.kind && sheetOf(one) === sheetOf(first))) return undefined;
+  const numbers = locators.map(numberOf);
+  if (numbers.some((one) => one === undefined)) return undefined;
+  const nouns: Record<string, [string, string]> = { row: ["שורות", "rows"], page: ["עמודים", "pages"], slide: ["שקופיות", "slides"], line: ["שורות", "lines"], section: ["סעיפים", "clauses"] };
+  const noun = nouns[first.kind];
+  if (!noun) return undefined;
+  const list = `${numbers.slice(0, -1).join(", ")}${hebrew ? " ו-" : " and "}${numbers.at(-1)}`;
+  const sheet = sheetOf(first);
+  const words = `${hebrew ? noun[0] : noun[1]} ${list}`;
+  return sheet === undefined ? words : hebrew ? `${words} בגיליון ${sheet}` : `${words} of sheet ${sheet}`;
+}
+
+const sameSheet = (found: number | undefined, wanted: number) => found === undefined || found === wanted;

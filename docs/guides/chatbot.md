@@ -238,9 +238,9 @@ const documents = createDocumentHandlers(files, {
   refuseCrossSite: true, // a page of another site cannot upload into a chat, or delete from it
   onUploaded: (document, { scope }) => keepFile(scope![1], document.id, document.name), // scope is [userId, chatId]
   onRemoved: (id) => forgetFiles([id]), // the user removed it: no notice needed
-  // The cited lines for a chip's hover card, through the same mask as what the model is sent
-  // (`maskIds` stands for your onToolResult; null shows the lines as stored). Required to turn the route on.
-  preview: { onPreview: maskIds },
+  // The cited lines for a chip's hover card. null shows them as stored; if your questions pass an
+  // onToolResult that masks what the model gets, pass the same function here. Required for the route.
+  preview: { onPreview: null },
 });
 
 app.post("/api/documents", documents.upload); // before any body parser: the body is the file

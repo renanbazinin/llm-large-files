@@ -1397,8 +1397,13 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
   const citedFiles = [...prepared.plan.inline, ...prepared.plan.searchable];
   const { markers, sourcesOn } = markersOf(options);
   const hides = markers !== "keep" && citedFiles.length > 0;
-  /** Whether the answer is in Hebrew: the words of a citation put into words are in its language. */
-  const hebrewAnswer = () => /[\u0590-\u05ff]/u.test(text.slice(-2_000));
+  /**
+   * Whether the words the hider adds are in Hebrew: by the answer so far and the question, as the
+   * words of an answer of citations only are (LOOP-10), so that a Hebrew chat about "contract.txt"
+   * gets "שורה 8".
+   */
+  const lastQuestion = [...options.messages].reverse().find((message): message is ChatTurn => message.role === "user" && typeof (message as Partial<ChatTurn>).text === "string")?.text;
+  const hebrewAnswer = () => hebrewWords(text.slice(-2_000), lastQuestion, citedFiles.map((meta) => meta.name));
   const tracker = hides
     ? new SourceTracker({
       documents: citedFiles,
@@ -1409,7 +1414,7 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
       ...(signal ? { signal } : {}),
     })
     : undefined;
-  const hider = hides ? new CitationHider(Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name])), [], { describe: tracker!.describe }) : undefined;
+  const hider = hides ? new CitationHider(Object.fromEntries(citedFiles.map((meta) => [meta.id, meta.name])), [], { describe: tracker!.describe, wholeAnswer: false }) : undefined;
   /**
    * What the model read of the files, for the hider: a citation form written there ("L4-L5" of a
    * medical report) is a word of the file, and stays. The results of a round, but a whole-file

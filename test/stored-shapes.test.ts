@@ -44,7 +44,8 @@ type Fixture = { version: Version; log: string; note: string; access: { owner: s
  * with the version that added it: older versions ignore them, so DOCUMENT_META_VERSION stays.
  * None yet.
  */
-const ADDED_AFTER_0_10_2: string[] = [];
+/** `textVersion` (0.99.14): optional, read as 1 when absent, so no new metaVersion. */
+const ADDED_AFTER_0_10_2: string[] = ["textVersion"];
 
 const folders: string[] = [];
 afterEach(async () => {

@@ -27,10 +27,15 @@ const NOTE = "# Notes\n\nThe code word is heron.\nThe nightly import runs at 02:
 const ANSWER = "The code word is heron (notes.md L3), and the import runs at 02:00 (L4).\nThat is all.";
 const SHOWN = "The code word is heron, and the import runs at 02:00.\nThat is all.";
 
-async function noteLibrary() {
-  const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
-  const meta = await files.ingest({ name: "notes.md", bytes: utf8(NOTE) });
-  return { files, meta };
+let shared: Promise<{ files: ReturnType<typeof createLargeFiles>; meta: Awaited<ReturnType<ReturnType<typeof createLargeFiles>["ingest"]>> }> | undefined;
+/** One library for every run: the same document ID and version in each. */
+function noteLibrary() {
+  shared ??= (async () => {
+    const files = createLargeFiles({ requireOwner: false, store: new MemoryDocumentStore() });
+    const meta = await files.ingest({ name: "notes.md", bytes: utf8(NOTE) });
+    return { files, meta };
+  })();
+  return shared;
 }
 
 type Run = { result: Awaited<ReturnType<typeof askWithFiles>>; events: AskEvent[]; deltas: string[]; model: ReturnType<typeof streaming> };
@@ -46,7 +51,7 @@ async function run(options: Record<string, unknown>, size = 5, answer = ANSWER):
 describe("citationMarkers and sources: checked before any request", () => {
   const cases: Array<[Record<string, unknown>, string]> = [
     [{ citationMarkers: "hide" }, 'citationMarkers must be "keep", "remove" or "token", and is "hide".'],
-    [{ sources: false }, 'sources must be "on" or "off", and is false.'],
+    [{ sources: false }, 'sources must be "on" or "off", and is boolean.'],
     [{ citationMarkers: "keep", showCitations: false }, 'citationMarkers "keep" and showCitations false disagree: give one of them.'],
     [{ citationMarkers: "remove", showCitations: true }, 'citationMarkers "remove" and showCitations true disagree: give one of them.'],
     [{ sources: "off", citationMarkers: "keep" }, 'sources "off" shows no chips: it cannot go with citationMarkers "keep", which shows the citations.'],

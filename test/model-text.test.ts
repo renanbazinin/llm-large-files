@@ -5,7 +5,7 @@
 // it back as the assistant turn, with citations hidden, makes the requests the evals recorded
 // (specs/05-quick-fixes §2).
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -19,8 +19,11 @@ import { evalCases, SYSTEM } from "../evals/cases.js";
 
 const CASSETTES = fileURLToPath(new URL("../evals/cassettes", import.meta.url));
 const MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
-// The sha256 of each shown text (showCitations: false) that 0.99.12 gave on the same replay.
-const SHOWN_0_99_12 = JSON.parse(readFileSync(new URL("./fixtures/shown-0.99.12.json", import.meta.url), "utf8")) as Record<string, string>;
+// The sha256 of each shown text (showCitations: false) that 0.99.14 gives on the same replay: the
+// CIT-4 rules hide more than 0.99.12 did (fixtures/shown-0.99.12.json). LLF_WRITE_SHOWN=1 writes it
+// again, after a change to the hiding rules that is meant.
+const SHOWN_FILE = new URL("./fixtures/shown-0.99.14.json", import.meta.url);
+const SHOWN = (existsSync(SHOWN_FILE) ? JSON.parse(readFileSync(SHOWN_FILE, "utf8")) : {}) as Record<string, string>;
 
 describe("modelText on the recorded answers (replay, citations hidden, history from modelText)", async () => {
   const library = await evalLibrary();
@@ -95,15 +98,17 @@ describe("modelText on the recorded answers (replay, citations hidden, history f
     }
   });
 
-  it("shows the hidden text: 78 of the 112 shown answers differ from modelText, and none is longer", () => {
-    expect(turns.filter((t) => t.text !== t.modelText)).toHaveLength(78);
+  it("shows the hidden text: 94 of the 112 shown answers differ from modelText (78 in 0.99.12), and none is longer", () => {
+    expect(turns.filter((t) => t.text !== t.modelText)).toHaveLength(94);
     for (const t of turns) expect((t.text ?? "").length, t.id).toBeLessThanOrEqual(t.recorded.length);
   });
 
-  it("leaves the shown text of 0.99.12 unchanged on all 112, with no citations_only notice (LOOP-10, §4.4)", () => {
-    expect(Object.keys(SHOWN_0_99_12)).toHaveLength(112);
-    expect(turns.map((t) => t.id).sort()).toEqual(Object.keys(SHOWN_0_99_12).sort());
-    const changed = turns.filter((t) => createHash("sha256").update(t.text ?? "").digest("hex") !== SHOWN_0_99_12[t.id]).map((t) => t.id);
+  it("shows the text pinned for 0.99.14 on all 112, with no citations_only notice (LOOP-10, §4.4)", () => {
+    if (process.env.LLF_WRITE_SHOWN) writeFileSync(SHOWN_FILE, `${JSON.stringify(Object.fromEntries(turns.map((t) => [t.id, createHash("sha256").update(t.text ?? "").digest("hex")]).sort(([a], [b]) => String(a).localeCompare(String(b)))), null, 1)}\n`);
+    const pinned = process.env.LLF_WRITE_SHOWN ? (JSON.parse(readFileSync(SHOWN_FILE, "utf8")) as Record<string, string>) : SHOWN;
+    expect(Object.keys(pinned)).toHaveLength(112);
+    expect(turns.map((t) => t.id).sort()).toEqual(Object.keys(pinned).sort());
+    const changed = turns.filter((t) => createHash("sha256").update(t.text ?? "").digest("hex") !== pinned[t.id]).map((t) => t.id);
     expect(changed).toEqual([]);
     expect(turns.filter((t) => t.notices.includes("citations_only")).map((t) => t.id)).toEqual([]);
   });
