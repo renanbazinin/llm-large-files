@@ -248,7 +248,10 @@ describe("the review of 0.10.2", () => {
   });
 
   it("never changes a document stored again under the ID between the look and the change", async () => {
-    const memory = new MemoryDocumentStore();
+    // The store keeps the library's clock: with the real one, the document expired once the real
+    // date passed the clock's 72 hours (2026-11-28 08:01 UTC), and the test failed from then on.
+    const time = clock();
+    const memory = new MemoryDocumentStore({ now: time.now });
     let swap: (() => Promise<void>) | undefined;
     // A store where another server deletes the document and stores another under its ID, between
     // the library's getMeta and its patchMeta.
@@ -260,7 +263,6 @@ describe("the review of 0.10.2", () => {
         return memory.patchMeta(id, patch, c);
       },
     };
-    const time = clock();
     const files = createLargeFiles({ requireOwner: false, store, now: time.now });
     const first = await files.ingest({ name: "report.txt", bytes: utf8("AAAA of A"), id: "report-1", owner: "a" });
     swap = async () => {

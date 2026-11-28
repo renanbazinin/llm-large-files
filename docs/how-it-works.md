@@ -1097,7 +1097,10 @@ Where the events of a question come from:
 | `run.finish`, `run.error` | `askWithFiles` | Last, once. Nothing comes after them, not even a part read still running. |
 
 The events tell a model error by its kind and status, never in the provider's words, and carry no
-text of the documents unless the question is asked with `eventResults: true`. Since 0.99.13 two gaps
+text of the documents unless the question is asked with `eventResults: true`. Since 0.99.14, with
+`citationMarkers` `"remove"` or `"token"`, a chip's locator names the sheet or the headings its lines
+are under (read from the stored text, as the plan's outline is), never a line of the file; quotes
+stay out without `eventResults`, and `sources: "off"` sends no locator at all. Since 0.99.13 two gaps
 in this are closed: no event carries the words of a key or token function, nor
 the metadata server's address (`retry`, `request.end`, `run.error` and their SSE forms: 0 of 54
 streamed failure cases, 36 and 9 of them in 0.99.12); and the errors of tool calls that quote the
