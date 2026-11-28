@@ -296,6 +296,7 @@ import from.
 | `llm-large-files/anthropic` | [Claude](./reference/anthropic.md) | `anthropic()` and the other Anthropic exports |
 | `llm-large-files/node` | [Node HTTP handlers](./reference/node.md) | `createDocumentHandlers`: routes, requests, responses and statuses, `prepareUpload` and `uploadSpool`; `createIsolatedExtractors`, files read in child processes; `fileOriginals`, the uploads your application keeps, read back by their ref; `writeSseEvents` and `sseMessageOf`, events as Server-Sent Events |
 | `llm-large-files/testing` | [Testing](./reference/testing.md) | New in 0.9.0. `fakeModel`, a scripted model; `fakeFetch`, a `fetch` for the real adapters; test documents; `documentStoreChecks`, the checks of a store of your own |
+| `llm-large-files/client` | [Sources and chips](./reference/ask.md#sources-and-chips) | New in 0.99.14. For the browser, with no Node import: `readEvents`, `insertCitationTokens`, `describeLocator`, `answerInfoOf`, `errorInfoOf`, and the types of sources and anchors |
 
 ## Internals and measurements
 
