@@ -425,6 +425,8 @@ const FILLER_WORDS = String.raw`and|see|cf|ראו|ראה|ו|lines?|rows?|[בלמ
 const FILLER = new RegExp(String.raw`^(?:${FILLER_CHARS}|${EDGE_BEFORE}(?:${FILLER_WORDS})${EDGE_AFTER}|${PAGE})*$`, "iu");
 /** Horizontal white space, which a citation takes with it. */
 const SPACE = /^[ \t  ]$/u;
+/** A conjunction right after a citation run first in a parenthesis, with its space: "או ", "or ", "and ", "ו ", or the "ו" of "וגם". */
+const JOINING = /^(?:(?:או|or|and|ו[-־]?)(?=[ \t\u00a0\u202f])[ \t\u00a0\u202f]+|ו(?=גם(?![\p{L}\p{N}_])))/iu;
 /** A list marker at the start of a line, once it is whole: "-", "+", "*", "1." or "1)". */
 const LIST_MARKER = /^(?:[-+*]|\d{1,9}[.)])$/;
 /** What may stand in a parenthesis of document IDs besides them: separators, quotes, backticks, emphasis and "and". */
@@ -1477,6 +1479,11 @@ export class CitationHider {
       if (!SPACE.test(s[k + 1] ?? "")) continue;
       let end = k + 1;
       while (end < s.length && SPACE.test(s[end]!)) end++;
+      // A conjunction that joined the run to the words after it goes with the run: "(L52, או שורה 50
+      // בטבלה)" → "(שורה 50 בטבלה)", not "(או שורה 50 …)". The "ו" of "וגם" goes, never that of
+      // another word ("ועדה").
+      const joined = JOINING.exec(s.slice(end));
+      if (joined && /[\p{L}\p{N}`"'״“]/u.test(s.slice(end + joined[0].length))) end += joined[0].length;
       const rest = s.slice(end);
       if (!/[\p{L}\p{N}`"'״“]/u.test(rest)) break;
       const run = this.parseRun(s.slice(1, k));

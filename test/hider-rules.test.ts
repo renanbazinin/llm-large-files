@@ -55,6 +55,17 @@ describe("CitationHider, 0.99.14 rules (CIT-4)", () => {
     expect(hideCitations("הספק משלם 500 ש\"ח ליום (L8: קנס יומי).", CONTRACT)).toBe("הספק משלם 500 ש\"ח ליום (קנס יומי).");
     expect(hideCitations("בדיקות סולר (כגון 84% ב-L12), ועוד.", CONTRACT)).toBe("בדיקות סולר (כגון 84%), ועוד.");
     expect(hideCitations("Started at 09:31 (L21880: `WARN failover started`).", { log: "app.log" })).toBe("Started at 09:31 (`WARN failover started`).");
+    // The conjunction that joined the run to the words after it goes with the run (seen live on
+    // Gemini 3.5 Flash-Lite, Nov 28): never a dangling "(או …)", "(or …)" or "(וגם …)".
+    const BUDGET = { "budget-1": "תקציב מחלקות 2026.xlsx" };
+    expect(hideCitations("היא **אחזקה - מרכז** (בשורה 52 בגיליון, או שורה 50 בטבלה עצמה).", BUDGET)).toBe("היא **אחזקה - מרכז** (שורה 50 בטבלה עצמה).");
+    expect(hideCitations("It is row 50 (L52, or row 50 of the table itself).", BUDGET)).toBe("It is row 50 (row 50 of the table itself).");
+    expect(hideCitations("It is row 50 (L52, and the total row).", BUDGET)).toBe("It is row 50 (the total row).");
+    expect(hideCitations("הקנס 30 ש״ח (L8, וגם בסעיף 4).", CONTRACT)).toBe("הקנס 30 ש״ח (גם בסעיף 4).");
+    expect(hideCitations("הקנס 30 ש״ח (L8, ו בסעיף 4).", CONTRACT)).toBe("הקנס 30 ש״ח (בסעיף 4).");
+    // A word that starts with "ו" keeps it.
+    expect(hideCitations("ההחלטה (L8, ועדה אישרה).", CONTRACT)).toBe("ההחלטה (ועדה אישרה).");
+    for (const size of [1, 2, 3, 5, 7]) expect(run("היא **אחזקה - מרכז** (בשורה 52 בגיליון, או שורה 50 בטבלה עצמה).", BUDGET, [], size).shown, `pieces of ${size}`).toBe("היא **אחזקה - מרכז** (שורה 50 בטבלה עצמה).");
     // A prefix letter with no hyphen is a word: "(הקנס מופיע בשורה 12)" stays.
     expect(hideCitations("הוא (הקנס מופיע בשורה 12).", CONTRACT)).toBe("הוא (הקנס מופיע בשורה 12).");
   });
