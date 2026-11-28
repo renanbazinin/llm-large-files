@@ -59,6 +59,8 @@ export { isRetryableStatus, retryAfterMs, withRetry } from "./retry.js";
 export type { RetryNotice, RetryOptions } from "./retry.js";
 export { parseSseJson, SseEventTooLongError } from "./sse.js";
 export type { SseHooks } from "./sse.js";
+export { createOutputLimits } from "./output-limit.js";
+export type { OutputLimits } from "./output-limit.js";
 export { DEFAULT_FIRST_BYTE_TIMEOUT_MS, DEFAULT_IDLE_TIMEOUT_MS } from "./http.js";
 export type { HeaderContext, HeaderSource, IdleWaits } from "./http.js";
 export { DocumentScopeError, DocumentStoreError, IngestError, ingestErrorCodeOf, QuestionConflictError } from "./errors.js";

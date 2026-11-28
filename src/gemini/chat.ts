@@ -1,3 +1,4 @@
+import type { OutputLimits } from "../output-limit.js";
 import { askWithFiles, type AskOptions, type AskResult } from "../ask.js";
 import type { ChatMessage } from "../model.js";
 import { fromGeminiContents, gemini, type GeminiContent } from "./adapter.js";
@@ -17,6 +18,12 @@ export { GeminiRequestError } from "./errors.js";
  * (`AskOptions`), and goes to it as it is. New as a type of its own in 0.10.0.
  */
 export type GeminiOwnOptions = {
+  /**
+   * Where the part reads of both models (the one that answers and the explorer) keep what they learn about the output limit a model needs (`createOutputLimits()`).
+   * Defaults to the memory every adapter of the process shares. Give a test or an eval case its own,
+   * so that it does not depend on what another learned before it. New in 0.99.15.
+   */
+  outputLimits?: OutputLimits | undefined;
   /**
    * Where the model is: the one that answers. When the endpoint also names an explorer model
    * (`explorerModel` in `geminiApi()` and `vertexAi()`, or `explorerUrl`), that model makes the
@@ -115,12 +122,13 @@ export async function askGemini(options: AskGeminiOptions): Promise<AskGeminiRes
   const {
     endpoint, messages, contents, generationConfig, explorerGenerationConfig, body, explorerBody, analysisBody, functionCallingMode,
     answerWithoutTools, timeoutMs, maxToolTurns, maxToolCallsPerTurn, toolFilePlacement, documents, analysisConfig, firstByteTimeoutMs, idleTimeoutMs,
-    fetch, limits, ...loop
+    fetch, limits, outputLimits, ...loop
   } = options;
   // A second model for the requests that use tools. The answering model's own URL is not one.
   const explorerUrl = endpoint.explorerUrl && endpoint.explorerUrl !== endpoint.url ? endpoint.explorerUrl : undefined;
   const shared = {
     toolFilePlacement, analysisConfig, firstByteTimeoutMs, idleTimeoutMs, fetch,
+    ...(outputLimits ? { outputLimits } : {}),
     ...(analysisBody ? { analysisBody } : {}),
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     ...(functionCallingMode ? { functionCallingMode } : {}),

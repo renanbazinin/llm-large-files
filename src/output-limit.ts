@@ -11,20 +11,65 @@ import { until } from "./http.js";
  */
 export const THINKING_OUTPUT_TOKENS = 32_768;
 
-/**
- * What has been learned about a model, so that a whole-file read does not pay for the wasted
- * request with every part: the output limit it needs, or 0 when it refused that limit.
- */
-const learnedLimits = new Map<string, number>();
-/** The first request to a model that is still on its way. Others wait for what it learns. */
-const firstRequests = new Map<string, Promise<void>>();
-/** Models that have answered at least once. */
-const answered = new Set<string>();
 const MOST_REMEMBERED = 200;
 
-function remember(model: string, limit: number): void {
-  if (learnedLimits.size >= MOST_REMEMBERED && !learnedLimits.has(model)) learnedLimits.clear();
-  learnedLimits.set(model, limit);
+/**
+ * What the part reads of some adapters have learned about the models they asked, so that a
+ * whole-file read does not pay for a wasted request with every part: the output limit a model needs
+ * (or that it refused the larger one), which models answered, and the first request to a model
+ * still on its way, which the others wait for. Every adapter of a process shares one memory unless
+ * it is given its own with `outputLimits`: a test or an eval case that must not depend on what
+ * another learned before it. The memory has no members of its own to read: pass it to adapters.
+ * New in 0.99.15.
+ */
+export type OutputLimits = { readonly [outputLimitsBrand]: true };
+declare const outputLimitsBrand: unique symbol;
+
+/** What a memory holds. Kept apart from the object an app holds, which has nothing to change. */
+type LimitState = {
+  /** The output limit a model needs, or 0 when it refused `THINKING_OUTPUT_TOKENS`. */
+  learned: Map<string, number>;
+  /** The first request to a model that is still on its way. Others wait for what it learns. */
+  firstRequests: Map<string, Promise<void>>;
+  /** Models that have answered at least once. */
+  answered: Set<string>;
+};
+
+const states = new WeakMap<OutputLimits, LimitState>();
+
+function stateOf(memory: OutputLimits): LimitState {
+  let state = states.get(memory);
+  // A memory made by another copy of the package starts empty here, as a new one would.
+  if (!state) states.set(memory, (state = { learned: new Map(), firstRequests: new Map(), answered: new Set() }));
+  return state;
+}
+
+/**
+ * A memory of output limits of its own (`outputLimits` on an adapter): adapters given it learn
+ * together, and from no other adapter. Without it, every adapter of the process shares one memory,
+ * as before 0.99.15. New in 0.99.15.
+ */
+export function createOutputLimits(): OutputLimits {
+  const memory = Object.freeze({}) as OutputLimits;
+  stateOf(memory);
+  return memory;
+}
+
+/** The memory every adapter shares unless it is given its own. */
+const shared = createOutputLimits();
+
+function remember(state: LimitState, model: string, limit: number): void {
+  if (state.learned.size >= MOST_REMEMBERED && !state.learned.has(model)) state.learned.clear();
+  state.learned.set(model, limit);
+}
+
+/**
+ * For the evals only (not exported by the package): starts `memory` as if it had already learned
+ * that `model` needs `limit`, as a process does after an earlier read. A recording made after
+ * another case had learned the limit replays only from that state.
+ */
+export function seedOutputLimit(memory: OutputLimits, model: string, limit: number): void {
+  remember(stateOf(memory), model, limit);
 }
 
 /**
@@ -61,7 +106,8 @@ export type LimitedReply = {
 /**
  * Sends a completion with an output limit, and once more with `THINKING_OUTPUT_TOKENS` when the
  * reply was cut off with nothing written, or with half the limit or more gone on thoughts. What
- * was learned is kept under `model` (a URL, or a URL and a model name): later requests start with
+ * was learned is kept under `model` (a URL, or a URL and a model name) in `memory`, or in the memory
+ * every adapter shares: later requests start with
  * the larger limit, and a model that refused it (HTTP 400, but not for a request too large for the
  * window with it) is not asked for it again, nor is one whose window, or allowance a minute, is no
  * larger than that limit. Requests that arrive while the first one to a model is on its way wait for it,
@@ -70,8 +116,12 @@ export type LimitedReply = {
 export async function completeWithinLimit(model: string, maxOutputTokens: number, send: (limit: number) => Promise<LimitedReply>, options: {
   signal?: AbortSignal | undefined;
   onTruncated?: (() => void) | undefined;
+  /** What was learned before, and where to keep what this request learns. Defaults to the shared memory. */
+  memory?: OutputLimits | undefined;
 } = {}): Promise<string> {
   const { signal } = options;
+  const state = stateOf(options.memory ?? shared);
+  const { learned: learnedLimits, firstRequests, answered } = state;
   // The first request to a model finds out whether it thinks its limit away. The parts of a
   // whole-file read are sent four at a time: the others wait for it, and one request is wasted
   // on such a model, not four.
@@ -101,7 +151,7 @@ export async function completeWithinLimit(model: string, maxOutputTokens: number
     // limit was too low for this model, not the notes too long.
     const starved = reply.cutOff && (!reply.text.trim() || reply.thoughts >= limit / 2);
     if (starved && known !== 0 && limit < THINKING_OUTPUT_TOKENS) {
-      remember(model, THINKING_OUTPUT_TOKENS);
+      remember(state, model, THINKING_OUTPUT_TOKENS);
       try {
         reply = await send(THINKING_OUTPUT_TOKENS);
       } catch (error) {
@@ -118,7 +168,7 @@ export async function completeWithinLimit(model: string, maxOutputTokens: number
         const { status, kind, limitTokens } = (error ?? {}) as { status?: unknown; kind?: unknown; limitTokens?: unknown };
         if (status === 400 || status === 422 || kind === "context_overflow") {
           const tooLarge = kind === "context_overflow" && !(typeof limitTokens === "number" && limitTokens <= THINKING_OUTPUT_TOKENS);
-          if (!tooLarge) remember(model, 0);
+          if (!tooLarge) remember(state, model, 0);
           else if (learnedLimits.get(model) === THINKING_OUTPUT_TOKENS) learnedLimits.delete(model);
         }
         if (!reply.text.trim()) throw error;

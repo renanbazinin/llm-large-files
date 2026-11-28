@@ -1,10 +1,11 @@
 // Runs one case of the evals once: live, recorded to its cassette, or replayed from it. The
 // question goes through askWithFiles with a gemini() model over the Gemini API, as the chatbot asks
 // it: the answer streamed, the chat's earlier questions with their tool rounds and answers.
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { askWithFiles, type AskResult, type ChatMessage, type CitationCheck } from "../../src/index.js";
-import { gemini, geminiApi } from "../../src/gemini/index.js";
+import { createOutputLimits, gemini, geminiApi, THINKING_OUTPUT_TOKENS, type OutputLimits } from "../../src/gemini/index.js";
+import { seedOutputLimit } from "../../src/output-limit.js";
 import { SYSTEM, type CaseKind, type EvalCase } from "../cases.js";
 import type { EvalLibrary } from "../fixtures.js";
 import { checkFact, citationsOf, describeFact, type FactContext, type FactResult } from "./facts.js";
@@ -96,6 +97,22 @@ const empty = (turn: number, error: string): QuestionRun => ({
   ms: 0, ceilingReached: false, citations: null, tools: [], reads: 0, wholeReads: 0, log: [],
 });
 
+/**
+ * The memory of output limits a replay of the cassette in `folder` starts with. Until 0.99.15 the
+ * cases were recorded one after another in one process, which learned once that a model needs
+ * `THINKING_OUTPUT_TOKENS` for a part read: a case recorded after that sent its first part read
+ * with that limit, and replays only from the same state. Such a cassette is told by that first part
+ * read (a plain `generateContent` request). A cassette recorded with its own memory starts empty.
+ */
+export function replayOutputLimits(folder: string, url: string): OutputLimits {
+  const outputLimits = createOutputLimits();
+  const firstPart = existsSync(folder) ? readdirSync(folder).filter((name) => /^\d+-.*\.json$/.test(name)).sort()
+    .map((name) => (JSON.parse(readFileSync(path.join(folder, name), "utf8")) as { request: { url: string; outline?: { generationConfig?: { maxOutputTokens?: unknown } } } }).request)
+    .find((request) => request.url.includes(":generateContent")) : undefined;
+  if (firstPart?.outline?.generationConfig?.maxOutputTokens === THINKING_OUTPUT_TOKENS) seedOutputLimit(outputLimits, url, THINKING_OUTPUT_TOKENS);
+  return outputLimits;
+}
+
 /** Runs the questions of a case in order, once. */
 export async function runCase(options: RunCaseOptions): Promise<CaseRun> {
   const { mode, evalCase, model, library } = options;
@@ -117,7 +134,11 @@ export async function runCase(options: RunCaseOptions): Promise<CaseRun> {
   } else {
     fetchImpl = options.fetch ?? globalThis.fetch;
   }
-  const adapter = gemini(geminiApi({ apiKey: options.apiKey ?? "replay", model }), { fetch: fetchImpl });
+  // Each case has its own memory of output limits (0.99.15): cases run alone, in any order, or at
+  // once. Recorded and live runs start with nothing learned.
+  const endpoint = geminiApi({ apiKey: options.apiKey ?? "replay", model });
+  const outputLimits = mode === "replay" ? replayOutputLimits(folder, endpoint.url) : createOutputLimits();
+  const adapter = gemini(endpoint, { fetch: fetchImpl, outputLimits });
   const context: Omit<FactContext, "evidence"> = { names: library.names, formats: library.formats, linesWith: library.linesWith };
 
   const messages: ChatMessage[] = [];

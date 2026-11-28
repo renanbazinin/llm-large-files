@@ -866,6 +866,25 @@ provider's reason when it is a plain word. The adapters' options are in the refe
 [gemini](../reference/gemini.md), [openai](../reference/openai.md),
 [anthropic](../reference/anthropic.md).
 
+### Part reads that learn a limit
+
+A part read that a model cuts off at its output limit, having written nothing or spent half the
+limit or more on thoughts, is asked once more with 32,768 tokens, and later part reads to that
+model start there. What is learned is kept in a memory that every adapter of the process shares,
+so a test that fakes such a reply changes the requests of the tests after it, and of tests running
+at the same time. Since 0.99.15, give each such test its own memory:
+
+```ts
+import { createOutputLimits, gemini } from "llm-large-files/gemini";
+
+const fetchImpl = (async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+const url = "https://example.invalid/v1beta/models/m:generateContent";
+const model = gemini({ url, streamUrl: url, headers: {} }, { fetch: fetchImpl, outputLimits: createOutputLimits() });
+```
+
+The library's own evals give each case its own memory the same way, so that a case replays alone,
+in any order, or at the same time as the others.
+
 ### Recorded replies
 
 Writing a provider's JSON by hand is fine for a few replies. For the real shapes (thought
@@ -1205,7 +1224,8 @@ facts are checked again as the cases say now.
 | `--baseline file.json` | The results to compare facts with (`evals/baseline/0.9.0.json` by default; `none` for no comparison). |
 | `--max-input-tokens N` | No question starts once the run has used this many input tokens. |
 | `--question-input-tokens N` | A question that uses more is stopped (1,500,000 by default). |
-| `--concurrency N` | Cases run at once (4 against the API, 1 in a replay, by default: a replay runs the cases in the order they were recorded, as a model's part reads learn its output limit once in a process). |
+| `--concurrency N` | Cases run at once (4 against the API, 8 in a replay, by default). Each case has its own memory of output limits (0.99.15), so a case replays alone, in any order or at once; before, a replay ran one case at a time in the order of the cases. |
+| `--order reverse` | The cases in reverse order: a check that no case depends on another (new in 0.99.15). |
 
 `node evals/cli.mjs report --results file.json` writes the report of a results file again.
 

@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { askWithFiles, type AskEvent, type ChatMessage, type CitationMarkers } from "llm-large-files";
 import { gemini, geminiApi } from "llm-large-files/gemini";
+import { replayOutputLimits } from "../evals/lib/runner.js";
 import { sseMessageOf } from "llm-large-files/node";
 import { replayFetch } from "../evals/lib/record.js";
 import { evalLibrary } from "../evals/fixtures.js";
@@ -45,7 +46,10 @@ export async function replayAll(mode: { citationMarkers?: CitationMarkers; sourc
         }
         return replay(input, init);
       };
-      const adapter = gemini(geminiApi({ apiKey: "replay", model }), { fetch: fetching });
+      const endpoint = geminiApi({ apiKey: "replay", model });
+      // Each recording with its own memory of output limits, as the eval runner gives it (0.99.15).
+      const outputLimits = replayOutputLimits(folder, endpoint.url);
+      const adapter = gemini(endpoint, { fetch: fetching, outputLimits });
       const messages: ChatMessage[] = [];
       for (const [index, turn] of evalCase.turns.entries()) {
         messages.push({ role: "user", text: turn.question });

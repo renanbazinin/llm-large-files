@@ -5,7 +5,7 @@ import { connectionFailure } from "../connection-failure.js";
 import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { checkToolTurnVersion, laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { documentsOption, messageFiles } from "../native.js";
-import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
+import { completeWithinLimit, type LimitedReply, type OutputLimits } from "../output-limit.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import { estimateTokens, sliceWhole } from "../text.js";
@@ -33,6 +33,12 @@ const FALLBACK_BETA = "server-side-fallback-2026-07-01";
 const DEFAULT_MAX_TOKENS = 64_000;
 
 export type AnthropicOptions = {
+  /**
+   * Where part reads keep what they learn about the output limit a model needs (`createOutputLimits()`).
+   * Defaults to the memory every adapter of the process shares. Give a test or an eval case its own,
+   * so that it does not depend on what another learned before it. New in 0.99.15.
+   */
+  outputLimits?: OutputLimits | undefined;
   /** The model ID: "claude-opus-5-5". */
   model: string;
   /**
@@ -523,7 +529,7 @@ export function anthropic(options: AnthropicOptions): ModelAdapter {
         thoughts: content.some(isThinking) ? Math.max(0, (used.outputTokens ?? 0) - Math.ceil(estimateTokens(text) * scale)) : 0,
       };
     };
-    return completeWithinLimit(`${url}|${options.model}`, maxOutputTokens, send, { signal, onTruncated });
+    return completeWithinLimit(`${url}|${options.model}`, maxOutputTokens, send, { signal, onTruncated, memory: options.outputLimits });
   };
 
   return {

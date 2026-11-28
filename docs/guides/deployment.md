@@ -23,7 +23,7 @@ rebuild from the store.
 | Ingests waiting their turn | A queue in each `LargeFiles` (`maxConcurrentIngests`, new in 0.8.2) | No | Empty: the uploads in it get no answer, and must be sent again |
 | Uploads being received | A count in each set of `createDocumentHandlers` (`maxPendingUploadBytes`, new in 0.8.2) | No | Empty |
 | Store calls past their time limit that have not ended, and since 0.10.2 an ingest's own reads of a path upload | A count in each process (`files.stats().stuckStoreCalls`, new in 0.10.0) | No | Zero |
-| The output limit a thinking model needs for whole-file part reads | Each process, by URL and model | No | Learned again, at the cost of one request |
+| The output limit a thinking model needs for whole-file part reads | Each process, by URL and model; or a memory of its own given to adapters with `outputLimits` (new in 0.99.15) | No | Learned again, at the cost of one request |
 | The name of the output limit an OpenAI-compatible server takes | Each `openAiCompatible()` adapter | No | Learned again, at the cost of one refused request |
 | Questions under way and answers kept for a request sent again (new in 0.99.9) | A `createQuestionRegistry()` in each process | No | Empty: a request sent again runs its question again |
 
