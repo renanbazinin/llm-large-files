@@ -41,7 +41,8 @@ async function serve(options: Partial<DocumentHandlerOptions> = {}) {
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const port = (server.address() as AddressInfo).port;
-  const stored = async () => (await files.list({ owner: "victim", scope: ["victim", "c1"] })).map((document) => document.name);
+  // The names of what was stored, sorted: two uploads of one millisecond list in either order.
+  const stored = async () => (await files.list({ owner: "victim", scope: ["victim", "c1"] })).map((document) => document.name).sort();
   return { port, origin: `http://127.0.0.1:${port}`, getOwner, stored };
 }
 
@@ -113,7 +114,7 @@ describe("refuseCrossSite (SEC-1)", () => {
     expect(await ownUpload(port, "x.txt", { Origin: "http://other.127.0.0.1.nip.io", "Sec-Fetch-Site": "same-site" })).toEqual({ status: 403, body: REFUSED });
     // "cross-site" in any value of a header sent twice is cross-site.
     expect(await ownUpload(port, "x.txt", { "Sec-Fetch-Site": "same-origin, cross-site" })).toEqual({ status: 403, body: REFUSED });
-    expect(await stored()).toEqual(["same.txt", "case.txt"]);
+    expect(await stored()).toEqual(["case.txt", "same.txt"]);
   });
 
   it("takes the origin behind a proxy from X-Forwarded-Proto and X-Forwarded-Host, and fails closed without them", async () => {
@@ -126,7 +127,7 @@ describe("refuseCrossSite (SEC-1)", () => {
     expect(await ownUpload(port, "x.txt", { ...proxied, "X-Forwarded-Host": "chat.example.com" })).toEqual({ status: 403, body: REFUSED });
     // A browser that sends Sec-Fetch-Site: same-origin is believed, whatever the proxy did to Host.
     expect((await ownUpload(port, "fetch-metadata.txt", { ...proxied, "Sec-Fetch-Site": "same-origin" })).status).toBe(201);
-    expect(await stored()).toEqual(["proxied.txt", "chain.txt", "fetch-metadata.txt"]);
+    expect(await stored()).toEqual(["chain.txt", "fetch-metadata.txt", "proxied.txt"]);
     const listed = await serve({ refuseCrossSite: true, allowedOrigins: ["https://chat.example.com"] });
     expect((await ownUpload(listed.port, "listed.txt", proxied)).status).toBe(201);
   });

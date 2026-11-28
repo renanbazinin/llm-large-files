@@ -1212,6 +1212,9 @@ since 0.99.13 that holds for the errors of calls too. A column that `aggregate_t
 is told "No such column in this table, which has 6 columns." in `tool.end` and the steps, not with
 the table's headers, and a `read_document` past the end of a workbook says "start_line 400 is past
 the end of the file, which has 13 lines." without its sheet names. The model gets the full message.
+Since 0.99.14, with `citationMarkers` `"remove"` or `"token"`, the `citation` events and
+`run.finish` carry each chip's source: its file name and locator, which may name a sheet or a
+heading, but never a line of the file ([Quotes and previews](../security.md#quotes-and-previews)).
 
 ### When the browser goes away
 
@@ -2114,7 +2117,8 @@ guide covers:
   `partialResultOf(error)`, and passed back in the history. The page never handles them.
 - `eventResults` stays off, so no event carries the text of your documents. Since 0.99.13 that
   includes the errors of tool calls: the column names of a table and the sheet names of a
-  workbook stay out of `tool.end`, the steps and SSE.
+  workbook stay out of `tool.end`, the steps and SSE. With `citationMarkers` `"remove"` (0.99.14),
+  a chip's locator may name a sheet or a heading; `sources: "off"` sends none.
 - `run.error` carries a message safe to show; map it to your own words by `kind` and `name` if you
   like. The provider's message is on the thrown error, for your log only. Since 0.99.13 no event
   carries the words of a token function either (`retry`, `request.end`, `run.error` and their SSE

@@ -36,7 +36,7 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
-## 0.99.14 — not released yet
+## 0.99.14 — 2026-11-28
 
 Sources the user can click (citations, phase 1). With `citationMarkers: "remove"`, every line
 citation the model writes leaves the text and becomes a chip: where it goes in the answer
