@@ -36,6 +36,36 @@ Grouped by area. One or two lines each, written for an app developer, with the n
 matter.
 -->
 
+## 0.99.15 — not released yet
+
+What part reads learn about a model's output limit can now be kept apart: `createOutputLimits()`
+makes a memory of its own for the adapters given it with `outputLimits`. Apps change nothing: every
+adapter of a process still shares one memory by default. Tests and the library's own evals give each
+case its own memory, so that an eval case replays alone, in any order, or at the same time as others.
+
+### Upgrading: what you need to change
+
+Nothing. Code written for 0.99.14 compiles as it is, and requests are the same: without
+`outputLimits`, every adapter shares one memory per process, as before.
+
+### New: what you can add
+
+- **`createOutputLimits()` and an `outputLimits` option** on `gemini()`, `askGemini()`,
+  `createGeminiGenerateText()`, `openAiCompatible()`, `openAiResponses()` and `anthropic()`
+  ([reference](./docs/reference/gemini.md#createoutputlimits)). A part read that a thinking model
+  cut off is asked again with `THINKING_OUTPUT_TOKENS`, and later part reads start there. That was
+  learned once per process, so one test that faked such a reply changed the requests of the tests
+  after it. Give each test its own memory ([Testing](./docs/guides/testing.md#part-reads-that-learn-a-limit)).
+  It is exported by `llm-large-files` and by each adapter's entry point.
+
+### Changed: what works differently
+
+- **The evals** (for contributors): each case has its own memory of output limits. `npm run
+  eval:replay` runs 8 cases at once by default (it ran one at a time, in the order of the cases),
+  `--cases <id>` replays any case alone, and `--order reverse` runs them backwards. Two Gemini 3.8
+  Flash recordings, cleaning-sanctions and diary-planted-nothing, were made after another case had
+  learned the limit: their replay starts from that state, read from their own first part read.
+
 ## 0.99.14 — 2026-11-28
 
 Sources the user can click (citations, phase 1). With `citationMarkers: "remove"`, every line

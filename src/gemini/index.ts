@@ -7,3 +7,5 @@ export type { GeminiEndpoint, VertexAiOptions } from "./endpoints.js";
 export { createGeminiGenerateText, geminiFunctionResponses, geminiFunctionResponseTurns, THINKING_OUTPUT_TOKENS, toGeminiTools, usageOfGemini } from "./generate.js";
 export type { GeminiFunctionCall, GeminiRequestFields, GeminiToolAnswer, GeminiToolFilePlacement } from "./generate.js";
 export { parseSseJson, SseEventTooLongError } from "./sse.js";
+export { createOutputLimits } from "../output-limit.js";
+export type { OutputLimits } from "../output-limit.js";

@@ -4,7 +4,7 @@
 import { base64, idleWatch, noteCutReply, notJsonMessage, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, until, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import type { ModelAdapter, ModelMessage, ModelReply, ModelRequest, ModelTextMessage, ModelToolRound, SendHooks, ToolCall } from "../model.js";
 import { documentsOption, messageFiles } from "../native.js";
-import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
+import { completeWithinLimit, type LimitedReply, type OutputLimits } from "../output-limit.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import { headerFailure } from "../token-failure.js";
 import type { DocumentsCapability, GenerateText, GenerateUsage, ToolFile } from "../types.js";
@@ -12,6 +12,12 @@ import { failure, isRefusal, newCallId, OpenAiRequestError, silent, streamErrorS
 
 /** The options of `openAiResponses()`. New in 0.99.9. */
 export type OpenAiResponsesOptions = {
+  /**
+   * Where part reads keep what they learn about the output limit a model needs (`createOutputLimits()`).
+   * Defaults to the memory every adapter of the process shares. Give a test or an eval case its own,
+   * so that it does not depend on what another learned before it. New in 0.99.15.
+   */
+  outputLimits?: OutputLimits | undefined;
   /** The model name the endpoint knows: "gpt-5.5", an Azure deployment name. */
   model: string;
   /**
@@ -372,7 +378,7 @@ export function openAiResponses(options: OpenAiResponsesOptions): ModelAdapter {
         thoughts: used.thoughtTokens ?? 0,
       };
     };
-    return completeWithinLimit(`${url}|${options.model}`, maxOutputTokens, send, { signal, onTruncated });
+    return completeWithinLimit(`${url}|${options.model}`, maxOutputTokens, send, { signal, onTruncated, memory: options.outputLimits });
   };
 
   return {

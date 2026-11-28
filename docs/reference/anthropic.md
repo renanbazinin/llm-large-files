@@ -168,7 +168,7 @@ stopped for `refusal` or `model_context_window_exceeded` is kept and marked inco
 off at its limit is. A reply cut off with nothing written, or with half its limit or more spent
 thinking, while the limit was below 32,768, is asked again with 32,768 output tokens
 ([`THINKING_OUTPUT_TOKENS`](./gemini.md#thinking_output_tokens)), and later part reads to the same
-URL and model start there. Claude does not count its thoughts apart: when the reply has thinking
+URL and model start there (in the adapter's `outputLimits` memory, or the one every adapter shares). Claude does not count its thoughts apart: when the reply has thinking
 blocks, its thoughts are taken as its `output_tokens` less its text, estimated with `tokenScale`
 (new in 0.6.0: 0.5.0 counted none, so a part that thought most of its limit away came back cut,
 with the little text it wrote). A model that refuses that limit with HTTP 400 is not asked for it again. A
@@ -290,6 +290,7 @@ The options of [`anthropic()`](#anthropicoptions).
 | `maxRequestBytes` | `number` | `32_000_000` | The largest request body in bytes, the limit of the Claude API (32 MB). It keeps the budget within it. |
 | `pageTokens` | `number` | `3_500` | Tokens billed for one PDF page shown by `view_pages`: its text and its picture. The loop sizes the pages a question may look at from it. |
 | `tokenScale` | `number` | `1.35` | Claude's tokens for one token of the library's estimate, which is fitted to Gemini: documents are planned for a window that much smaller. 1.35 is a cautious guess for the tokenizer of the current models; during a question, the token count the API reports with each reply corrects the estimate. |
+| `outputLimits` | `OutputLimits` | the memory every adapter shares | Where part reads keep the output limit they learned a model needs. Give a test its own ([`createOutputLimits()`](./gemini.md#createoutputlimits)). New in 0.99.15. |
 | `timeoutMs` | `number` | `180_000` | The longest a part read's request may take, in milliseconds, each try counted apart. A request that runs longer is aborted, and is an `AnthropicRequestError` of kind `"timeout"` and status 0 (since 0.10.0). 0 sets no limit (since 0.10.0; before, it aborted every part read at once). Not used for chat requests. |
 | `firstByteTimeoutMs` | `number` | `600_000` | The longest wait, in milliseconds, for the first piece of a chat reply. Headers do not count: a model that thinks sends nothing until it has thought, and a reply that is not streamed comes whole at the end. A request that gets nothing for that long is aborted with an `AnthropicRequestError` (`status` 0, `kind` `"timeout"`), which `askWithFiles` sends again once. 0, a negative or a non-finite number waits without end. The key, token and headers are resolved before the wait starts. Not used for part reads. |
 | `idleTimeoutMs` | `number` | `300_000` | The longest wait, in milliseconds, between two pieces of a chat reply once it has started to arrive. Any bytes count, Claude's `ping` events included. The same error; `askWithFiles` sends the request again once, unless text of it was shown. 0 waits without end. Not used for part reads. |

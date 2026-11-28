@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { askWithFiles, createLargeFiles, MemoryDocumentStore, partialResultOf, type AskEvent, type ChatMessage } from "llm-large-files";
 import { gemini, geminiApi } from "llm-large-files/gemini";
+import { replayOutputLimits } from "../evals/lib/runner.js";
 import { sseMessageOf } from "llm-large-files/node";
 import { fakeModel, says, utf8 } from "llm-large-files/testing";
 import { replayFetch } from "../evals/lib/record.js";
@@ -38,7 +39,10 @@ describe("modelText on the recorded answers (replay, citations hidden, history f
       recordings++;
       const recorded = JSON.parse(readFileSync(path.join(folder, "case.json"), "utf8")) as { questions: Array<{ answer: string }> };
       const replay = replayFetch(folder, { label: `${model}/${evalCase.id}` });
-      const adapter = gemini(geminiApi({ apiKey: "replay", model }), { fetch: replay });
+      const endpoint = geminiApi({ apiKey: "replay", model });
+      // Each recording with its own memory of output limits, as the eval runner gives it (0.99.15).
+      const outputLimits = replayOutputLimits(folder, endpoint.url);
+      const adapter = gemini(endpoint, { fetch: replay, outputLimits });
       const messages: ChatMessage[] = [];
       for (const [index, turn] of evalCase.turns.entries()) {
         messages.push({ role: "user", text: turn.question });

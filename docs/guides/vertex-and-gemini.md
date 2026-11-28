@@ -389,7 +389,9 @@ for 4,096 tokens of notes on a part of a log, Gemini 3.8 Flash spent 3,931 of th
 wrote two lines, and Gemini 4 wrote nothing (November 2026). When a reply stops at the limit with
 nothing written, or with half the limit or more gone on thoughts, it is asked for once more with
 `THINKING_OUTPUT_TOKENS` (32,768), and later requests to that URL start there, for the life of the
-process. A model or a gateway that refuses 32,768 (HTTP 400) is not asked for it again, unless the
+process. Since 0.99.15 that is kept in a memory every adapter of the process shares; an adapter given
+its own (`outputLimits: createOutputLimits()`) learns only with the adapters given the same one, as a
+test or an eval case should. A model or a gateway that refuses 32,768 (HTTP 400) is not asked for it again, unless the
 400 says the request was too large for the model's window with that limit, and the window is
 larger than 32,768: a later part may still get it. `analysisConfig` receives the limit: put it in
 `maxOutputTokens`, or the second request is the same as the first.

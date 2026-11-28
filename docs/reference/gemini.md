@@ -30,7 +30,8 @@ The entry point needs no Google SDK: it posts to the Generate Content REST API w
   [`GeminiPart`](#geminipart)
 - [Helpers for your own loop](#helpers-for-your-own-loop):
   [`createGeminiGenerateText()`](#creategeminigeneratetextoptions),
-  [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens), [`toGeminiTools()`](#togeminitoolsdeclarations),
+  [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens), [`createOutputLimits()`](#createoutputlimits),
+  [`toGeminiTools()`](#togeminitoolsdeclarations),
   [`geminiFunctionResponses()`](#geminifunctionresponsescalls),
   [`geminiFunctionResponseTurns()`](#geminifunctionresponseturnscalls-options),
   [`GeminiFunctionCall`](#geminifunctioncall), [`GeminiToolAnswer`](#geminitoolanswer),
@@ -376,6 +377,7 @@ Fields `askGemini` adds, its own (`GeminiOwnOptions`):
 | `functionCallingMode` | `"AUTO" \| "VALIDATED"` | `"AUTO"` | The `functionCallingConfig` mode of the requests that offer tools, for both models. New in 0.10.0. |
 | `answerWithoutTools` | `"omit" \| "mode_none"` | `"omit"` | How the request for the answer in text says so, for both models ([`GeminiModelOptions`](#geminimodeloptions)). New in 0.10.0. |
 | `timeoutMs` | `number` | `180_000` | The longest time of one part read of a whole-file read, for both models. 0 sets none. New in 0.10.0. |
+| `outputLimits` | [`OutputLimits`](#createoutputlimits) | the memory every adapter shares | Where the part reads of both models keep the output limit they learned a model needs. Give a test its own ([`createOutputLimits()`](#createoutputlimits)). New in 0.99.15. |
 
 ### `GeminiOwnOptions`
 
@@ -568,6 +570,7 @@ The options of `gemini()`.
 | `analysisBody` | `((maxOutputTokens: number) => GeminiRequestFields) \| undefined` | none | More fields for the body of each part read, given its output limit, merged last. The part reads' `generationConfig` is `analysisConfig`. New in 0.10.0. |
 | `functionCallingMode` | `"AUTO" \| "VALIDATED" \| undefined` | `"AUTO"` | The `functionCallingConfig` mode of a request that offers tools. With `"VALIDATED"`, Gemini checks each call against the declaration of its tool. Sent only with tools. New in 0.10.0. |
 | `answerWithoutTools` | `"omit" \| "mode_none" \| undefined` | `"omit"` | How the request that must be answered in text says so. `"omit"` declares no tools, as before. `"mode_none"` keeps the tools and sends mode `NONE`, so the request starts as the ones before it did; a tool call that still comes back is asked for again once (the loop's `answer_again`). New in 0.10.0. |
+| `outputLimits` | [`OutputLimits`](#createoutputlimits) `\| undefined` | the memory every adapter shares | Where part reads keep the output limit they learned a model needs (see [`createOutputLimits()`](#createoutputlimits)). New in 0.99.15. |
 | `timeoutMs` | `number \| undefined` | `180_000` | The longest time, in milliseconds, of one part read, its whole reply included. A part past it is a `GeminiRequestError` of kind `"timeout"` and status 0, sent again once, and then reported as "The model took too long to answer." 0 sets none. New in 0.10.0. |
 
 The two waits default to `DEFAULT_FIRST_BYTE_TIMEOUT_MS` and `DEFAULT_IDLE_TIMEOUT_MS`
@@ -758,6 +761,7 @@ completion a whole-file read uses for each part. `gemini()` builds one on its en
 | `generationConfig` | `(maxOutputTokens: number) => Record<string, unknown>` | `{ maxOutputTokens }` | The `generationConfig` of each request, from its output limit. Until 0.6.0 the default also sent `temperature: 0.2`. |
 | `body` | `(maxOutputTokens: number) => GeminiRequestFields` | none | More fields for the body of each request, given its output limit, merged last (`gemini({ analysisBody })`). New in 0.10.0. |
 | `timeoutMs` | `number` | `180_000` | The longest time one request may take, its whole body included. A second try at a larger limit gets its own. 0 sets none (since 0.10.0; before, 0 aborted every request at once). |
+| `outputLimits` | [`OutputLimits`](#createoutputlimits) | the memory every adapter shares | Where what is learned about the limit is kept (see below). New in 0.99.15. |
 | `refreshable` | `boolean` | `false` | A request refused with HTTP 401 is sent once more with the headers of `headers({ refresh: true })`. A second 401 is the error. New in 0.10.0. Since 0.99.13 it calls the request's `onRefresh` first ([`GenerateText`](./ask.md#generatetext)), and a refresh that fails on a connection sends the part again from the start. |
 
 Each request posts `contents: [{ role: "user", parts: [{ text: prompt }] }]`, the system
@@ -775,7 +779,7 @@ threw "The model returned no text.").
 
 When a reply stops at `MAX_TOKENS` with no text, or with half the limit or more spent on thoughts,
 and the limit was below [`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens), the request is sent
-once more with that limit, and later requests to the same `url` start there. If that second request
+once more with that limit, and later requests to the same `url` start there (in the same memory: `outputLimits`, or the one every adapter shares). If that second request
 fails, the first reply's text is kept when it had some, and the error is thrown when it had none. A
 model or gateway that refused the larger limit with HTTP 400 is not asked for it again. A refusal
 of the request as too large (kind `"context_overflow"`: for the model's window at HTTP 400, or for
@@ -822,6 +826,30 @@ Gemini 4 wrote nothing (November 2026). The part reads of `gemini()`, `openAiCom
 
 Guides: [Gemini API and Vertex AI](../guides/vertex-and-gemini.md); the rule for every adapter's
 part reads: [How it works](../how-it-works.md#map-reduce).
+
+### createOutputLimits()
+
+```ts
+declare function createOutputLimits(): OutputLimits;
+```
+
+A memory of output limits of its own, for the `outputLimits` option of `gemini()`, `askGemini()`,
+`createGeminiGenerateText()`, `openAiCompatible()`, `openAiResponses()` and `anthropic()`. The part
+reads of the adapters given it keep in it what they learn (that a model needs
+[`THINKING_OUTPUT_TOKENS`](#thinking_output_tokens), or that it refused that limit), and learn
+nothing from other adapters. Without it, every adapter of the process shares one memory, as before
+0.99.15, so an app that makes an adapter for each question still learns once.
+
+Give a test, or an eval case, its own memory: its requests then do not depend on the tests that ran
+before it, nor on those that run at the same time. `OutputLimits` has nothing to read or change;
+pass it on. It is also exported by `llm-large-files`, `llm-large-files/openai` and
+`llm-large-files/anthropic`. New in 0.99.15.
+
+```ts
+import { createOutputLimits, gemini, geminiApi } from "llm-large-files/gemini";
+
+const model = gemini(geminiApi({ apiKey: "test", model: "gemini-3.5-flash" }), { outputLimits: createOutputLimits() });
+```
 
 ### toGeminiTools(declarations)
 

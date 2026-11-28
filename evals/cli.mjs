@@ -13,6 +13,7 @@
 //   --max-input-tokens N       the input tokens the run may use
 //   --question-input-tokens N  a question that uses more is stopped
 //   --concurrency N            cases run at once
+//   --order reverse            the cases in reverse order
 //
 // Record and live read GEMINI_API_KEY from the environment.
 import { spawn } from "node:child_process";
@@ -31,6 +32,7 @@ const OPTIONS = {
   "--max-input-tokens": "EVAL_MAX_INPUT_TOKENS",
   "--question-input-tokens": "EVAL_QUESTION_INPUT_TOKENS",
   "--concurrency": "EVAL_CONCURRENCY",
+  "--order": "EVAL_ORDER",
 };
 
 const [mode, ...rest] = process.argv.slice(2);

@@ -1,7 +1,7 @@
 // Gemini (Generate Content REST) helpers. No SDK dependency: the caller supplies the URL and
 // auth headers, so this works with the Gemini API, Vertex AI, or an enterprise gateway.
 import type { ToolAnswer, ToolCall } from "../model.js";
-import { completeWithinLimit, noTextReason, type LimitedReply } from "../output-limit.js";
+import { completeWithinLimit, noTextReason, type LimitedReply, type OutputLimits } from "../output-limit.js";
 import { connectionFailure } from "../connection-failure.js";
 import { base64, partTimer, readJson, resolveHeaderSource, until, type HeaderSource } from "../http.js";
 import { noteNoRetry, retryAfterMs } from "../retry.js";
@@ -157,6 +157,12 @@ export function createGeminiGenerateText(options: {
    * (the endpoint's `refreshable`). New in 0.10.0.
    */
   refreshable?: boolean | undefined;
+  /**
+   * Where part reads keep what they learn about the output limit a model needs (`createOutputLimits()`).
+   * Defaults to the memory every adapter of the process shares. Give a test or an eval case its own,
+   * so that it does not depend on what another learned before it. New in 0.99.15.
+   */
+  outputLimits?: OutputLimits | undefined;
 }): GenerateText {
   const fetchImpl = options.fetchImpl ?? fetch;
   const { url } = options;
@@ -269,7 +275,7 @@ export function createGeminiGenerateText(options: {
       }
     };
     try {
-      return await completeWithinLimit(url, maxOutputTokens, send, { signal, onTruncated });
+      return await completeWithinLimit(url, maxOutputTokens, send, { signal, onTruncated, memory: options.outputLimits });
     } catch (error) {
       // A blocked prompt is not worth sending again: `withRetry` does not.
       if (blocked && noTextReason(error) !== undefined) noteNoRetry(error as object);

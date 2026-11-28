@@ -5,7 +5,7 @@ import { connectionFailure } from "../connection-failure.js";
 import { base64, idleWatch, noteCutReply, notJsonMessage, parseArguments, partTimer, readArguments, readJson, replyEnd, resolveHeaderSource, resolveSecret, streamedReply, unreachableReason, until, waitText, type HeaderSource, type IdleWatch, type PartTimer, type SecretSource } from "../http.js";
 import { checkToolTurnVersion, laterResult, ModelRequestError, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { documentsOption, messageFiles } from "../native.js";
-import { completeWithinLimit, type LimitedReply } from "../output-limit.js";
+import { completeWithinLimit, type LimitedReply, type OutputLimits } from "../output-limit.js";
 import { retryAfterMs } from "../retry.js";
 import { eventTooLongMessage, parseSseJson, SseEventTooLongError } from "../sse.js";
 import { headerFailure } from "../token-failure.js";
@@ -32,6 +32,12 @@ export class OpenAiRequestError extends ModelRequestError {
 export type OpenAiMessage = { role: string; [key: string]: unknown };
 
 export type OpenAiCompatibleOptions = {
+  /**
+   * Where part reads keep what they learn about the output limit a model needs (`createOutputLimits()`).
+   * Defaults to the memory every adapter of the process shares. Give a test or an eval case its own,
+   * so that it does not depend on what another learned before it. New in 0.99.15.
+   */
+  outputLimits?: OutputLimits | undefined;
   /** The model name the endpoint knows: "gpt-5.5", "deepseek-v4-pro", a deployment name. */
   model: string;
   /**
@@ -556,7 +562,7 @@ export function openAiCompatible(options: OpenAiCompatibleOptions): ModelAdapter
         thoughts: used.thoughtTokens ?? 0,
       };
     };
-    return completeWithinLimit(`${url}|${options.model}`, maxOutputTokens, send, { signal, onTruncated });
+    return completeWithinLimit(`${url}|${options.model}`, maxOutputTokens, send, { signal, onTruncated, memory: options.outputLimits });
   };
 
   return {

@@ -716,7 +716,8 @@ is incomplete and points the model to exact search.
 A model that thinks counts its thoughts in that limit. When a reply stops at the limit with nothing
 written, or with half of the limit or more spent on thoughts, each adapter's part reader asks once
 more with 32,768 (`THINKING_OUTPUT_TOKENS`, exported by `llm-large-files/gemini`), and starts there for later requests to that model in
-the process. The first request to a model finds this out while the others wait, so one request is
+the process (since 0.99.15, in a memory every adapter shares unless it is given its own with
+`outputLimits`). The first request to a model finds this out while the others wait, so one request is
 wasted, not four. A model that refuses the larger limit (HTTP 400) is not asked for it again, but a
 refusal of the request as too large for the model's window with that limit is no such refusal,
 unless the window is 32,768 tokens or less. A request refused as larger than the tokens a minute

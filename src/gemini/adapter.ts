@@ -1,4 +1,5 @@
 // Gemini (Generate Content REST) as a model of `askWithFiles`.
+import type { OutputLimits } from "../output-limit.js";
 import { checkToolTurnVersion, laterResult, TOOL_TURN_VERSION, type ChatMessage, type ModelAdapter, type ModelMessage, type ModelPart, type ModelReply, type ModelRequest, type ModelTextMessage, type ModelToolRound, type SendHooks, type ToolCall, type ToolTurn } from "../model.js";
 import { documentsOption } from "../native.js";
 import { TOOL_NAMES } from "../tools.js";
@@ -18,6 +19,12 @@ export type { GeminiContent, GeminiPart, GeminiRequestFields };
 export const GEMINI_PAGE_TOKENS = 530;
 
 export type GeminiModelOptions = {
+  /**
+   * Where part reads keep what they learn about the output limit a model needs (`createOutputLimits()`).
+   * Defaults to the memory every adapter of the process shares. Give a test or an eval case its own,
+   * so that it does not depend on what another learned before it. New in 0.99.15.
+   */
+  outputLimits?: OutputLimits | undefined;
   /** Sent with every chat request: temperature, maxOutputTokens, thinkingConfig, and so on. */
   generationConfig?: Record<string, unknown> | undefined;
   /**
@@ -310,6 +317,7 @@ export function gemini(endpoint: Pick<GeminiEndpoint, "url" | "streamUrl" | "hea
       ...(options.analysisBody ? { body: options.analysisBody } : {}),
       ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       ...(refreshable ? { refreshable } : {}),
+      ...(options.outputLimits ? { outputLimits: options.outputLimits } : {}),
     }),
 
     async send(request: ModelRequest, hooks: SendHooks = {}): Promise<ModelReply> {

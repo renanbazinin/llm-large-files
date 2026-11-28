@@ -20,6 +20,8 @@
 //   EVAL_MODELS      Comma-separated Gemini models. Defaults to gemini-3.5-flash-lite and
 //                    gemini-3.8-flash; in a replay or a recheck, to every model with cassettes.
 //   EVAL_CASES       Comma-separated case IDs: only those.
+//   EVAL_ORDER       "reverse": the cases in reverse order. Each case has its own memory of output
+//                    limits (0.99.15), so no case depends on another run before it; this checks it.
 //   EVAL_RESULTS     A JSON file the runs are added to, with its report next to it (.md). Defaults to
 //                    evals/results/<mode>.json for record and live, started afresh; a replay or a
 //                    recheck writes none unless given one.
@@ -67,7 +69,9 @@ const allCases = evalCases(library.facts);
 const only = list(env.EVAL_CASES);
 const unknown = only.filter((id) => !allCases.some((one) => one.id === id));
 if (unknown.length) throw new Error(`No case ${unknown.join(", ")}. The cases are: ${allCases.map((one) => one.id).join(", ")}.`);
-const cases = only.length ? allCases.filter((one) => only.includes(one.id)) : allCases;
+const picked = only.length ? allCases.filter((one) => only.includes(one.id)) : allCases;
+if (env.EVAL_ORDER && env.EVAL_ORDER !== "reverse") throw new Error(`EVAL_ORDER must be "reverse" or unset, and is "${env.EVAL_ORDER}".`);
+const cases = env.EVAL_ORDER === "reverse" ? [...picked].reverse() : picked;
 
 /** The runs kept before this one, when the results file is added to (EVAL_RESULTS given). */
 const earlier: Results | undefined = env.EVAL_RESULTS && resultsFile && existsSync(resultsFile) ? (JSON.parse(readFileSync(resultsFile, "utf8")) as Results) : undefined;
