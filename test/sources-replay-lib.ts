@@ -19,7 +19,7 @@ const MODELS = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
 /** Text as the coverage check compares it: no "N| " line prefixes, no "Row R: ", white space collapsed. */
 const normalized = (text: string) => text.replace(/^\s*\d{1,9}\| ?/gmu, "").replace(/\s+/gu, " ").trim();
 
-export type Answer = { id: string; misses: number; error?: string; cites: boolean; text: string; anchors: number; sources: number; quotes: string[]; uncovered: string[]; sseFinish?: Record<string, unknown>; quoteKeys: number; citationEvents: number; leaks: string[] };
+export type Answer = { id: string; misses: number; error?: string; cites: boolean; text: string; anchors: number; sources: number; quotes: string[]; uncovered: string[]; sseFinish?: Record<string, unknown>; quoteKeys: number; citationEvents: number; leaks: string[]; lineTalk?: string };
 
 export async function replayAll(mode: { citationMarkers?: CitationMarkers; sources?: "on" | "off" }) {
   const library = await evalLibrary();
@@ -73,6 +73,7 @@ export async function replayAll(mode: { citationMarkers?: CitationMarkers; sourc
           answer.text = result.text;
           answer.anchors = result.anchors?.length ?? 0;
           answer.sources = result.sources?.length ?? 0;
+          if (result.lineTalk) answer.lineTalk = result.lineTalk.verdict;
           for (const anchor of result.anchors ?? []) if (anchor.at > result.text.length) answer.leaks.push(`anchor ${anchor.at} past ${result.text.length}`);
           for (const source of result.sources ?? []) {
             if (typeof source.quote !== "string") continue;

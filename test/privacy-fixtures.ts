@@ -77,7 +77,7 @@ const mapStrings = (value: unknown, f: (s: string) => string): unknown => typeof
 const dropWith = (value: unknown): unknown => typeof value === "string" ? value.split("\n").filter((l) => !l.includes(SECRET)).join("\n") : Array.isArray(value) ? value.filter((v) => !(v && typeof v === "object" && JSON.stringify(v).includes(SECRET))).map(dropWith) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, dropWith(v)])) : value;
 const changed = (before: unknown, after: unknown) => (JSON.stringify(before) === JSON.stringify(after) ? undefined : { result: after as ToolResultContext["result"] });
 
-/** The DLP hooks of the spec's probes/lib/hooks.mjs: each reads only `result`. */
+/** The DLP hooks of the spec's probes/lib/hooks.mjs: each reads only `result`, so each is also an `onPreview`. */
 export const HOOKS: Record<string, Hook> = {
   none: () => undefined,
   maskDigits: ({ result }) => changed(result, mapStrings(result, (s) => s.replace(/\d/g, "•"))),
@@ -119,9 +119,9 @@ export type Run = { result?: AskResult; error?: unknown; events: AskEvent[]; sse
  * One question that calls every tool (search exact/regex/keywords, read, overview, aggregate x3,
  * analyze items and prose), then answers with ANSWER. `hookFor(callId)` picks each call's hook.
  */
-export async function runQuestion(options: { hookFor: (callId: string) => string; eventResults?: boolean; transport?: "stream" | "registry"; fail?: boolean; tight?: boolean }): Promise<Run> {
+export async function runQuestion(options: { hookFor: (callId: string) => string; eventResults?: boolean; transport?: "stream" | "registry"; fail?: boolean; tight?: boolean; onPreview?: Hook }): Promise<Run> {
   const fixtures = await canaryFiles();
-  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 400, mapChunkTokens: 1500 } });
+  const files = createLargeFiles({ store: new MemoryDocumentStore(), budget: { inlineTokens: 400, mapChunkTokens: 1500 }, ...(options.onPreview ? { onPreview: options.onPreview } : {}) });
   const ids: Record<string, string> = {};
   for (const file of fixtures.files) ids[file.name] = (await files.ingest({ name: file.name, bytes: file.bytes, ...ACCESS })).id;
   const reader = async ({ prompt }: { prompt: string }) => {

@@ -1648,7 +1648,11 @@ async function ask(options: AskOptions, carried: Carried | undefined, state: Run
         },
       });
     } catch (error) {
-      if (got) release(requestId);
+      if (got) {
+        release(requestId);
+        // The request failed: its text ends here, so its chips are told before `run.error`.
+        if (!signal?.aborted) tracker?.settle(true);
+      }
       // Told as the model's, in this event and in `run.error`, even with no kind of its own (0.99.13).
       if (!signal?.aborted) noteModelFailure(error);
       if (events.active) events.emit({ type: "request.end", requestId, ms: Date.now() - began, outcome: "error", error: eventErrorOf(error) });

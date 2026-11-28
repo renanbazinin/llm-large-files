@@ -64,6 +64,8 @@ export class SourceTracker {
   private readonly loading = new Map<string, Promise<void>>();
   private readonly sent = new Map<string, Map<number, SentLine>>();
   private readonly aggregates: AggregateSide[] = [];
+  /** The documents a call of which `onToolResult` replaced or refused in this question. */
+  private readonly redactedDocuments = new Set<string>();
   /** What the whole-file reads of each document noted, and the parts they could not read (CIT-9). */
   private readonly wholeReads = new Map<string, { noted: Array<[number, number]>; failed: Array<[number, number]> }>();
   private readonly waiting: Waiting[] = [];
@@ -116,12 +118,21 @@ export class SourceTracker {
     for (const { call, result } of round.answers) {
       const id = typeof call.args.document_id === "string" ? call.args.document_id : undefined;
       if (!id || !this.metas.has(id) || !result || typeof result !== "object") continue;
-      if (typeof (result as { error?: unknown }).error === "string") continue;
       const redacted = (result as { redacted?: unknown }).redacted === true;
+      if (redacted) this.redactedDocuments.add(id);
+      if (typeof (result as { error?: unknown }).error === "string") continue;
       // A result cut to the room as a fragment of JSON gives no quote: it has no whole lines.
       if (typeof (result as { truncated?: unknown }).truncated !== "undefined" && typeof (result as { partial?: unknown }).partial === "string") continue;
-      // The notes of a whole-file read are the model's own words, not the file's: only its items' quotes.
-      if (call.name === TOOL_NAMES.analyze) continue;
+      // The notes of a whole-file read are the model's own words, not the file's: only its items'
+      // quotes, each checked to be on its line, as the read's result sent them.
+      if (call.name === TOOL_NAMES.analyze) {
+        const items = (result as { items?: unknown }).items;
+        const lines = this.sentOf(id);
+        if (Array.isArray(items)) for (const item of items as Array<{ line?: unknown; quote?: unknown }>) {
+          if (typeof item?.line === "number" && Number.isInteger(item.line) && typeof item.quote === "string" && !lines.has(item.line)) lines.set(item.line, { text: item.quote, redacted });
+        }
+        continue;
+      }
       if (call.name === TOOL_NAMES.aggregate) {
         const side = aggregateSideOf(call.id ?? "", id, result);
         if (side) this.aggregates.push(side);
@@ -317,7 +328,9 @@ export class SourceTracker {
         seen,
         reason: resolved.reason,
         ...(resolved.candidates ? { candidates: resolved.candidates } : {}),
-        ...(quote ? { quote: quote.text, ...(quote.redacted ? { redacted: true as const } : {}) } : {}),
+        ...(quote ? { quote: quote.text } : {}),
+        // The hook changed what the model was sent of this file: the quote is cut from its copy, or there is none.
+        ...(quote?.redacted || (!quote && documentId !== undefined && this.redactedDocuments.has(documentId)) ? { redacted: true as const } : {}),
       };
       this.sources.set(key, source);
     }
@@ -410,7 +423,9 @@ export class SourceTracker {
     }
     const text = parts.join(" ").replace(/\s+/g, " ").trim();
     if (!text) return undefined;
-    return { text: text.length > QUOTE_CHARACTERS ? `${text.slice(0, QUOTE_CHARACTERS - 1)}…` : text, redacted };
+    // Cut at 300 characters, never inside a character, with no mark added: a quote is a piece of what was sent.
+    const cut = text.length > QUOTE_CHARACTERS ? text.slice(0, QUOTE_CHARACTERS - (/[\ud800-\udbff]/.test(text[QUOTE_CHARACTERS - 1] ?? "") ? 1 : 0)) : text;
+    return { text: cut, redacted };
   }
 
   /** Every anchor still waiting is resolved: once the documents they need are read, within `DEFERRED_MS`. */
